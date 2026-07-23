@@ -302,6 +302,7 @@ export const orderStatusEvent = pgTable("order_status_event", {
 	orderId: uuid("order_id").notNull(),
 	estado: estadoPedido().notNull(),
 	userId: uuid("user_id"),
+	notificadoEn: timestamp("notificado_en", { withTimezone: true, mode: 'string' }),
 	creadoEn: timestamp("creado_en", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	foreignKey({
