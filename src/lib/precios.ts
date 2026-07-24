@@ -28,11 +28,15 @@ export type OpcionParaPrecio = {
   nombre: string;
   precioDelta: number;
   disponible: boolean;
+  /** Solo relevante en grupos tipo "upsell": producto real que representa esta opción (regla 8). */
+  productoRef: string | null;
 };
 
 export type EngancheParaPrecio = {
   id: string;
   modo: "incluido" | "adicional";
+  /** "upsell" = las opciones elegidas se convierten en su propio order_item (regla 8), no en un modificador. */
+  tipo: "seleccion" | "upsell";
   nombreGrupo: string;
   minSelect: number;
   maxSelect: number;
@@ -65,7 +69,8 @@ export type ErrorPrecio =
   | { tipo: "enganche_no_encontrado"; productModifierGroupId: string }
   | { tipo: "opcion_invalida"; modifierOptionId: string; motivo: "no_pertenece_al_grupo" | "no_disponible" }
   | { tipo: "seleccion_incompleta"; productModifierGroupId: string; minSelect: number; recibidas: number }
-  | { tipo: "seleccion_excedida"; productModifierGroupId: string; maxSelect: number; recibidas: number };
+  | { tipo: "seleccion_excedida"; productModifierGroupId: string; maxSelect: number; recibidas: number }
+  | { tipo: "upsell_sin_producto"; modifierOptionId: string };
 
 export type ResultadoPrecio<T> = { ok: true; valor: T } | { ok: false; error: ErrorPrecio };
 
@@ -99,6 +104,12 @@ export type ItemCalculado = {
   notas?: string | null;
 };
 
+export type ResultadoItemCalculado = {
+  base: ItemCalculado;
+  /** Regla 8: cada bebida/upsell elegida es su propio item, nunca un modificador del producto base. */
+  upsells: ItemCalculado[];
+};
+
 export function itemCalculadoASnapshot(item: ItemCalculado): ItemSnapshot {
   return {
     nombre: item.nombreProducto,
@@ -122,7 +133,7 @@ export function calcularItem(
   producto: ProductoParaPrecio,
   item: ItemSolicitado,
   tipoPedido?: "domicilio" | "recoger",
-): ResultadoPrecio<ItemCalculado> {
+): ResultadoPrecio<ResultadoItemCalculado> {
   if (item.cantidad <= 0) {
     return { ok: false, error: { tipo: "cantidad_invalida", motivo: "item" } };
   }
@@ -151,6 +162,7 @@ export function calcularItem(
 
   const modificadores: ModificadorCalculado[] = [];
   const avisos: AvisoIncompleto[] = [];
+  const upsells: ItemCalculado[] = [];
   let extraPorUnidad = 0;
 
   // Se itera sobre los enganches del producto (fuente de verdad), no sobre la selección
@@ -187,33 +199,37 @@ export function calcularItem(
 
     const recibidas = opcionesSeleccionadas.reduce((n, o) => n + o.cantidad, 0);
 
-    if (recibidas < enganche.minSelect) {
-      if (enganche.avisarIncompleto) {
-        // Regla 4: avisar sin bloquear. No confundir con el bloqueo de abajo.
-        avisos.push({
-          productModifierGroupId: enganche.id,
-          nombreGrupo: enganche.nombreGrupo,
-          minSelect: enganche.minSelect,
-          recibidas,
-        });
-      } else {
-        return {
-          ok: false,
-          error: {
-            tipo: "seleccion_incompleta",
-            productModifierGroupId: enganche.id,
-            minSelect: enganche.minSelect,
-            recibidas,
-          },
-        };
-      }
-    } else if (recibidas > enganche.maxSelect) {
+    if (recibidas > enganche.maxSelect) {
       return {
         ok: false,
         error: {
           tipo: "seleccion_excedida",
           productModifierGroupId: enganche.id,
           maxSelect: enganche.maxSelect,
+          recibidas,
+        },
+      };
+    }
+
+    // Regla 4: bloquear (minSelect) y avisar (avisarIncompleto) son cosas distintas.
+    // Un enganche con avisarIncompleto nunca bloquea por mínimo, solo avisa cuando
+    // el cliente no eligió absolutamente nada.
+    if (enganche.avisarIncompleto) {
+      if (recibidas === 0) {
+        avisos.push({
+          productModifierGroupId: enganche.id,
+          nombreGrupo: enganche.nombreGrupo,
+          minSelect: enganche.minSelect,
+          recibidas: 0,
+        });
+      }
+    } else if (recibidas < enganche.minSelect) {
+      return {
+        ok: false,
+        error: {
+          tipo: "seleccion_incompleta",
+          productModifierGroupId: enganche.id,
+          minSelect: enganche.minSelect,
           recibidas,
         },
       };
@@ -226,15 +242,31 @@ export function calcularItem(
       const precioUnitarioOpcion =
         enganche.modo === "incluido" ? 0 : enganche.precioUnitario ?? opcion.precioDelta;
 
-      modificadores.push({
-        modifierOptionId: opcion.id,
-        grupo: enganche.nombreGrupo,
-        nombre: opcion.nombre,
-        cantidad: sel.cantidad,
-        precioUnitario: precioUnitarioOpcion,
-      });
-
-      extraPorUnidad += precioUnitarioOpcion * sel.cantidad;
+      if (enganche.tipo === "upsell") {
+        // Regla 8: un upsell es su propio order_item, nunca un modificador del producto base.
+        if (!opcion.productoRef) {
+          return { ok: false, error: { tipo: "upsell_sin_producto", modifierOptionId: opcion.id } };
+        }
+        upsells.push({
+          productId: opcion.productoRef,
+          nombreProducto: opcion.nombre,
+          cantidad: sel.cantidad,
+          precioUnitario: precioUnitarioOpcion,
+          subtotal: precioUnitarioOpcion * sel.cantidad,
+          modificadores: [],
+          avisos: [],
+          notas: null,
+        });
+      } else {
+        modificadores.push({
+          modifierOptionId: opcion.id,
+          grupo: enganche.nombreGrupo,
+          nombre: opcion.nombre,
+          cantidad: sel.cantidad,
+          precioUnitario: precioUnitarioOpcion,
+        });
+        extraPorUnidad += precioUnitarioOpcion * sel.cantidad;
+      }
     }
   }
 
@@ -243,14 +275,17 @@ export function calcularItem(
   return {
     ok: true,
     valor: {
-      productId: producto.id,
-      nombreProducto: producto.nombre,
-      cantidad: item.cantidad,
-      precioUnitario,
-      subtotal: precioUnitario * item.cantidad,
-      modificadores,
-      avisos,
-      notas: item.notas,
+      base: {
+        productId: producto.id,
+        nombreProducto: producto.nombre,
+        cantidad: item.cantidad,
+        precioUnitario,
+        subtotal: precioUnitario * item.cantidad,
+        modificadores,
+        avisos,
+        notas: item.notas,
+      },
+      upsells,
     },
   };
 }
@@ -263,7 +298,7 @@ export async function calcularPrecioItem(
   storeId: string,
   item: ItemSolicitado,
   tipoPedido?: "domicilio" | "recoger",
-): Promise<ResultadoPrecio<ItemCalculado>> {
+): Promise<ResultadoPrecio<ResultadoItemCalculado>> {
   const producto = await obtenerProductoConEngancles(storeId, item.productId);
   if (!producto) {
     return { ok: false, error: { tipo: "producto_no_encontrado", productId: item.productId } };
@@ -326,9 +361,9 @@ export async function calcularPedido(
       return { ok: false, error: { ...resultado.error, itemIndex: i } };
     }
 
-    items.push(resultado.valor);
-    subtotal += resultado.valor.subtotal;
-    for (const aviso of resultado.valor.avisos) {
+    items.push(resultado.valor.base, ...resultado.valor.upsells);
+    subtotal += resultado.valor.base.subtotal + resultado.valor.upsells.reduce((n, u) => n + u.subtotal, 0);
+    for (const aviso of resultado.valor.base.avisos) {
       avisos.push({ ...aviso, itemIndex: i });
     }
   }
