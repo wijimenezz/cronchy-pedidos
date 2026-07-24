@@ -21,6 +21,7 @@ function mapProducto(p: {
     avisarIncompleto: boolean;
     modifierGroup: {
       nombre: string;
+      tipo: "seleccion" | "upsell";
       permiteCantidad: boolean;
       maxPorOpcion: number | null;
       modifierOptions: {
@@ -28,6 +29,7 @@ function mapProducto(p: {
         nombre: string;
         precioDelta: number;
         disponible: boolean;
+        productoRef: string | null;
       }[];
     };
   }[];
@@ -43,6 +45,7 @@ function mapProducto(p: {
     engancles: p.productModifierGroups.map((pmg) => ({
       id: pmg.id,
       modo: pmg.modo,
+      tipo: pmg.modifierGroup.tipo,
       nombreGrupo: pmg.etiqueta ?? pmg.modifierGroup.nombre,
       minSelect: pmg.minSelect,
       maxSelect: pmg.maxSelect,
@@ -55,6 +58,7 @@ function mapProducto(p: {
         nombre: o.nombre,
         precioDelta: o.precioDelta,
         disponible: o.disponible,
+        productoRef: o.productoRef,
       })),
     })),
   };
