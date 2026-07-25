@@ -17,6 +17,7 @@ export type CategoriaDeMenu = {
   id: string;
   nombre: string;
   slug: string;
+  bannerUrl: string | null;
   productos: ProductoDeMenu[];
 };
 
@@ -41,6 +42,7 @@ export async function obtenerMenu(storeId: string): Promise<CategoriaDeMenu[]> {
     id: c.id,
     nombre: c.nombre,
     slug: c.slug,
+    bannerUrl: c.bannerUrl,
     productos: c.products.map((p) => ({
       id: p.id,
       nombre: p.nombre,
