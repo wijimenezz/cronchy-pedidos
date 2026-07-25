@@ -28,7 +28,6 @@ export async function crearPedidoEnDB(
         notas: input.notas ?? null,
         metodoPago: input.metodoPago,
         comprobanteUrl: input.comprobanteUrl ?? null,
-        pagaCon: input.pagaCon ?? null,
         subtotal: calculo.subtotal,
         costoDomicilio: calculo.costoDomicilio,
         descuento: calculo.descuento,
