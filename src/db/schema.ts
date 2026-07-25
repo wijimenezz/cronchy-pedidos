@@ -245,7 +245,6 @@ export const order = pgTable("order", {
 	notas: text(),
 	metodoPago: metodoPago("metodo_pago").notNull(),
 	comprobanteUrl: text("comprobante_url"),
-	pagaCon: integer("paga_con"),
 	subtotal: integer().notNull(),
 	costoDomicilio: integer("costo_domicilio").default(0).notNull(),
 	descuento: integer().default(0).notNull(),
