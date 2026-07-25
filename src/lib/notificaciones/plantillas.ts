@@ -58,7 +58,6 @@ export type PedidoParaMensaje = {
   costoDomicilio: number;
   total: number;
   metodoPago: string;
-  pagaCon?: number | null;
   notas?: string | null;
 };
 
@@ -172,12 +171,7 @@ function bloqueTotales(pedido: PedidoParaMensaje): string {
     lineas.push(`*Domicilio:* ${pesos(pedido.costoDomicilio)}`);
   }
   lineas.push(`*Total:* ${pesos(pedido.total)}`);
-
-  let pago = `*Pago:* ${pedido.metodoPago}`;
-  if (pedido.pagaCon && pedido.pagaCon > pedido.total) {
-    pago += ` (paga con ${pesos(pedido.pagaCon)} — vueltas ${pesos(pedido.pagaCon - pedido.total)})`;
-  }
-  lineas.push(pago);
+  lineas.push(`*Pago:* ${pedido.metodoPago}`);
 
   return lineas.join("\n");
 }
