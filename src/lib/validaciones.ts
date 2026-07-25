@@ -31,7 +31,6 @@ export const crearPedidoSchema = z
     indicaciones: z.string().trim().max(280).optional(),
     metodoPago: z.enum(["efectivo", "nequi", "transferencia", "datafono"]),
     comprobanteUrl: z.string().url().optional(),
-    pagaCon: z.number().int().positive().optional(),
     notas: z.string().trim().max(280).optional(),
     items: z.array(itemSchema).min(1).max(30),
   })
