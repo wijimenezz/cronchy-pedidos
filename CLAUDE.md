@@ -169,8 +169,13 @@ Registrar el envío en `order_status_event.notificado_en`.
 ## Convenciones
 
 - **Conexión a Supabase:** usar el transaction pooler (puerto 6543) con
-  `postgres(url, { prepare: false })`. No usamos el cliente de Supabase, ni PostgREST,
-  ni Row Level Security: todo el acceso a datos pasa por route handlers del servidor.
+  `postgres(url, { prepare: false })`. Las migraciones y el introspect usan el session
+  pooler (5432). La conexión directa NO sirve: es IPv6.
+- **Sin RLS, y por eso la llave `anon` NUNCA sale al cliente.** Las tablas no tienen
+  Row Level Security porque todo el acceso pasa por el servidor. Como consecuencia:
+  prohibido usar `NEXT_PUBLIC_SUPABASE_ANON_KEY` o el cliente de Supabase en
+  componentes del navegador. Si esa llave se filtra, las tablas quedan expuestas.
+  Las subidas a Storage también van desde el servidor.
 - **Storage:** las subidas van a buckets de Supabase. Los comprobantes de Nequi se
   purgan a los 60 días con una tarea programada; el free tier son 1 GB.
 - **Server Components por defecto.** `'use client'` solo donde hay interacción real
