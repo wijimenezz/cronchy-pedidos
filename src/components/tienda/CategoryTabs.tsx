@@ -35,7 +35,7 @@ export function CategoryTabs({ categorias }: { categorias: Categoria[] }) {
   }, [categorias]);
 
   return (
-    <nav className="sticky top-0 z-10 flex gap-4 overflow-x-auto border-b border-crema-oscura bg-crema px-4 py-3">
+    <nav className="flex gap-4 overflow-x-auto bg-tarjeta px-4 py-3">
       {categorias.map((categoria) => (
         <a
           key={categoria.id}
