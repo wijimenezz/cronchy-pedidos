@@ -37,12 +37,12 @@ export function Drawer({ tienda }: { tienda: Tienda }) {
           />
           <aside className="fixed inset-y-0 left-0 z-50 flex w-72 max-w-[80vw] flex-col gap-5 overflow-y-auto bg-tarjeta p-5 shadow-modal">
             <div className="flex items-center justify-between">
-              <div className="relative h-14 w-44">
+              <div className="relative h-16 w-32">
                 <Image
-                  src="/logo-cronchy.png"
+                  src="/logo-cronchy-recortado.png"
                   alt={tienda.nombre}
                   fill
-                  sizes="176px"
+                  sizes="128px"
                   className="object-contain"
                 />
               </div>
