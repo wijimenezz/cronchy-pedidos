@@ -42,9 +42,12 @@ export function ProductCard({ producto }: { producto: ProductoDeMenu }) {
 
         <div className="flex flex-col gap-1.5 p-3 text-center">
           <h3 className="font-titulo text-lg font-semibold text-cafe">{producto.nombre}</h3>
-          {producto.descripcion && (
-            <p className="line-clamp-2 text-[13px] text-cafe-suave">{producto.descripcion}</p>
-          )}
+          {/* Altura reservada aunque no haya descripción: hoy ningún producto la
+              tiene, pero cuando se cargue solo para algunos, el grid de 2
+              columnas no debe desalinearse entre tarjetas con y sin texto. */}
+          <p className="line-clamp-2 min-h-[34px] text-[13px] text-cafe-suave">
+            {producto.descripcion || " "}
+          </p>
           <p className="font-cuerpo text-base font-bold text-naranja">
             {pesos(producto.precioBase)}
           </p>
