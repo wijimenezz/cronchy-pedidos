@@ -20,7 +20,7 @@ export function Header({
   categorias: Categoria[];
 }) {
   return (
-    <header className="sticky top-0 z-30 flex flex-col gap-2 bg-cafe px-2 pt-3 pb-2 text-crema lg:flex-row lg:items-center lg:justify-between lg:gap-8 lg:px-8 lg:py-3">
+    <header className="relative z-30 flex flex-col gap-2 bg-cafe px-2 pt-3 pb-2 text-crema lg:sticky lg:top-0 lg:flex-row lg:items-center lg:justify-between lg:gap-8 lg:px-8 lg:py-3">
       <div className="flex w-full items-center justify-between gap-2 lg:w-auto lg:gap-8">
         <div className="lg:hidden">
           <Drawer tienda={tienda} />
