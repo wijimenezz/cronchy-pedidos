@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
-import { Fredoka, Nunito } from "next/font/google";
+import { Baloo_2, Nunito } from "next/font/google";
 import Image from "next/image";
 import "./globals.css";
 
-const fredoka = Fredoka({
-  variable: "--font-fredoka",
+const baloo = Baloo_2({
+  variable: "--font-baloo",
   subsets: ["latin"],
-  weight: ["500", "600"],
+  weight: ["500", "600", "700"],
 });
 
 const nunito = Nunito({
@@ -28,7 +28,7 @@ export default function RootLayout({
   return (
     <html
       lang="es"
-      className={`${fredoka.variable} ${nunito.variable} h-full antialiased`}
+      className={`${baloo.variable} ${nunito.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <body
@@ -36,28 +36,22 @@ export default function RootLayout({
         suppressHydrationWarning
       >
         <div className="relative min-h-full">
-          {/* Textura decorativa: solo se ve en el espacio que sobra a los lados del
-              rectángulo central en pantallas anchas. */}
-          <div
-            aria-hidden
-            className="pointer-events-none fixed inset-0 bg-[url('/textura-happy-cronchy.png')] bg-[length:900px_auto] bg-repeat opacity-20"
-          />
           <Image
             src="/churro-gorra.png"
             alt=""
             width={318}
             height={456}
-            className="pointer-events-none fixed top-28 left-10 hidden w-36 drop-shadow-xl lg:block"
+            className="pointer-events-none fixed top-28 left-10 hidden w-36 drop-shadow-xl"
           />
           <Image
             src="/helado.png"
             alt=""
             width={326}
             height={432}
-            className="pointer-events-none fixed right-10 bottom-24 hidden w-32 drop-shadow-xl lg:block"
+            className="pointer-events-none fixed right-10 bottom-24 hidden w-32 drop-shadow-xl"
           />
 
-          <div className="relative mx-auto flex min-h-full w-full max-w-[520px] flex-col bg-crema shadow-modal">
+          <div className="relative mx-auto flex min-h-full w-full max-w-[520px] flex-col bg-gutter shadow-modal lg:max-w-none lg:shadow-none">
             {children}
           </div>
         </div>

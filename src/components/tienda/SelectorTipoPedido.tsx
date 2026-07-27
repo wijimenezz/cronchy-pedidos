@@ -2,7 +2,7 @@
 
 import { useState, useSyncExternalStore } from "react";
 import Image from "next/image";
-import { Bike, ShoppingBag } from "lucide-react";
+import { Bike, ChevronDown, ShoppingBag } from "lucide-react";
 
 const STORAGE_KEY = "cronchy_tipo_pedido";
 const EVENTO_CAMBIO = "cronchy-tipo-pedido-changed";
@@ -55,6 +55,7 @@ export function SelectorTipoPedido() {
         >
           {tipo === "domicilio" ? <Bike className="size-4" /> : <ShoppingBag className="size-4" />}
           {tipo === "domicilio" ? "Domicilio" : "Recoger"}
+          <ChevronDown className="size-3.5" />
         </button>
       )}
 
