@@ -66,7 +66,7 @@ export function CategoryNav({
   }
 
   return (
-    <nav className="flex gap-2 bg-crema px-2 py-2 lg:hidden">
+    <nav className="sticky top-0 z-30 flex gap-2 bg-crema px-2 py-2 lg:hidden">
       {categorias.map((categoria) => {
         const esActiva = activa === categoria.slug;
         return (
