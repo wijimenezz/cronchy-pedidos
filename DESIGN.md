@@ -16,39 +16,50 @@ Paleta tomada del logo, el packaging y el mural reales.
 
 ```css
 /* --- Marca --- */
---cronchy-naranja: #bf5526; /* ACCIÓN: botones, precios, activo, badges */
---cronchy-naranja-oscuro: #a8471e; /* hover/pressed del naranja */
---cronchy-cafe: #431e0e; /* TEXTO principal, títulos, estructura */
---cronchy-crema: #f2ece1; /* FONDO de toda la app */
+--cronchy-naranja: #f26b1d; /* ACCIÓN: botones, precios, activo, badges */
+--cronchy-naranja-oscuro: #e2570e; /* hover/pressed del naranja */
+--cronchy-cafe: #1f0e04; /* TEXTO principal, títulos, estructura y fondo del header/footer (mismo token) */
+--cronchy-crema: #faf3e8; /* FONDO de toda la app */
 --cronchy-crema-oscura: #e8dfd0; /* superficies elevadas sobre crema, bordes */
 
 /* --- Neutrales sobre crema --- */
---texto-principal: #431e0e; /* café, no negro puro */
+--texto-principal: #1f0e04; /* café, no negro puro */
 --texto-suave: #6b4a38; /* descripciones, secundario */
 --texto-tenue: #9a8574; /* placeholders, deshabilitado */
---blanco-tarjeta: #fffcf7; /* tarjetas y modales, un blanco cálido */
+--blanco-tarjeta: #fdf9f2; /* tarjetas y modales, un blanco cálido */
 
 /* --- Semánticos --- */
 --exito: #4a7c3f; /* verde apagado, del mural */
 --alerta: #d97b29; /* naranja ámbar: "te falta una salsa" */
 --error: #c0392b; /* rojo del mural, para errores reales */
 --agotado: #9a8574; /* gris cálido para productos sin stock */
+
+/* --- Badges de producto --- */
+--badge-vendido: #e03e00; /* "Más vendido" */
+--badge-nuevo: #f28c1d; /* "Nuevo" */
+--badge-recomendado: #e2570e; /* mismo que naranja-oscuro */
 ```
 
 ### Reglas de color — no negociables
 
 - **El fondo de la app es crema (`--cronchy-crema`)**, no blanco. Las tarjetas y
   modales van en blanco cálido (`--blanco-tarjeta`) para elevarse sobre la crema.
-- **El texto es café (`#431E0E`), nunca negro puro.** El negro puro rompe la
-  calidez de la marca.
+- **El texto es café (`#1F0E04`), nunca negro puro.** El mismo token de café se
+  usa como fondo del header y el footer (café oscuro casi negro, con el logo y
+  la navegación en crema/naranja encima). El negro puro rompe la calidez de la
+  marca.
 - **El naranja es SOLO acción y énfasis**: botón "Añadir", precios, tab activo,
   badge "Recomendado", total. No lo uses como fondo de zonas grandes — cansa la
   vista y le quita fuerza como llamada a la acción.
+- **Los badges de estado tienen su propio token.** "Más vendido" (`--badge-vendido`,
+  rojo) y "Nuevo" (`--badge-nuevo`) no reusan `--naranja`; solo "Recomendado"
+  comparte color con el naranja-oscuro (`--badge-recomendado`).
 - **Contraste AA obligatorio.** Naranja sobre crema pasa para texto grande y
   botones; para texto pequeño usa café. Nunca crema sobre naranja en texto chico.
 - El **rojo se reserva para errores reales**, no para decoración. El aviso de
   "te falta una salsa" es ámbar (`--alerta`), no rojo: no es un error, es un
-  recordatorio.
+  recordatorio. La única excepción es el badge "Más vendido", que usa rojo
+  como color de marca del mockup, no como estado de error.
 
 ---
 
@@ -57,7 +68,7 @@ Paleta tomada del logo, el packaging y el mural reales.
 La marca usa letra manuscrita/redondeada con carácter. En pantalla:
 
 ```
-Títulos y nombres de producto → Fredoka (redondeada, amigable, con peso)
+Títulos y nombres de producto → Baloo 2 (redondeada, amigable, con peso)
 Cuerpo, precios, formularios   → Nunito (redondeada, altísima legibilidad)
 ```
 
@@ -65,7 +76,7 @@ Ambas de Google Fonts, cargadas con `next/font`. Nunito de cuerpo mantiene la
 familia redondeada del logo sin sacrificar lectura en párrafos y en el checkout.
 
 ```css
---font-titulo: "Fredoka", system-ui, sans-serif; /* weight 500-600 */
+--font-titulo: "Baloo 2", system-ui, sans-serif; /* weight 500-700 */
 --font-cuerpo: "Nunito", system-ui, sans-serif; /* weight 400-700 */
 ```
 
@@ -73,9 +84,9 @@ Escala (mobile-first):
 
 | Uso                           | Tamaño  | Peso | Fuente  |
 | ----------------------------- | ------- | ---- | ------- |
-| Título de sección / categoría | 24-28px | 600  | Fredoka |
-| Nombre de producto (tarjeta)  | 18px    | 600  | Fredoka |
-| Nombre de producto (modal)    | 22px    | 600  | Fredoka |
+| Título de sección / categoría | 24-28px | 600  | Baloo 2 |
+| Nombre de producto (tarjeta)  | 18px    | 600  | Baloo 2 |
+| Nombre de producto (modal)    | 22px    | 600  | Baloo 2 |
 | Precio                        | 16-18px | 700  | Nunito  |
 | Cuerpo / descripción          | 15px    | 400  | Nunito  |
 | Etiquetas de opción           | 15px    | 500  | Nunito  |
@@ -148,9 +159,14 @@ directo, sin chistes.
 
 - Foto arriba, proporción **4:3**, esquinas superiores redondeadas (`radio-md`),
   `object-fit: cover`. La foto es la protagonista.
-- Badge "Recomendado" naranja, píldora, esquina superior de la foto.
-- Debajo: nombre (Fredoka 18/600 café), descripción a 1-2 líneas (truncada,
-  Nunito 13 suave), precio (Nunito 700 naranja).
+- Badge de estado (Recomendado/Agotado; Nuevo/Más vendido reservados a futuro,
+  ver §1) en la esquina superior izquierda de la foto. Corazón de favorito
+  (visual, sin persistencia) en círculo blanco translúcido, esquina superior
+  derecha.
+- Debajo, alineado a la izquierda (no centrado): nombre (Baloo 2 18/600 café),
+  descripción a 1-2 líneas (truncada, Nunito 13 suave), y en la MISMA fila el
+  precio (Nunito 700 naranja, a la izquierda) y el botón píldora "Agregar +"
+  (a la derecha).
 - Fondo de la tarjeta: `--blanco-tarjeta`. Sombra `--sombra-tarjeta`.
 - **Producto agotado:** foto en escala de grises + opacidad 60%, badge "Agotado"
   gris, no tocable. No se oculta si el admin quiere mostrarlo agotado; se ve
@@ -229,19 +245,22 @@ Cuando configures `tailwind.config`, extiende con estos tokens:
 
 ```
 colors:
-  crema:        '#F2ECE1'
+  crema:        '#FAF3E8'
   crema-oscura: '#E8DFD0'
-  tarjeta:      '#FFFCF7'
-  naranja:      '#BF5526'
-  naranja-osc:  '#A8471E'
-  cafe:         '#431E0E'
+  tarjeta:      '#FDF9F2'
+  naranja:      '#F26B1D'
+  naranja-osc:  '#E2570E'
+  cafe:         '#1F0E04'
   cafe-suave:   '#6B4A38'
   cafe-tenue:   '#9A8574'
   exito:        '#4A7C3F'
   alerta:       '#D97B29'
   error:        '#C0392B'
+  badge-vendido:      '#E03E00'
+  badge-nuevo:        '#F28C1D'
+  badge-recomendado:  '#E2570E'
 borderRadius:
   usar 8 / 16 / 24 / full
 fontFamily:
-  titulo: Fredoka · cuerpo: Nunito
+  titulo: Baloo 2 · cuerpo: Nunito
 ```

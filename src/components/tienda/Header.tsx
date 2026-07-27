@@ -1,6 +1,8 @@
 import Image from "next/image";
 import { SelectorTipoPedido } from "@/components/tienda/SelectorTipoPedido";
 import { Drawer } from "@/components/tienda/Drawer";
+import { CategoryNav } from "@/components/tienda/CategoryNav";
+import { CartButton } from "@/components/tienda/CartButton";
 
 type Tienda = {
   nombre: string;
@@ -8,17 +10,27 @@ type Tienda = {
   direccion: string | null;
 };
 
-export function Header({ tienda }: { tienda: Tienda }) {
+type Categoria = { id: string; nombre: string; slug: string };
+
+export function Header({
+  tienda,
+  categorias,
+}: {
+  tienda: Tienda;
+  categorias: Categoria[];
+}) {
   return (
-    <header className="flex flex-col items-center gap-2 px-2 pt-4 pb-3">
-      <div className="flex w-full items-center justify-between gap-2">
-        <Drawer tienda={tienda} />
+    <header className="sticky top-0 z-30 flex flex-col gap-2 bg-cafe px-2 pt-3 pb-2 text-crema lg:flex-row lg:items-center lg:justify-between lg:gap-8 lg:px-8 lg:py-3">
+      <div className="flex w-full items-center justify-between gap-2 lg:w-auto lg:gap-8">
+        <div className="lg:hidden">
+          <Drawer tienda={tienda} />
+        </div>
         {/* logo-cronchy-recortado.png: recorte del PNG original (logo_cronchy.png)
             sin el margen en blanco integrado, para poder usar object-contain sin
             que el logo se vea diminuto dentro de la caja. */}
-        <div className="relative h-20 w-40 shrink-0">
+        <div className="relative h-28 w-56 shrink-0 lg:h-24 lg:w-52">
           <Image
-            src="/logo-cronchy-recortado.png"
+            src="/logo_cronchy_blanco.png"
             alt={tienda.nombre}
             fill
             sizes="160px"
@@ -26,9 +38,14 @@ export function Header({ tienda }: { tienda: Tienda }) {
             className="object-contain"
           />
         </div>
-        <span className="w-9 shrink-0" aria-hidden />
+        <CategoryNav categorias={categorias} variant="desktop" />
+        <CartButton className="lg:hidden" />
       </div>
-      <SelectorTipoPedido />
+
+      <div className="flex w-full items-center justify-center gap-2 lg:w-auto lg:justify-end">
+        <SelectorTipoPedido />
+        <CartButton className="hidden lg:flex" />
+      </div>
     </header>
   );
 }
