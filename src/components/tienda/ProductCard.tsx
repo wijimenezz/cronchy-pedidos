@@ -1,22 +1,56 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import { Heart } from "lucide-react";
 import { ProductBadge } from "@/components/tienda/ProductBadge";
+import { ProductoFicha } from "@/components/tienda/ProductoFicha";
 import { pesos } from "@/lib/notificaciones/plantillas";
 import { useCarrito } from "@/lib/carrito";
+import { precargarProducto } from "@/lib/tienda/productos-cache";
 import type { ProductoDeMenu } from "@/db/queries/menu";
 
 export function ProductCard({ producto }: { producto: ProductoDeMenu }) {
-  const agregar = useCarrito((s) => s.agregar);
+  const agregarSimple = useCarrito((s) => s.agregarSimple);
   // Puramente visual: sin persistencia, no es una regla de dominio.
   const [favorito, setFavorito] = useState(false);
+  const [fichaAbierta, setFichaAbierta] = useState(false);
   const foto = producto.imagenes[0];
   const agotado = !producto.disponible;
 
+  useEffect(() => {
+    // Precarga en cuanto la tarjeta aparece (no al hacer click), para que la
+    // ficha se sienta instantánea: cuando el cliente toca, los datos ya están
+    // listos o a punto de llegar.
+    if (producto.tieneModificadores && !agotado) {
+      precargarProducto(producto.id).catch(() => {});
+    }
+  }, [producto.id, producto.tieneModificadores, agotado]);
+
+  function alTocarTarjeta() {
+    if (agotado) return;
+    if (producto.tieneModificadores) {
+      setFichaAbierta(true);
+    } else {
+      agregarSimple({ id: producto.id, nombre: producto.nombre, precioBase: producto.precioBase });
+    }
+  }
+
   return (
-    <div className={`overflow-hidden rounded-md bg-tarjeta shadow-tarjeta ${agotado ? "opacity-75" : ""}`}>
+    <div
+      role={producto.tieneModificadores ? "button" : undefined}
+      tabIndex={producto.tieneModificadores ? 0 : undefined}
+      onClick={producto.tieneModificadores ? alTocarTarjeta : undefined}
+      onKeyDown={(e) => {
+        if (producto.tieneModificadores && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          alTocarTarjeta();
+        }
+      }}
+      className={`overflow-hidden rounded-md bg-tarjeta shadow-tarjeta ${agotado ? "opacity-75" : ""} ${
+        producto.tieneModificadores && !agotado ? "cursor-pointer" : ""
+      }`}
+    >
       <div className="relative aspect-square bg-crema-oscura">
         {foto ? (
           <Image
@@ -46,7 +80,10 @@ export function ProductCard({ producto }: { producto: ProductoDeMenu }) {
           type="button"
           aria-label={favorito ? "Quitar de favoritos" : "Agregar a favoritos"}
           aria-pressed={favorito}
-          onClick={() => setFavorito((f) => !f)}
+          onClick={(e) => {
+            e.stopPropagation();
+            setFavorito((f) => !f);
+          }}
           className="absolute top-2 right-2 z-10 flex size-8 items-center justify-center rounded-full bg-tarjeta/70 backdrop-blur-sm"
         >
           <Heart className={`size-4 ${favorito ? "fill-naranja text-naranja" : "text-cafe"}`} />
@@ -68,15 +105,20 @@ export function ProductCard({ producto }: { producto: ProductoDeMenu }) {
           <button
             type="button"
             disabled={agotado}
-            onClick={() =>
-              agregar({ id: producto.id, nombre: producto.nombre, precioBase: producto.precioBase })
-            }
+            onClick={(e) => {
+              e.stopPropagation();
+              alTocarTarjeta();
+            }}
             className="shrink-0 rounded-full bg-naranja px-4 py-1.5 font-cuerpo text-sm font-bold text-crema transition-colors hover:bg-naranja-osc disabled:pointer-events-none disabled:opacity-50"
           >
             Agregar +
           </button>
         </div>
       </div>
+
+      {fichaAbierta && (
+        <ProductoFicha productId={producto.id} onClose={() => setFichaAbierta(false)} />
+      )}
     </div>
   );
 }
