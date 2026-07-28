@@ -11,6 +11,9 @@ export type ProductoDeMenu = {
   imagenes: string[];
   recomendado: boolean;
   disponible: boolean;
+  /** Si tiene al menos un enganche de modificadores, "Agregar" debe abrir la
+   * ficha del producto en vez de meterlo directo al carrito. */
+  tieneModificadores: boolean;
 };
 
 export type CategoriaDeMenu = {
@@ -34,6 +37,11 @@ export async function obtenerMenu(storeId: string): Promise<CategoriaDeMenu[]> {
       products: {
         where: eq(product.activo, true),
         orderBy: asc(product.orden),
+        with: {
+          // Solo para saber si existe al menos un enganche — no se necesitan
+          // sus datos aquí, eso lo trae `obtenerProductoParaFicha` al abrir.
+          productModifierGroups: { columns: { id: true }, limit: 1 },
+        },
       },
     },
   });
@@ -52,6 +60,7 @@ export async function obtenerMenu(storeId: string): Promise<CategoriaDeMenu[]> {
       imagenes: p.imagenes,
       recomendado: p.recomendado,
       disponible: p.disponible,
+      tieneModificadores: p.productModifierGroups.length > 0,
     })),
   }));
 }
