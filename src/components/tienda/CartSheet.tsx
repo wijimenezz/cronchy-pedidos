@@ -3,11 +3,16 @@
 import { pesos } from "@/lib/notificaciones/plantillas";
 import { useCarrito } from "@/lib/carrito";
 
+function resumenModificadores(item: { modificadores: { nombre: string; cantidad: number }[] }): string | null {
+  if (item.modificadores.length === 0) return null;
+  return item.modificadores.map((m) => (m.cantidad > 1 ? `${m.cantidad}x ${m.nombre}` : m.nombre)).join(", ");
+}
+
 export function CartSheet({ onClose }: { onClose: () => void }) {
   const items = useCarrito((s) => s.items);
   const incrementar = useCarrito((s) => s.incrementar);
   const decrementar = useCarrito((s) => s.decrementar);
-  const total = items.reduce((t, i) => t + i.precioBase * i.cantidad, 0);
+  const total = items.reduce((t, i) => t + i.precioUnitarioEstimado * i.cantidad, 0);
 
   return (
     <>
@@ -37,15 +42,20 @@ export function CartSheet({ onClose }: { onClose: () => void }) {
           ) : (
             <div className="flex flex-col gap-3">
               {items.map((item) => (
-                <div key={item.productoId} className="flex items-center gap-3">
+                <div key={item.lineId} className="flex items-center gap-3">
                   <div className="flex flex-1 flex-col gap-0.5">
                     <span className="font-cuerpo text-sm font-bold text-cafe">{item.nombre}</span>
-                    <span className="text-[13px] text-cafe-suave">{pesos(item.precioBase)} c/u</span>
+                    {resumenModificadores(item) && (
+                      <span className="text-[12px] text-cafe-suave">{resumenModificadores(item)}</span>
+                    )}
+                    <span className="text-[13px] text-cafe-suave">
+                      {pesos(item.precioUnitarioEstimado)} c/u
+                    </span>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => decrementar(item.productoId)}
+                      onClick={() => decrementar(item.lineId)}
                       aria-label="Quitar uno"
                       className="flex size-7 items-center justify-center rounded-full bg-crema-oscura font-bold text-cafe"
                     >
@@ -56,7 +66,7 @@ export function CartSheet({ onClose }: { onClose: () => void }) {
                     </span>
                     <button
                       type="button"
-                      onClick={() => incrementar(item.productoId)}
+                      onClick={() => incrementar(item.lineId)}
                       aria-label="Agregar uno"
                       className="flex size-7 items-center justify-center rounded-full bg-naranja font-bold text-crema"
                     >
@@ -64,7 +74,7 @@ export function CartSheet({ onClose }: { onClose: () => void }) {
                     </button>
                   </div>
                   <span className="min-w-16 text-right font-cuerpo text-sm font-bold text-cafe">
-                    {pesos(item.precioBase * item.cantidad)}
+                    {pesos(item.precioUnitarioEstimado * item.cantidad)}
                   </span>
                 </div>
               ))}

@@ -12,7 +12,7 @@ export function CartBar() {
   const cerrar = useCartSheet((s) => s.cerrar);
   const items = useCarrito((s) => s.items);
   const cantidad = items.reduce((t, i) => t + i.cantidad, 0);
-  const total = items.reduce((t, i) => t + i.precioBase * i.cantidad, 0);
+  const total = items.reduce((t, i) => t + i.precioUnitarioEstimado * i.cantidad, 0);
 
   if (cantidad === 0) return null;
 

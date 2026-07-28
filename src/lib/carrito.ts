@@ -1,37 +1,76 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+export type ModificadorCarrito = {
+  modifierOptionId: string;
+  grupo: string;
+  nombre: string;
+  cantidad: number;
+  precioUnitario: number;
+};
+
+export type SeleccionCarrito = {
+  productModifierGroupId: string;
+  opciones: { modifierOptionId: string; cantidad: number }[];
+};
+
+export type AvisoCarrito = {
+  productModifierGroupId: string;
+  nombreGrupo: string;
+  minSelect: number;
+  recibidas: number;
+};
+
 export type ItemCarrito = {
+  /** Identidad de esta línea (no del producto): dos configuraciones distintas
+   * del mismo producto son líneas separadas. */
+  lineId: string;
   productoId: string;
   nombre: string;
   precioBase: number;
+  /** Estimado de UI (precioBase + modificadores). El precio real siempre se
+   * recalcula en `POST /api/pedidos` (regla 1 de CLAUDE.md). */
+  precioUnitarioEstimado: number;
   cantidad: number;
+  /** Mapea 1:1 a `SeleccionEnganche[]` de `lib/precios` para el checkout futuro. */
+  seleccion: SeleccionCarrito[];
+  /** Denormalizado para pintar el carrito sin volver a pedir el producto. */
+  modificadores: ModificadorCarrito[];
+  avisos: AvisoCarrito[];
+  notas?: string | null;
 };
 
 type EstadoCarrito = {
   items: ItemCarrito[];
-  agregar: (producto: { id: string; nombre: string; precioBase: number }) => void;
-  incrementar: (productoId: string) => void;
-  decrementar: (productoId: string) => void;
+  /** Producto sin modificadores: agrega directo, igual que hoy. */
+  agregarSimple: (producto: { id: string; nombre: string; precioBase: number }) => void;
+  /** Producto configurado desde la ficha (con o sin modificadores/upsells):
+   * siempre crea una línea nueva, no intenta fusionar configuraciones. */
+  agregarConfigurado: (item: Omit<ItemCarrito, "lineId">) => void;
+  incrementar: (lineId: string) => void;
+  decrementar: (lineId: string) => void;
+  eliminar: (lineId: string) => void;
   vaciar: () => void;
 };
 
 /**
  * Carrito de UI únicamente: el total que muestra es un estimado para que el
  * cliente vea qué lleva. El precio real (regla 1 de CLAUDE.md) siempre se
- * recalcula en `POST /api/pedidos` a partir de los ids de producto.
+ * recalcula en `POST /api/pedidos` a partir de los ids de producto y opciones.
  */
 export const useCarrito = create<EstadoCarrito>()(
   persist(
     (set) => ({
       items: [],
-      agregar: (producto) =>
+      agregarSimple: (producto) =>
         set((estado) => {
-          const existente = estado.items.find((i) => i.productoId === producto.id);
+          const existente = estado.items.find(
+            (i) => i.productoId === producto.id && i.seleccion.length === 0,
+          );
           if (existente) {
             return {
               items: estado.items.map((i) =>
-                i.productoId === producto.id ? { ...i, cantidad: i.cantidad + 1 } : i,
+                i.lineId === existente.lineId ? { ...i, cantidad: i.cantidad + 1 } : i,
               ),
             };
           }
@@ -39,28 +78,49 @@ export const useCarrito = create<EstadoCarrito>()(
             items: [
               ...estado.items,
               {
+                lineId: crypto.randomUUID(),
                 productoId: producto.id,
                 nombre: producto.nombre,
                 precioBase: producto.precioBase,
+                precioUnitarioEstimado: producto.precioBase,
                 cantidad: 1,
+                seleccion: [],
+                modificadores: [],
+                avisos: [],
               },
             ],
           };
         }),
-      incrementar: (productoId) =>
+      agregarConfigurado: (item) =>
         set((estado) => ({
-          items: estado.items.map((i) =>
-            i.productoId === productoId ? { ...i, cantidad: i.cantidad + 1 } : i,
-          ),
+          items: [...estado.items, { ...item, lineId: crypto.randomUUID() }],
         })),
-      decrementar: (productoId) =>
+      incrementar: (lineId) =>
+        set((estado) => ({
+          items: estado.items.map((i) => (i.lineId === lineId ? { ...i, cantidad: i.cantidad + 1 } : i)),
+        })),
+      decrementar: (lineId) =>
         set((estado) => ({
           items: estado.items
-            .map((i) => (i.productoId === productoId ? { ...i, cantidad: i.cantidad - 1 } : i))
+            .map((i) => (i.lineId === lineId ? { ...i, cantidad: i.cantidad - 1 } : i))
             .filter((i) => i.cantidad > 0),
         })),
+      eliminar: (lineId) =>
+        set((estado) => ({ items: estado.items.filter((i) => i.lineId !== lineId) })),
       vaciar: () => set({ items: [] }),
     }),
-    { name: "cronchy_carrito" },
+    {
+      name: "cronchy_carrito",
+      // v1 agregó lineId/seleccion/modificadores/avisos/precioUnitarioEstimado
+      // a cada línea. Un carrito guardado en localStorage con la forma vieja
+      // (antes de v1) no tiene esos campos — no hay forma de reconstruirlos
+      // sin volver a pedir cada producto, así que se descarta en vez de dejar
+      // que la UI truene leyendo un campo inexistente.
+      version: 1,
+      migrate: (persistedState, version) => {
+        if (version < 1) return { items: [] };
+        return persistedState as EstadoCarrito;
+      },
+    },
   ),
 );
