@@ -1,7 +1,23 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { deliveryZone } from "@/db/schema";
 
+export type ZonaDomicilio = { id: string; barrio: string; precio: number };
+
+/** Zonas que el checkout ofrece en la lista de barrios. */
+export async function obtenerZonasActivas(storeId: string): Promise<ZonaDomicilio[]> {
+  return db
+    .select({ id: deliveryZone.id, barrio: deliveryZone.barrio, precio: deliveryZone.precio })
+    .from(deliveryZone)
+    .where(and(eq(deliveryZone.storeId, storeId), eq(deliveryZone.activa, true)))
+    .orderBy(asc(deliveryZone.barrio));
+}
+
+/**
+ * A diferencia de `obtenerZonasActivas`, esta NO filtra por `activa`: `calcularPedido`
+ * necesita distinguir "la zona no existe" de "la zona se desactivó", para dar un error
+ * distinto a cada caso.
+ */
 export async function obtenerZonaActiva(
   storeId: string,
   zonaId: string,

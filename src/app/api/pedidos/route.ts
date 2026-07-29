@@ -37,6 +37,7 @@ export async function POST(request: Request) {
     tipo: input.tipo,
     items: input.items,
     zonaId: input.zonaId,
+    barrioTexto: input.barrioTexto,
     descuento: 0,
   });
 

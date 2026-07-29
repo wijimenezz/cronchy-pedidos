@@ -86,9 +86,9 @@ que ese producto permita.
 **US5.** Como cliente, quiero agregar **salsas o toppings adicionales** en una
 sección aparte, viendo el costo de +$2.000 por cada uno.
 
-**US6.** Como cliente, quiero que me **avisen si me falta** elegir una salsa o
-topping incluido, pero que aun así pueda agregar el producto al carrito si así
-lo decido.
+**US6.** Como cliente, quiero que el sistema **me impida** agregar un producto sin
+elegir las salsas y toppings que ya trae incluidos, y que me diga cuántos me faltan,
+para no recibir mi pedido incompleto.
 
 **US7.** Como cliente, si el producto exige sabor de helado (ej. Cono), quiero
 que el sistema **me impida** agregarlo sin elegir sabor.
@@ -238,26 +238,30 @@ cualquiera → cancelado
       definido, separando "incluido" de "adicional".
 - [ ] Los adicionales muestran su precio (+$2.000) y actualizan el total en vivo.
 - [ ] Si un grupo tiene `min_select > 0` y no se cumple, el botón "Añadir" queda
-      deshabilitado.
-- [ ] Si un grupo incluido no se completó pero no es obligatorio, se muestra un
-      aviso suave y el botón "Añadir" sigue activo.
+      deshabilitado y dice qué grupo falta.
+- [ ] Las salsas y toppings **incluidos** son obligatorios: hasta completarlos, cada
+      sección muestra cuántos faltan y el botón "Añadir" sigue bloqueado.
 - [ ] El carrito persiste al recargar la página (localStorage) y permite cambiar
       cantidades y eliminar items.
 
 ### Fase B — Checkout y pedido
 
-- [ ] El precio total lo recalcula el servidor; si difiere del carrito del
+- [x] El precio total lo recalcula el servidor; si difiere del carrito del
       cliente, gana el del servidor.
-- [ ] En domicilio, elegir un barrio de la lista fija el costo; "mi barrio no
+- [x] En domicilio, elegir un barrio de la lista fija el costo; "mi barrio no
       aparece" marca el pedido como `domicilio_por_confirmar`.
-- [ ] El cliente elige método de pago (efectivo o Nequi); en efectivo pasa
+- [x] El cliente elige método de pago (efectivo o Nequi); en efectivo pasa
       directo, sin pedir con cuánto paga.
-- [ ] En Nequi, el checkout muestra los datos de la cuenta y el total, y exige
+- [x] En Nequi, el checkout muestra los datos de la cuenta y el total, y exige
       subir un comprobante (imagen) antes de confirmar.
-- [ ] Al confirmar, se crea el pedido, se genera el `snapshot` de cada item y se
+      _(La opción Nequi se oculta mientras `store.nequi_numero` esté vacío.)_
+- [x] Al confirmar, se crea el pedido, se genera el `snapshot` de cada item y se
       registra/actualiza el `customer` por teléfono.
-- [ ] Se genera el mensaje de confirmación con link de seguimiento y el mensaje
+- [x] Se genera el mensaje de confirmación con link de seguimiento y el mensaje
       de nuevo pedido para el negocio.
+      _(El aviso al negocio se envía desde `/pedido/[token]` con un toque. El
+      mensaje de confirmación al cliente queda listo pero se envía desde el panel
+      —US20, Fase C—: `wa.me` solo puede abrirlo el dispositivo del negocio.)_
 
 ### Fase C — Panel y operación
 

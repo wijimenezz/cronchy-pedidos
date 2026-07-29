@@ -38,12 +38,14 @@ export type CalculoPedidoInput = {
   tipo: "domicilio" | "recoger";
   items: ItemSolicitado[];
   zonaId?: string | null;
+  /** US11: barrio escrito a mano cuando no está en la lista. Solo se mira si no hay zonaId. */
+  barrioTexto?: string | null;
   descuento?: number; // default 0, entero >= 0
 };
 
 export type ErrorPedido =
   | (ErrorPrecio & { itemIndex: number })
-  | { tipo: "zona_requerida" }
+  | { tipo: "zona_o_barrio_requerido" }
   | { tipo: "zona_no_encontrada"; zonaId: string }
   | { tipo: "zona_inactiva"; zonaId: string }
   | { tipo: "descuento_invalido" };
@@ -54,6 +56,9 @@ export type PedidoCalculado = {
   costoDomicilio: number;
   descuento: number;
   total: number;
+  /** US11: el barrio no estaba en la lista, el negocio confirma el valor después.
+   * Lo decide el servidor (determina dinero), nunca llega del cliente. */
+  domicilioPorConfirmar: boolean;
   avisos: (AvisoIncompleto & { itemIndex: number })[];
 };
 
@@ -96,24 +101,32 @@ export async function calcularPedido(
   }
 
   let costoDomicilio = 0;
+  let domicilioPorConfirmar = false;
   if (input.tipo === "domicilio") {
-    if (!input.zonaId) {
-      return { ok: false, error: { tipo: "zona_requerida" } };
+    if (input.zonaId) {
+      const zona = await obtenerZonaActiva(storeId, input.zonaId);
+      if (!zona) {
+        return { ok: false, error: { tipo: "zona_no_encontrada", zonaId: input.zonaId } };
+      }
+      if (!zona.activa) {
+        return { ok: false, error: { tipo: "zona_inactiva", zonaId: input.zonaId } };
+      }
+      costoDomicilio = zona.precio;
+    } else if (input.barrioTexto) {
+      // US11: el barrio no está en la lista. Se cobra 0 de domicilio y el negocio
+      // acuerda el valor con el cliente después. Cobrar un estimado sería peor:
+      // el cliente vería un total que no es el que va a pagar.
+      costoDomicilio = 0;
+      domicilioPorConfirmar = true;
+    } else {
+      return { ok: false, error: { tipo: "zona_o_barrio_requerido" } };
     }
-    const zona = await obtenerZonaActiva(storeId, input.zonaId);
-    if (!zona) {
-      return { ok: false, error: { tipo: "zona_no_encontrada", zonaId: input.zonaId } };
-    }
-    if (!zona.activa) {
-      return { ok: false, error: { tipo: "zona_inactiva", zonaId: input.zonaId } };
-    }
-    costoDomicilio = zona.precio;
   }
 
   const total = Math.max(0, subtotal + costoDomicilio - descuento);
 
   return {
     ok: true,
-    valor: { items, subtotal, costoDomicilio, descuento, total, avisos },
+    valor: { items, subtotal, costoDomicilio, descuento, total, domicilioPorConfirmar, avisos },
   };
 }

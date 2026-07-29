@@ -116,9 +116,14 @@ export const useCarrito = create<EstadoCarrito>()(
       // (antes de v1) no tiene esos campos — no hay forma de reconstruirlos
       // sin volver a pedir cada producto, así que se descarta en vez de dejar
       // que la UI truene leyendo un campo inexistente.
-      version: 1,
+      //
+      // v2: las bebidas pasaron a tener opciones obligatorias (gas, sabor, dulzor). Una
+      // línea de bebida guardada antes lleva `seleccion: []` y el servidor la rechazaría
+      // con un 422 en el checkout, donde el cliente ya no puede reconfigurarla. Se
+      // descarta el carrito: perder un carrito una vez es mejor que un pedido bloqueado.
+      version: 2,
       migrate: (persistedState, version) => {
-        if (version < 1) return { items: [] };
+        if (version < 2) return { items: [] };
         return persistedState as EstadoCarrito;
       },
     },

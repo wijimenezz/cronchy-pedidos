@@ -13,6 +13,7 @@ import { obtenerZonaActiva } from "@/db/queries/deliveryZones";
 import {
   calcularItem,
   calcularPedido,
+  gruposIncompletos,
   type EngancheParaPrecio,
   type ItemSolicitado,
   type OpcionParaPrecio,
@@ -170,6 +171,54 @@ describe("calcularItem", () => {
     // Tampoco avisa, porque el aviso solo dispara cuando no se eligió absolutamente nada.
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.valor.base.avisos).toEqual([]);
+  });
+
+  // Caso real del catálogo: el Cronchy Familiar incluye 4 salsas y hay que elegirlas todas.
+  it("un grupo incluido de 4 salsas bloquea hasta completar las 4", () => {
+    const p = producto({
+      engancles: [
+        enganche({
+          nombreGrupo: "Salsas incluidas",
+          minSelect: 4,
+          maxSelect: 4,
+          avisarIncompleto: false,
+          permiteCantidad: true,
+          opciones: [opcion({ id: "op-arequipe" }), opcion({ id: "op-choco" })],
+        }),
+      ],
+    });
+
+    const conTres = calcularItem(
+      p,
+      item({
+        seleccion: [
+          {
+            productModifierGroupId: "pmg-1",
+            opciones: [
+              { modifierOptionId: "op-arequipe", cantidad: 2 },
+              { modifierOptionId: "op-choco", cantidad: 1 },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(conTres).toEqual({
+      ok: false,
+      error: { tipo: "seleccion_incompleta", productModifierGroupId: "pmg-1", minSelect: 4, recibidas: 3 },
+    });
+
+    // Las salsas permiten repetir, así que 4x la misma es una selección válida.
+    const cuatroIguales = calcularItem(
+      p,
+      item({
+        seleccion: [
+          { productModifierGroupId: "pmg-1", opciones: [{ modifierOptionId: "op-arequipe", cantidad: 4 }] },
+        ],
+      }),
+    );
+    expect(cuatroIguales.ok).toBe(true);
+    // Van incluidas: no suman al precio.
+    if (cuatroIguales.ok) expect(cuatroIguales.valor.base.precioUnitario).toBe(5000);
   });
 
   it("excede maxSelect bloquea", () => {
@@ -369,6 +418,177 @@ describe("calcularItem", () => {
   });
 });
 
+// Una bebida de upsell llega al servidor como item propio (regla 8) y se valida como
+// cualquier producto. Estos casos son la regresión del bug que dejaba al cliente atrapado:
+// la bebida viajaba con `seleccion: []` y reventaba en el checkout con un 422.
+describe("bebida con opciones propias", () => {
+  const frappe = producto({
+    id: "prod-frappe",
+    nombre: "Frappe",
+    precioBase: 13000,
+    engancles: [
+      enganche({
+        id: "pmg-sabor",
+        nombreGrupo: "Sabor",
+        modo: "incluido",
+        minSelect: 1,
+        maxSelect: 1,
+        opciones: [opcion({ id: "op-oreo", nombre: "Oreo", precioDelta: 0 })],
+      }),
+    ],
+  });
+
+  it("sin elegir sabor se rechaza", () => {
+    const r = calcularItem(frappe, item({ productId: "prod-frappe" }));
+    expect(r).toEqual({
+      ok: false,
+      error: { tipo: "seleccion_incompleta", productModifierGroupId: "pmg-sabor", minSelect: 1, recibidas: 0 },
+    });
+  });
+
+  it("con el sabor elegido cuesta su precio base y arrastra el modificador", () => {
+    const r = calcularItem(
+      frappe,
+      item({
+        productId: "prod-frappe",
+        seleccion: [{ productModifierGroupId: "pmg-sabor", opciones: [{ modifierOptionId: "op-oreo", cantidad: 1 }] }],
+      }),
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      // Modo incluido: la opción no suma (regla 3).
+      expect(r.valor.base.precioUnitario).toBe(13000);
+      expect(r.valor.base.modificadores).toEqual([
+        { modifierOptionId: "op-oreo", grupo: "Sabor", nombre: "Oreo", cantidad: 1, precioUnitario: 0 },
+      ]);
+    }
+  });
+
+  // Lo que promete el tipo ProductoUpsellRef: que la ficha puede cotizar una bebida con
+  // el mismo motor que usa el servidor.
+  it("un objeto con la forma de ProductoUpsellRef sirve tal cual para calcularItem", () => {
+    const ref = {
+      id: "prod-agua",
+      nombre: "Agua 600ml",
+      precioBase: 3000,
+      activo: true,
+      disponible: true,
+      disponibleDelivery: true,
+      disponiblePickup: true,
+      imagen: null,
+      engancles: [
+        {
+          ...enganche({
+            id: "pmg-gas",
+            nombreGrupo: "Gas",
+            minSelect: 1,
+            maxSelect: 1,
+            opciones: [opcion({ id: "op-con", nombre: "Con gas", precioDelta: 0 })],
+          }),
+          colapsado: false,
+        },
+      ],
+    };
+
+    const r = calcularItem(ref, {
+      productId: "prod-agua",
+      cantidad: 1,
+      seleccion: [{ productModifierGroupId: "pmg-gas", opciones: [{ modifierOptionId: "op-con", cantidad: 1 }] }],
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.valor.base.precioUnitario).toBe(3000);
+  });
+});
+
+describe("gruposIncompletos", () => {
+  // Un Cronchy Clásico: 1 salsa + 1 topping obligatorios, y las salsas de pago opcionales.
+  const clasico = producto({
+    engancles: [
+      enganche({
+        id: "pmg-salsa",
+        nombreGrupo: "Salsa incluida",
+        minSelect: 1,
+        maxSelect: 1,
+        opciones: [opcion({ id: "op-arequipe" })],
+      }),
+      enganche({
+        id: "pmg-topping",
+        nombreGrupo: "Topping incluido",
+        minSelect: 1,
+        maxSelect: 1,
+        opciones: [opcion({ id: "op-oreo" })],
+      }),
+      enganche({
+        id: "pmg-extra",
+        nombreGrupo: "Salsas",
+        modo: "adicional",
+        minSelect: 0,
+        maxSelect: 8,
+        opciones: [opcion({ id: "op-lechera", precioDelta: 2000 })],
+      }),
+    ],
+  });
+
+  it("sin elegir nada lista los dos grupos obligatorios, en orden", () => {
+    expect(gruposIncompletos(clasico, [])).toEqual([
+      { productModifierGroupId: "pmg-salsa", nombreGrupo: "Salsa incluida", faltan: 1 },
+      { productModifierGroupId: "pmg-topping", nombreGrupo: "Topping incluido", faltan: 1 },
+    ]);
+  });
+
+  it("con la salsa elegida solo queda el topping", () => {
+    const r = gruposIncompletos(clasico, [
+      { productModifierGroupId: "pmg-salsa", opciones: [{ modifierOptionId: "op-arequipe", cantidad: 1 }] },
+    ]);
+    expect(r).toEqual([
+      { productModifierGroupId: "pmg-topping", nombreGrupo: "Topping incluido", faltan: 1 },
+    ]);
+  });
+
+  it("con todo completo devuelve lista vacía", () => {
+    const r = gruposIncompletos(clasico, [
+      { productModifierGroupId: "pmg-salsa", opciones: [{ modifierOptionId: "op-arequipe", cantidad: 1 }] },
+      { productModifierGroupId: "pmg-topping", opciones: [{ modifierOptionId: "op-oreo", cantidad: 1 }] },
+    ]);
+    expect(r).toEqual([]);
+  });
+
+  it("los adicionales nunca cuentan como incompletos", () => {
+    const soloAdicional = producto({
+      engancles: [clasico.engancles[2]],
+    });
+    expect(gruposIncompletos(soloAdicional, [])).toEqual([]);
+  });
+
+  it("informa cuántas faltan cuando el grupo pide varias", () => {
+    const familiar = producto({
+      engancles: [
+        enganche({
+          id: "pmg-salsas",
+          nombreGrupo: "Salsas incluidas",
+          minSelect: 4,
+          maxSelect: 4,
+          permiteCantidad: true,
+          opciones: [opcion({ id: "op-arequipe" })],
+        }),
+      ],
+    });
+    const r = gruposIncompletos(familiar, [
+      { productModifierGroupId: "pmg-salsas", opciones: [{ modifierOptionId: "op-arequipe", cantidad: 3 }] },
+    ]);
+    expect(r).toEqual([
+      { productModifierGroupId: "pmg-salsas", nombreGrupo: "Salsas incluidas", faltan: 1 },
+    ]);
+  });
+
+  it("un grupo con avisarIncompleto no bloquea, así que no aparece", () => {
+    const conAviso = producto({
+      engancles: [enganche({ id: "pmg-1", minSelect: 2, avisarIncompleto: true, opciones: [opcion()] })],
+    });
+    expect(gruposIncompletos(conAviso, [])).toEqual([]);
+  });
+});
+
 describe("calcularPedido", () => {
   beforeEach(() => {
     vi.mocked(obtenerProductosConEngancles).mockReset();
@@ -402,12 +622,77 @@ describe("calcularPedido", () => {
     expect(obtenerZonaActiva).not.toHaveBeenCalled();
   });
 
-  it("domicilio sin zonaId es un error", async () => {
+  it("domicilio con zona válida NO queda por confirmar", async () => {
+    const p = producto();
+    vi.mocked(obtenerProductosConEngancles).mockResolvedValue(new Map([[p.id, p]]));
+    vi.mocked(obtenerZonaActiva).mockResolvedValue({ id: "zona-1", barrio: "Centro", precio: 3000, activa: true });
+
+    const r = await calcularPedido("store-1", { tipo: "domicilio", items: [item()], zonaId: "zona-1" });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.valor.domicilioPorConfirmar).toBe(false);
+  });
+
+  it("domicilio sin zonaId ni barrioTexto es un error", async () => {
     const p = producto();
     vi.mocked(obtenerProductosConEngancles).mockResolvedValue(new Map([[p.id, p]]));
 
     const r = await calcularPedido("store-1", { tipo: "domicilio", items: [item()] });
-    expect(r).toEqual({ ok: false, error: { tipo: "zona_requerida" } });
+    expect(r).toEqual({ ok: false, error: { tipo: "zona_o_barrio_requerido" } });
+  });
+
+  // US11 — el barrio no está en la lista: se cobra 0 de domicilio y el negocio
+  // confirma el valor después, en vez de dejar al cliente sin poder pedir.
+  it("domicilio con barrio escrito a mano no cobra envío y queda por confirmar", async () => {
+    const p = producto();
+    vi.mocked(obtenerProductosConEngancles).mockResolvedValue(new Map([[p.id, p]]));
+
+    const r = await calcularPedido("store-1", {
+      tipo: "domicilio",
+      items: [item()],
+      barrioTexto: "Vereda La Aguadita",
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.valor.costoDomicilio).toBe(0);
+      expect(r.valor.domicilioPorConfirmar).toBe(true);
+      expect(r.valor.total).toBe(5000);
+    }
+    // No debe ir a la base a buscar una zona que no existe.
+    expect(obtenerZonaActiva).not.toHaveBeenCalled();
+  });
+
+  it("si llegan zonaId y barrioTexto, gana la zona de la lista", async () => {
+    const p = producto();
+    vi.mocked(obtenerProductosConEngancles).mockResolvedValue(new Map([[p.id, p]]));
+    vi.mocked(obtenerZonaActiva).mockResolvedValue({ id: "zona-1", barrio: "Centro", precio: 3000, activa: true });
+
+    const r = await calcularPedido("store-1", {
+      tipo: "domicilio",
+      items: [item()],
+      zonaId: "zona-1",
+      barrioTexto: "Otra cosa",
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.valor.costoDomicilio).toBe(3000);
+      expect(r.valor.domicilioPorConfirmar).toBe(false);
+    }
+  });
+
+  it("recoger con barrioTexto no queda por confirmar: no hay domicilio que confirmar", async () => {
+    const p = producto();
+    vi.mocked(obtenerProductosConEngancles).mockResolvedValue(new Map([[p.id, p]]));
+
+    const r = await calcularPedido("store-1", {
+      tipo: "recoger",
+      items: [item()],
+      barrioTexto: "Vereda La Aguadita",
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.valor.costoDomicilio).toBe(0);
+      expect(r.valor.domicilioPorConfirmar).toBe(false);
+    }
   });
 
   it("un descuento mayor al subtotal deja el total en 0, nunca negativo", async () => {

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { pesos } from "@/lib/notificaciones/plantillas";
 import { useCarrito } from "@/lib/carrito";
 
@@ -88,15 +89,15 @@ export function CartSheet({ onClose }: { onClose: () => void }) {
               <span>Total</span>
               <span>{pesos(total)}</span>
             </div>
-            {/* El checkout (datos del cliente, zona, pago) aún no existe — se
-                construye en una fase aparte. Esta hoja solo arma el carrito. */}
-            <button
-              type="button"
-              disabled
-              className="rounded-full bg-naranja px-4 py-3 font-cuerpo text-sm font-bold text-crema opacity-50"
+            {/* El gate de tienda cerrada vive en /checkout, que sí tiene datos del
+                servidor; aquí no hace falta otra llamada. */}
+            <Link
+              href="/checkout"
+              onClick={onClose}
+              className="flex min-h-11 items-center justify-center rounded-full bg-naranja px-4 py-3 font-cuerpo text-sm font-bold text-crema"
             >
-              Continuar (próximamente)
-            </button>
+              Continuar
+            </Link>
           </div>
         )}
       </div>

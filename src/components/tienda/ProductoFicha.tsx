@@ -7,9 +7,15 @@ import { pesos } from "@/lib/notificaciones/plantillas";
 import { useCarrito } from "@/lib/carrito";
 import { useTipoPedido } from "@/lib/tienda/tipo-pedido";
 import { precargarProducto } from "@/lib/tienda/productos-cache";
-import { calcularItem } from "@/lib/precios-calculo";
+import { calcularItem, precioEfectivoOpcion } from "@/lib/precios-calculo";
+import { bebidasElegidas, pendientesDeFicha, seleccionSinUpsells } from "@/lib/checkout/mapeo";
 import type { SeleccionEnganche } from "@/lib/precios-calculo";
-import type { EngancheParaFicha, OpcionParaFicha, ProductoParaFicha } from "@/db/queries/productos";
+import type {
+  EngancheParaFicha,
+  OpcionParaFicha,
+  ProductoParaFicha,
+  ProductoUpsellRef,
+} from "@/db/queries/productos";
 
 type SeleccionesPorGrupo = Record<string, Record<string, number>>;
 
@@ -24,8 +30,43 @@ function construirSeleccion(selecciones: SeleccionesPorGrupo): SeleccionEnganche
     .filter((s) => s.opciones.length > 0);
 }
 
-function precioOpcion(enganche: EngancheParaFicha, opcion: OpcionParaFicha): number {
-  return enganche.modo === "incluido" ? 0 : (enganche.precioUnitario ?? opcion.precioDelta);
+/**
+ * Selección de UN grupo tras tocar una opción. Extraída del componente para que el
+ * producto de la ficha y las bebidas del upsell compartan exactamente el mismo
+ * comportamiento (radio, tope de maxSelect, deseleccionar).
+ */
+function toggleEnGrupo(
+  actual: Record<string, number>,
+  enganche: EngancheParaFicha,
+  opcionId: string,
+): Record<string, number> {
+  const yaSeleccionada = (actual[opcionId] ?? 0) > 0;
+
+  // maxSelect 1 se comporta como radio: elegir otra reemplaza la anterior.
+  if (enganche.maxSelect === 1) {
+    return yaSeleccionada ? {} : { [opcionId]: 1 };
+  }
+  if (yaSeleccionada) return sinOpcion(actual, opcionId);
+
+  const suma = Object.values(actual).reduce((n, c) => n + c, 0);
+  if (suma >= enganche.maxSelect) return actual;
+  return { ...actual, [opcionId]: 1 };
+}
+
+/** Ídem para el stepper de cantidad, respetando maxPorOpcion y el tope del grupo. */
+function cantidadEnGrupo(
+  actual: Record<string, number>,
+  enganche: EngancheParaFicha,
+  opcionId: string,
+  delta: number,
+): Record<string, number> {
+  const cantidadActual = actual[opcionId] ?? 0;
+  const suma = Object.values(actual).reduce((n, c) => n + c, 0);
+  const maxPorOpcion = enganche.maxPorOpcion ?? Infinity;
+  const tope = Math.min(maxPorOpcion, enganche.maxSelect - (suma - cantidadActual));
+  const nueva = Math.max(0, Math.min(tope, cantidadActual + delta));
+
+  return nueva > 0 ? { ...actual, [opcionId]: nueva } : sinOpcion(actual, opcionId);
 }
 
 function sinOpcion(seleccion: Record<string, number>, opcionId: string): Record<string, number> {
@@ -69,33 +110,28 @@ function FilaOpcion({
   enganche,
   opcion,
   cantidad,
-  esRadio,
   onToggle,
   onCambiarCantidad,
 }: {
   enganche: EngancheParaFicha;
   opcion: OpcionParaFicha;
   cantidad: number;
-  esRadio: boolean;
   onToggle: () => void;
   onCambiarCantidad: (delta: number) => void;
 }) {
   const seleccionada = cantidad > 0;
-  const precio = precioOpcion(enganche, opcion);
+  const precio = precioEfectivoOpcion(enganche, opcion);
 
   return (
-    <div className="flex items-center gap-3 rounded-md border border-crema-oscura px-3 py-2">
+    // min-h-11: DESIGN §7 exige 44px mínimo en todo lo tocable.
+    <div className="flex min-h-11 items-center gap-3 rounded-md border border-crema-oscura px-3 py-2">
       <button
         type="button"
         onClick={onToggle}
         disabled={!opcion.disponible}
-        className="flex flex-1 items-center justify-between gap-2 text-left disabled:opacity-40"
+        className="flex flex-1 items-center justify-between gap-2 self-stretch text-left disabled:opacity-40"
       >
-        <span
-          className={`text-sm font-medium ${seleccionada ? "text-naranja" : "text-cafe"} ${
-            esRadio ? "" : ""
-          }`}
-        >
+        <span className={`text-sm font-medium ${seleccionada ? "text-naranja" : "text-cafe"}`}>
           {opcion.nombre}
           {!opcion.disponible && " (agotado)"}
         </span>
@@ -119,23 +155,28 @@ function FilaOpcion({
 function GrupoEnganche({
   enganche,
   seleccion,
-  plegable,
-  expandido,
+  plegable = false,
+  expandido = false,
   onToggleExpandir,
   onToggleOpcion,
   onCambiarCantidad,
+  compacto = false,
 }: {
   enganche: EngancheParaFicha;
   seleccion: Record<string, number>;
-  plegable: boolean;
-  expandido: boolean;
-  onToggleExpandir: () => void;
+  plegable?: boolean;
+  expandido?: boolean;
+  onToggleExpandir?: () => void;
   onToggleOpcion: (opcionId: string) => void;
   onCambiarCantidad: (opcionId: string, delta: number) => void;
+  /** Dentro de la fila de una bebida: encoge la cabecera, nunca las filas de opción. */
+  compacto?: boolean;
 }) {
   const recibidas = Object.values(seleccion).reduce((n, c) => n + c, 0);
   const esRequerido = enganche.minSelect > 0 && !enganche.avisarIncompleto;
-  const avisoSuave = enganche.avisarIncompleto && recibidas === 0;
+  // Lo incluido es obligatorio: mientras falten, el botón Añadir está bloqueado y hay que
+  // decir cuántas para que el cliente no se quede adivinando por qué no puede continuar.
+  const faltan = enganche.avisarIncompleto ? 0 : Math.max(0, enganche.minSelect - recibidas);
 
   const opciones = (
     <div className="flex flex-col gap-2">
@@ -145,7 +186,6 @@ function GrupoEnganche({
           enganche={enganche}
           opcion={opcion}
           cantidad={seleccion[opcion.id] ?? 0}
-          esRadio={enganche.maxSelect === 1}
           onToggle={() => onToggleOpcion(opcion.id)}
           onCambiarCantidad={(delta) => onCambiarCantidad(opcion.id, delta)}
         />
@@ -171,20 +211,112 @@ function GrupoEnganche({
 
   return (
     <div>
-      <div className="mb-2 flex items-center justify-between">
-        <h4 className="font-titulo text-base font-semibold text-cafe">
+      <div className={`flex items-center justify-between ${compacto ? "mb-1.5" : "mb-2"}`}>
+        <h4
+          className={
+            compacto
+              ? "font-cuerpo text-sm font-bold text-cafe"
+              : "font-titulo text-base font-semibold text-cafe"
+          }
+        >
           {enganche.nombreGrupo}
           {esRequerido && <span className="text-error"> *</span>}
         </h4>
-        <span className="text-xs text-cafe-tenue">
+        <span
+          className={`${compacto ? "text-[11px]" : "text-xs"} ${
+            faltan > 0 ? "font-bold text-alerta" : "text-cafe-tenue"
+          }`}
+        >
           {recibidas} de {enganche.maxSelect}
         </span>
       </div>
       {opciones}
-      {avisoSuave && (
-        <p className="mt-2 rounded-sm bg-alerta/12 px-3 py-2 text-xs text-alerta">
-          Te falta elegir tu {enganche.nombreGrupo.toLowerCase()}.
+      {faltan > 0 && (
+        <p
+          className={`mt-2 rounded-sm bg-alerta/12 text-alerta ${
+            compacto ? "px-2 py-1 text-[11px]" : "px-3 py-2 text-xs"
+          }`}
+        >
+          Te {faltan === 1 ? "falta" : "faltan"} {faltan} por elegir. Ya{" "}
+          {faltan === 1 ? "viene incluida" : "vienen incluidas"} en el precio.
         </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Una bebida sugerida. Al elegirla se despliegan sus propias opciones (gas, sabor,
+ * dulzor) aquí mismo: si viajara al carrito sin ellas, el servidor rechazaría el pedido
+ * en el checkout, donde el cliente ya no puede reconfigurarla.
+ */
+function FilaUpsell({
+  enganche,
+  bebida,
+  cantidad,
+  seleccionBebida,
+  onToggle,
+  onCambiarCantidad,
+  onToggleOpcionBebida,
+  onCambiarCantidadBebida,
+}: {
+  enganche: EngancheParaFicha;
+  /** El nombre y el precio salen del producto real, no de la opción: es lo que se cobra. */
+  bebida: ProductoUpsellRef;
+  cantidad: number;
+  seleccionBebida: SeleccionesPorGrupo;
+  onToggle: () => void;
+  onCambiarCantidad: (delta: number) => void;
+  onToggleOpcionBebida: (enganche: EngancheParaFicha, opcionId: string) => void;
+  onCambiarCantidadBebida: (enganche: EngancheParaFicha, opcionId: string, delta: number) => void;
+}) {
+  const elegida = cantidad > 0;
+  // Los grupos upsell de una bebida no se pintan (invariante: llevan minSelect 0).
+  const gruposBebida = bebida.engancles.filter((e) => e.tipo === "seleccion");
+
+  return (
+    <div className="rounded-md border border-crema-oscura">
+      <div className="flex items-center gap-3 p-2">
+        <div className="relative size-12 shrink-0 overflow-hidden rounded-sm bg-crema-oscura">
+          {bebida.imagen && (
+            <Image src={bebida.imagen} alt="" fill sizes="48px" className="object-cover" />
+          )}
+        </div>
+        <div className="flex-1">
+          <p className="text-sm font-semibold text-cafe">{bebida.nombre}</p>
+          <p className="text-xs text-cafe-suave">{pesos(bebida.precioBase)}</p>
+        </div>
+        {enganche.permiteCantidad ? (
+          <StepperCantidad valor={cantidad} onCambiar={onCambiarCantidad} />
+        ) : (
+          <button
+            type="button"
+            onClick={onToggle}
+            className={`min-h-11 rounded-full px-4 text-sm font-bold ${
+              elegida ? "bg-crema-oscura text-cafe" : "bg-naranja text-crema hover:bg-naranja-osc"
+            }`}
+          >
+            {elegida ? "Quitar" : "Agregar"}
+          </button>
+        )}
+      </div>
+
+      {/* Sangría, no tarjeta anidada: a 360px un doble padding deja las opciones sin aire. */}
+      {elegida && gruposBebida.length > 0 && (
+        <div className="flex flex-col gap-3 border-t border-crema-oscura py-2 pl-4 pr-2">
+          {gruposBebida.map((grupoBebida) => (
+            <GrupoEnganche
+              key={grupoBebida.id}
+              compacto
+              enganche={grupoBebida}
+              seleccion={seleccionBebida[grupoBebida.id] ?? {}}
+              onToggleOpcion={(opcionId) => onToggleOpcionBebida(grupoBebida, opcionId)}
+              onCambiarCantidad={(opcionId, delta) =>
+                onCambiarCantidadBebida(grupoBebida, opcionId, delta)
+              }
+            />
+          ))}
+        </div>
       )}
     </div>
   );
@@ -195,6 +327,13 @@ export function ProductoFicha({ productId, onClose }: { productId: string; onClo
   const [error, setError] = useState(false);
   const [cantidad, setCantidad] = useState(1);
   const [selecciones, setSelecciones] = useState<SeleccionesPorGrupo>({});
+  // Lo que el cliente eligió DENTRO de cada bebida del upsell, por id del producto real
+  // (no del modifierOption): es la llave con la que `calcularItem` devuelve los upsells.
+  //
+  // Al quitar una bebida su entrada NO se borra, a propósito: todo lo que se envía se
+  // deriva de `resultado.valor.upsells`, que solo trae las de cantidad > 0. Así, si el
+  // cliente la vuelve a agregar, no pierde lo que ya había elegido.
+  const [seleccionesUpsell, setSeleccionesUpsell] = useState<Record<string, SeleccionesPorGrupo>>({});
   const [expandido, setExpandido] = useState<Record<string, boolean>>({});
 
   const agregarConfigurado = useCarrito((s) => s.agregarConfigurado);
@@ -232,34 +371,74 @@ export function ProductoFicha({ productId, onClose }: { productId: string; onClo
     );
   }, [producto, cantidad, selecciones, tipoPedido]);
 
+  /**
+   * Cada bebida elegida, cotizada con el MISMO motor que usará el servidor. De aquí sale
+   * el precio del botón, lo que se guarda en el carrito y el bloqueo por opciones que
+   * falten: no hay una segunda versión de las reglas viviendo en la UI (regla 1).
+   */
+  const calculosBebida = useMemo(() => {
+    if (!producto || !resultado?.ok) return [];
+
+    const seleccionesPorBebida = Object.fromEntries(
+      Object.entries(seleccionesUpsell).map(([refId, grupos]) => [refId, construirSeleccion(grupos)]),
+    );
+
+    return bebidasElegidas(resultado.valor.upsells, producto.productosUpsell, seleccionesPorBebida).map(
+      (bebida) => ({
+        bebida,
+        resultado: calcularItem(
+          bebida.producto,
+          {
+            productId: bebida.producto.id,
+            cantidad: bebida.cantidad,
+            seleccion: bebida.seleccion,
+            notas: null,
+          },
+          tipoPedido ?? undefined,
+        ),
+      }),
+    );
+  }, [producto, resultado, seleccionesUpsell, tipoPedido]);
+
   function toggleOpcion(enganche: EngancheParaFicha, opcionId: string) {
-    setSelecciones((prev) => {
-      const actual = prev[enganche.id] ?? {};
-      if (enganche.maxSelect === 1) {
-        const yaSeleccionada = (actual[opcionId] ?? 0) > 0;
-        return { ...prev, [enganche.id]: yaSeleccionada ? {} : { [opcionId]: 1 } };
-      }
-      const yaSeleccionada = (actual[opcionId] ?? 0) > 0;
-      if (yaSeleccionada) {
-        return { ...prev, [enganche.id]: sinOpcion(actual, opcionId) };
-      }
-      const suma = Object.values(actual).reduce((n, c) => n + c, 0);
-      if (suma >= enganche.maxSelect) return prev;
-      return { ...prev, [enganche.id]: { ...actual, [opcionId]: 1 } };
-    });
+    setSelecciones((prev) => ({
+      ...prev,
+      [enganche.id]: toggleEnGrupo(prev[enganche.id] ?? {}, enganche, opcionId),
+    }));
   }
 
   function cambiarCantidadOpcion(enganche: EngancheParaFicha, opcionId: string, delta: number) {
-    setSelecciones((prev) => {
-      const actual = prev[enganche.id] ?? {};
-      const cantidadActual = actual[opcionId] ?? 0;
-      const suma = Object.values(actual).reduce((n, c) => n + c, 0);
-      const maxPorOpcion = enganche.maxPorOpcion ?? Infinity;
-      const tope = Math.min(maxPorOpcion, enganche.maxSelect - (suma - cantidadActual));
-      const nueva = Math.max(0, Math.min(tope, cantidadActual + delta));
+    setSelecciones((prev) => ({
+      ...prev,
+      [enganche.id]: cantidadEnGrupo(prev[enganche.id] ?? {}, enganche, opcionId, delta),
+    }));
+  }
+
+  // Mismos gestos, un nivel más adentro: la selección de cada bebida del upsell.
+  function toggleOpcionBebida(refId: string, enganche: EngancheParaFicha, opcionId: string) {
+    setSeleccionesUpsell((prev) => {
+      const grupos = prev[refId] ?? {};
       return {
         ...prev,
-        [enganche.id]: nueva > 0 ? { ...actual, [opcionId]: nueva } : sinOpcion(actual, opcionId),
+        [refId]: { ...grupos, [enganche.id]: toggleEnGrupo(grupos[enganche.id] ?? {}, enganche, opcionId) },
+      };
+    });
+  }
+
+  function cambiarCantidadOpcionBebida(
+    refId: string,
+    enganche: EngancheParaFicha,
+    opcionId: string,
+    delta: number,
+  ) {
+    setSeleccionesUpsell((prev) => {
+      const grupos = prev[refId] ?? {};
+      return {
+        ...prev,
+        [refId]: {
+          ...grupos,
+          [enganche.id]: cantidadEnGrupo(grupos[enganche.id] ?? {}, enganche, opcionId, delta),
+        },
       };
     });
   }
@@ -273,22 +452,29 @@ export function ProductoFicha({ productId, onClose }: { productId: string; onClo
       precioBase: producto.precioBase,
       precioUnitarioEstimado: resultado.valor.base.precioUnitario,
       cantidad: resultado.valor.base.cantidad,
-      seleccion: construirSeleccion(selecciones),
+      // Los upsells NO viajan en la selección de la línea base: van como líneas
+      // propias, justo abajo (regla 8). Si fueran en los dos sitios, el checkout
+      // mandaría ambos al servidor y la bebida se cobraría dos veces.
+      seleccion: seleccionSinUpsells(construirSeleccion(selecciones), producto.engancles),
       modificadores: resultado.valor.base.modificadores,
       avisos: resultado.valor.base.avisos,
       notas: null,
     });
 
-    for (const upsell of resultado.valor.upsells) {
+    // Cada bebida entra como línea propia con SU selección (regla 8). Los datos salen de
+    // `calcularItem` sobre la bebida, así que el nombre, el precio y los modificadores
+    // son los del producto real y coinciden con lo que cobrará el servidor.
+    for (const { bebida, resultado: calculo } of calculosBebida) {
+      if (!calculo.ok) continue;
       agregarConfigurado({
-        productoId: upsell.productId,
-        nombre: upsell.nombreProducto,
-        precioBase: producto.productosUpsell[upsell.productId]?.precioBase ?? upsell.precioUnitario,
-        precioUnitarioEstimado: upsell.precioUnitario,
-        cantidad: upsell.cantidad,
-        seleccion: [],
-        modificadores: [],
-        avisos: [],
+        productoId: bebida.producto.id,
+        nombre: bebida.producto.nombre,
+        precioBase: bebida.producto.precioBase,
+        precioUnitarioEstimado: calculo.valor.base.precioUnitario,
+        cantidad: bebida.cantidad,
+        seleccion: bebida.seleccion,
+        modificadores: calculo.valor.base.modificadores,
+        avisos: calculo.valor.base.avisos,
         notas: null,
       });
     }
@@ -299,9 +485,34 @@ export function ProductoFicha({ productId, onClose }: { productId: string; onClo
   const enganclesSeleccion = producto?.engancles.filter((e) => e.tipo === "seleccion") ?? [];
   const enganclesUpsell = producto?.engancles.filter((e) => e.tipo === "upsell") ?? [];
 
-  const precioTotal = resultado?.ok
-    ? resultado.valor.base.subtotal + resultado.valor.upsells.reduce((n, u) => n + u.subtotal, 0)
-    : null;
+  // Se puede añadir solo si el producto Y todas sus bebidas están completos: una bebida
+  // a medias produciría un 422 en el checkout, donde ya no se puede reconfigurar.
+  const todoOk = Boolean(resultado?.ok) && calculosBebida.every((c) => c.resultado.ok);
+
+  const precioTotal =
+    resultado?.ok && todoOk
+      ? resultado.valor.base.subtotal +
+        calculosBebida.reduce((n, c) => n + (c.resultado.ok ? c.resultado.valor.base.subtotal : 0), 0)
+      : null;
+
+  // Qué le falta al cliente, para que el botón bloqueado diga el motivo en vez de un
+  // "Elige las opciones" que no dice cuál grupo está pendiente.
+  const pendientes = producto
+    ? pendientesDeFicha(
+        producto,
+        construirSeleccion(selecciones),
+        calculosBebida.map((c) => c.bebida),
+      )
+    : [];
+
+  const textoBoton =
+    precioTotal !== null
+      ? `Añadir ${pesos(precioTotal)}`
+      : pendientes.length > 0
+        ? pendientes[0].nombreProducto
+          ? `Elige ${pendientes[0].nombreGrupo.toLowerCase()} de ${pendientes[0].nombreProducto}`
+          : `Elige ${pendientes[0].nombreGrupo.toLowerCase()}`
+        : "Elige las opciones";
 
   if (error) {
     return (
@@ -362,45 +573,46 @@ export function ProductoFicha({ productId, onClose }: { productId: string; onClo
           />
         ))}
 
-        {enganclesUpsell.map((enganche) => (
-          <div key={enganche.id}>
-            <h3 className="font-titulo text-base font-semibold text-cafe">{enganche.nombreGrupo}</h3>
-            <div className="mt-2 flex flex-col gap-2">
-              {enganche.opciones.map((opcion) => {
-                const ref = opcion.productoRef ? producto.productosUpsell[opcion.productoRef] : undefined;
-                const cantidadSel = selecciones[enganche.id]?.[opcion.id] ?? 0;
-                const precio = precioOpcion(enganche, opcion);
-                return (
-                  <div key={opcion.id} className="flex items-center gap-3 rounded-md border border-crema-oscura p-2">
-                    <div className="relative size-12 shrink-0 overflow-hidden rounded-sm bg-crema-oscura">
-                      {ref?.imagen && <Image src={ref.imagen} alt="" fill sizes="48px" className="object-cover" />}
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-semibold text-cafe">{ref?.nombre ?? opcion.nombre}</p>
-                      <p className="text-xs text-cafe-suave">{pesos(precio)}</p>
-                    </div>
-                    {enganche.permiteCantidad ? (
-                      <StepperCantidad
-                        valor={cantidadSel}
-                        onCambiar={(delta) => cambiarCantidadOpcion(enganche, opcion.id, delta)}
-                      />
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => toggleOpcion(enganche, opcion.id)}
-                        className={`rounded-full px-4 py-1.5 text-sm font-bold ${
-                          cantidadSel > 0 ? "bg-crema-oscura text-cafe" : "bg-naranja text-crema hover:bg-naranja-osc"
-                        }`}
-                      >
-                        {cantidadSel > 0 ? "Quitar" : "Agregar"}
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
+        {enganclesUpsell.map((enganche) => {
+          // Sugerir algo que no se puede comprar es fricción pura: aquí se oculta en vez
+          // de mostrarse "agotado" como en la tarjeta del menú. No se borra nada — la
+          // opción sigue en la tabla y el admin la reactiva con un switch (regla 9).
+          const ofrecibles = enganche.opciones.filter((opcion) => {
+            if (!opcion.disponible || !opcion.productoRef) return false;
+            const ref = producto.productosUpsell[opcion.productoRef];
+            if (!ref || !ref.activo || !ref.disponible) return false;
+            if (tipoPedido === "domicilio" && !ref.disponibleDelivery) return false;
+            if (tipoPedido === "recoger" && !ref.disponiblePickup) return false;
+            return true;
+          });
+
+          if (ofrecibles.length === 0) return null;
+
+          return (
+            <div key={enganche.id}>
+              <h3 className="font-titulo text-base font-semibold text-cafe">{enganche.nombreGrupo}</h3>
+              <div className="mt-2 flex flex-col gap-2">
+                {ofrecibles.map((opcion) => (
+                  <FilaUpsell
+                    key={opcion.id}
+                    enganche={enganche}
+                    bebida={producto.productosUpsell[opcion.productoRef!]}
+                    cantidad={selecciones[enganche.id]?.[opcion.id] ?? 0}
+                    seleccionBebida={seleccionesUpsell[opcion.productoRef!] ?? {}}
+                    onToggle={() => toggleOpcion(enganche, opcion.id)}
+                    onCambiarCantidad={(delta) => cambiarCantidadOpcion(enganche, opcion.id, delta)}
+                    onToggleOpcionBebida={(e, opcionId) =>
+                      toggleOpcionBebida(opcion.productoRef!, e, opcionId)
+                    }
+                    onCambiarCantidadBebida={(e, opcionId, delta) =>
+                      cambiarCantidadOpcionBebida(opcion.productoRef!, e, opcionId, delta)
+                    }
+                  />
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </>
   );
@@ -414,7 +626,7 @@ export function ProductoFicha({ productId, onClose }: { productId: string; onClo
         disabled={!resultado?.ok}
         className="flex-1 rounded-full bg-naranja px-4 py-3 font-cuerpo text-sm font-bold text-crema transition-colors hover:bg-naranja-osc disabled:pointer-events-none disabled:opacity-40"
       >
-        {precioTotal !== null ? `Añadir ${pesos(precioTotal)}` : "Elige las opciones"}
+        {textoBoton}
       </button>
     </div>
   );

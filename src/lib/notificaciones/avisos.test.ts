@@ -1,0 +1,111 @@
+import { afterEach, describe, expect, it } from "vitest";
+import { avisoNuevoPedido, pedidoParaMensaje, tiendaParaMensaje } from "./avisos";
+import { resolverBaseUrl } from "@/lib/url";
+import type { PedidoPublico } from "@/db/queries/pedidos";
+
+const ENV_ORIGINAL = { ...process.env };
+afterEach(() => {
+  process.env = { ...ENV_ORIGINAL };
+});
+
+function pedidoPublico(overrides: Partial<PedidoPublico> = {}): PedidoPublico {
+  return {
+    numero: 7,
+    tokenPublico: "f".repeat(32),
+    tipo: "domicilio",
+    estado: "nuevo",
+    creadoEn: new Date("2026-07-27T20:00:00Z"),
+    clienteNombre: "Ana",
+    clienteTelefono: "3001234567",
+    direccion: "Calle 10 # 5-20",
+    indicaciones: "Casa de reja verde",
+    barrio: "Centro",
+    domicilioPorConfirmar: false,
+    metodoPago: "efectivo",
+    tieneComprobante: false,
+    notas: null,
+    items: [{ nombre: "Churro clásico", cantidad: 2, subtotal: 10000, modificadores: [] }],
+    subtotal: 10000,
+    costoDomicilio: 3000,
+    descuento: 0,
+    total: 13000,
+    ...overrides,
+  };
+}
+
+describe("resolverBaseUrl", () => {
+  it("prefiere la variable explícita", () => {
+    process.env.NEXT_PUBLIC_BASE_URL = "https://cronchy.co";
+    process.env.VERCEL_URL = "preview.vercel.app";
+    expect(resolverBaseUrl()).toBe("https://cronchy.co");
+  });
+
+  it("quita la barra final", () => {
+    process.env.NEXT_PUBLIC_BASE_URL = "https://cronchy.co/";
+    expect(resolverBaseUrl()).toBe("https://cronchy.co");
+  });
+
+  it("usa el dominio de producción de Vercel si no hay variable explícita", () => {
+    delete process.env.NEXT_PUBLIC_BASE_URL;
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = "cronchy.vercel.app";
+    expect(resolverBaseUrl()).toBe("https://cronchy.vercel.app");
+  });
+
+  it("cae a localhost en desarrollo", () => {
+    delete process.env.NEXT_PUBLIC_BASE_URL;
+    delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
+    delete process.env.VERCEL_URL;
+    expect(resolverBaseUrl()).toBe("http://localhost:3000");
+  });
+});
+
+describe("pedidoParaMensaje", () => {
+  it("traslada los datos del pedido al formato de las plantillas", () => {
+    const m = pedidoParaMensaje(pedidoPublico());
+    expect(m.numero).toBe(7);
+    expect(m.barrio).toBe("Centro");
+    expect(m.total).toBe(13000);
+    expect(m.items).toHaveLength(1);
+  });
+
+  it("usa el barrio escrito a mano cuando no hubo zona (US11)", () => {
+    const m = pedidoParaMensaje(
+      pedidoPublico({ barrio: "Vereda La Aguadita", domicilioPorConfirmar: true, costoDomicilio: 0 }),
+    );
+    expect(m.barrio).toBe("Vereda La Aguadita");
+    expect(m.costoDomicilio).toBe(0);
+  });
+});
+
+describe("avisoNuevoPedido", () => {
+  it("apunta el wa.me al teléfono del NEGOCIO, no al del cliente", async () => {
+    process.env.NEXT_PUBLIC_BASE_URL = "https://cronchy.co";
+    const r = await avisoNuevoPedido(pedidoPublico(), {
+      nombre: "Cronchy",
+      telefono: "3009998877",
+    });
+
+    expect(r?.modo).toBe("link");
+    if (r?.modo === "link") {
+      expect(r.url).toContain("wa.me/573009998877");
+      expect(r.url).not.toContain("573001234567");
+      expect(r.texto).toContain("NUEVO PEDIDO #7");
+      expect(r.texto).toContain("Ana");
+    }
+  });
+
+  it("devuelve null si la tienda no tiene teléfono, para poder ocultar el botón", async () => {
+    const r = await avisoNuevoPedido(pedidoPublico(), { nombre: "Cronchy", telefono: null });
+    expect(r).toBeNull();
+  });
+});
+
+describe("tiendaParaMensaje", () => {
+  it("arma el destino con la base url resuelta", () => {
+    process.env.NEXT_PUBLIC_BASE_URL = "https://cronchy.co";
+    expect(tiendaParaMensaje({ nombre: "Cronchy" })).toEqual({
+      nombre: "Cronchy",
+      baseUrl: "https://cronchy.co",
+    });
+  });
+});

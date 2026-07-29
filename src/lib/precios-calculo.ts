@@ -64,6 +64,27 @@ export type ProductoParaPrecio = {
 };
 
 // ------------------------------------------------------------
+// Regla 3 — precio efectivo de una opción
+// ------------------------------------------------------------
+
+/**
+ * Regla 3 de CLAUDE.md: `incluido` siempre vale 0, sin importar `precioDelta`.
+ * `adicional` usa el `precioUnitario` del enganche y, si es NULL, cae al
+ * `precioDelta` de la opción.
+ *
+ * Vive aquí y no en la UI a propósito: la ficha de producto la usa para pintar el
+ * "+$2.000" al lado de cada opción y este módulo para cobrar. Si estuvieran
+ * duplicadas, el día que la regla cambie el precio mostrado y el cobrado
+ * divergirían sin que ningún test lo note.
+ */
+export function precioEfectivoOpcion(
+  enganche: Pick<EngancheParaPrecio, "modo" | "precioUnitario">,
+  opcion: Pick<OpcionParaPrecio, "precioDelta">,
+): number {
+  return enganche.modo === "incluido" ? 0 : enganche.precioUnitario ?? opcion.precioDelta;
+}
+
+// ------------------------------------------------------------
 // Errores y resultado
 // ------------------------------------------------------------
 
@@ -128,6 +149,47 @@ export function itemCalculadoASnapshot(item: ItemCalculado): ItemSnapshot {
     })),
     notas: item.notas,
   };
+}
+
+// ------------------------------------------------------------
+// Qué le falta al cliente por elegir
+// ------------------------------------------------------------
+
+export type GrupoIncompleto = {
+  productModifierGroupId: string;
+  nombreGrupo: string;
+  /** Cuántas selecciones faltan para llegar al mínimo. */
+  faltan: number;
+};
+
+/**
+ * Grupos que impiden añadir el producto al carrito por estar incompletos.
+ *
+ * `calcularItem` ya evalúa esto, pero corta en el primero que falla porque solo necesita
+ * decidir si el pedido es válido. La ficha necesita la lista entera para marcar cada
+ * sección y decirle al cliente cuánto le falta en cada una.
+ *
+ * Los enganches con `avisarIncompleto` quedan fuera: por definición no bloquean (regla 4).
+ */
+export function gruposIncompletos(
+  producto: Pick<ProductoParaPrecio, "engancles">,
+  seleccion: SeleccionEnganche[],
+): GrupoIncompleto[] {
+  const porEnganche = new Map(seleccion.map((s) => [s.productModifierGroupId, s]));
+
+  return producto.engancles.flatMap((enganche) => {
+    if (enganche.avisarIncompleto) return [];
+
+    const recibidas = (porEnganche.get(enganche.id)?.opciones ?? []).reduce(
+      (n, o) => n + o.cantidad,
+      0,
+    );
+    const faltan = enganche.minSelect - recibidas;
+
+    return faltan > 0
+      ? [{ productModifierGroupId: enganche.id, nombreGrupo: enganche.nombreGrupo, faltan }]
+      : [];
+  });
 }
 
 // ------------------------------------------------------------
@@ -242,10 +304,7 @@ export function calcularItem(
 
     for (const sel of opcionesSeleccionadas) {
       const opcion = opcionesPorId.get(sel.modifierOptionId)!;
-      // Regla 3: incluido siempre es 0, sin importar precioDelta. Adicional usa el
-      // override del enganche si existe, si no el precioDelta de la opción.
-      const precioUnitarioOpcion =
-        enganche.modo === "incluido" ? 0 : enganche.precioUnitario ?? opcion.precioDelta;
+      const precioUnitarioOpcion = precioEfectivoOpcion(enganche, opcion);
 
       if (enganche.tipo === "upsell") {
         // Regla 8: un upsell es su propio order_item, nunca un modificador del producto base.

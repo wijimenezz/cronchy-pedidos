@@ -141,6 +141,7 @@ export const modifierGroup = pgTable("modifier_group", {
 
 export const modifierOption = pgTable("modifier_option", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
+	storeId: uuid("store_id").notNull(),
 	groupId: uuid("group_id").notNull(),
 	nombre: text().notNull(),
 	precioDelta: integer("precio_delta").default(0).notNull(),
@@ -151,6 +152,11 @@ export const modifierOption = pgTable("modifier_option", {
 	orden: integer().default(0).notNull(),
 }, (table) => [
 	index("idx_option_group").using("btree", table.groupId.asc().nullsLast().op("int4_ops"), table.orden.asc().nullsLast().op("int4_ops")),
+	foreignKey({
+			columns: [table.storeId],
+			foreignColumns: [store.id],
+			name: "modifier_option_store_id_fkey"
+		}).onDelete("cascade"),
 	foreignKey({
 			columns: [table.groupId],
 			foreignColumns: [modifierGroup.id],
@@ -165,6 +171,7 @@ export const modifierOption = pgTable("modifier_option", {
 
 export const productModifierGroup = pgTable("product_modifier_group", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
+	storeId: uuid("store_id").notNull(),
 	productId: uuid("product_id").notNull(),
 	groupId: uuid("group_id").notNull(),
 	modo: modoGrupo().default('incluido').notNull(),
@@ -177,6 +184,11 @@ export const productModifierGroup = pgTable("product_modifier_group", {
 	orden: integer().default(0).notNull(),
 }, (table) => [
 	index("idx_pmg_product").using("btree", table.productId.asc().nullsLast().op("int4_ops"), table.orden.asc().nullsLast().op("uuid_ops")),
+	foreignKey({
+			columns: [table.storeId],
+			foreignColumns: [store.id],
+			name: "product_modifier_group_store_id_fkey"
+		}).onDelete("cascade"),
 	foreignKey({
 			columns: [table.groupId],
 			foreignColumns: [modifierGroup.id],
@@ -274,6 +286,7 @@ export const order = pgTable("order", {
 
 export const orderItem = pgTable("order_item", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
+	storeId: uuid("store_id").notNull(),
 	orderId: uuid("order_id").notNull(),
 	productId: uuid("product_id"),
 	cantidad: integer().notNull(),
@@ -283,6 +296,11 @@ export const orderItem = pgTable("order_item", {
 	orden: integer().default(0).notNull(),
 }, (table) => [
 	index("idx_order_item_order").using("btree", table.orderId.asc().nullsLast().op("uuid_ops")),
+	foreignKey({
+			columns: [table.storeId],
+			foreignColumns: [store.id],
+			name: "order_item_store_id_fkey"
+		}),
 	foreignKey({
 			columns: [table.orderId],
 			foreignColumns: [order.id],
@@ -298,12 +316,18 @@ export const orderItem = pgTable("order_item", {
 
 export const orderStatusEvent = pgTable("order_status_event", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
+	storeId: uuid("store_id").notNull(),
 	orderId: uuid("order_id").notNull(),
 	estado: estadoPedido().notNull(),
 	userId: uuid("user_id"),
 	notificadoEn: timestamp("notificado_en", { withTimezone: true, mode: 'string' }),
 	creadoEn: timestamp("creado_en", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
+	foreignKey({
+			columns: [table.storeId],
+			foreignColumns: [store.id],
+			name: "order_status_event_store_id_fkey"
+		}),
 	foreignKey({
 			columns: [table.orderId],
 			foreignColumns: [order.id],

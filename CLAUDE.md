@@ -106,13 +106,31 @@ Un mismo grupo (ej. "Salsas") se engancha **dos veces** al mismo producto vía
 El precio efectivo de una opción es `precio_unitario` del enganche; si es `NULL`,
 se usa `modifier_option.precio_delta`.
 
-### 4. Bloquear vs avisar — son cosas distintas
+### 4. Lo que el producto incluye es obligatorio
 
-- `min_select > 0` → **bloquea** el botón Añadir. Ej.: el cono exige sabor de helado.
-- `avisar_incompleto = true` → muestra un aviso suave ("te falta elegir 1 salsa")
-  pero **permite** añadir al carrito.
+Si un producto trae salsas o toppings incluidos, el cliente **elige todos** o no puede
+añadirlo al carrito. No son un extra que se pueda saltar: ya están pagados dentro del
+precio, y un pedido sin ellos llega incompleto a cocina.
 
-Nunca uses uno para lograr el efecto del otro.
+Se modela con `min_select = max_select` y `avisar_incompleto = false` en el enganche:
+
+| Producto           | Salsas | Toppings |
+| ------------------ | ------ | -------- |
+| Clásico / Chiqui / Frutilla / Ring | 1 | 1 |
+| Cronchy Mega       | 1      | 2        |
+| Cronchy Amigos     | 2      | —        |
+| Cronchy Familiar   | 4      | —        |
+| Cronchy Churros    | 1      | —        |
+
+Los grupos en modo `adicional` (las salsas de pago) siguen siendo opcionales: `min_select = 0`.
+
+`calcularItem` bloquea con el error `seleccion_incompleta`, y la ficha usa
+`gruposIncompletos()` —del mismo módulo— para decir cuántas faltan en cada sección. Nunca
+repliques ese cálculo en un componente.
+
+**`avisar_incompleto` sigue existiendo en el motor** (avisa sin bloquear, y está probado),
+pero hoy **ningún enganche lo usa**. Si algún día vuelve a haber un grupo opcional con
+recordatorio, el mecanismo está listo; mientras tanto, no asumas que existe ese caso.
 
 ### 5. `store_id` en todas las tablas
 
@@ -138,6 +156,18 @@ Todos los montos son pesos colombianos en `INT`. Nunca `float`, nunca decimales.
 Cuando el cliente agrega una bebida desde la ficha de un churro, esa bebida se convierte
 en su **propio `order_item`**, no en un modificador del churro. Si no, no llega a la barra
 en el ticket de cocina ni aparece en los reportes de bebidas.
+
+Consecuencia en el precio: **un upsell se cobra por el `precio_base` de su producto**, no
+por el `precio_delta` del enganche. Al ser un item independiente, el servidor lo calcula
+como cualquier otro producto. Un mismo Latte Frío cuesta lo mismo pedido suelto que
+agregado desde un churro.
+
+Por eso la línea base del carrito guarda su selección **sin** los grupos de tipo `upsell`
+(`seleccionSinUpsells` en `src/lib/checkout/mapeo.ts`): si el upsell viajara dentro de la
+selección del churro *y* como línea suelta, el servidor lo cobraría dos veces.
+
+Si algún día se quiere un precio promocional por comprar la bebida junto al churro, hay
+que modelarlo como promoción explícita; `precio_delta` no sirve para eso.
 
 ### 9. Nunca borrar opciones, apagarlas
 
