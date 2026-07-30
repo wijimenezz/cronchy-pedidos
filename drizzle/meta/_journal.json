@@ -50,6 +50,13 @@
       "when": 1785427601728,
       "tag": "0006_late_silhouette",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1785438595689,
+      "tag": "0007_hard_sentry",
+      "breakpoints": true
     }
   ]
 }
