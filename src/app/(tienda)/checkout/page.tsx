@@ -41,6 +41,8 @@ export default async function CheckoutPage() {
             direccion: tienda.direccion,
             nequiTitular: tienda.nequiTitular,
             nequiNumero: tienda.nequiNumero,
+            nequiLlave: tienda.nequiLlave,
+            nequiLlaveTitular: tienda.nequiLlaveTitular,
           }}
         />
       ) : (

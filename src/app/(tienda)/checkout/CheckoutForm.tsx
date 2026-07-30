@@ -12,6 +12,7 @@ import { crearPedidoSchema, REQUERIDO } from "@/lib/validaciones";
 import { pesos } from "@/lib/notificaciones/plantillas";
 import type { ZonaDomicilio } from "@/db/queries/deliveryZones";
 import { Campo, claseControl } from "@/components/checkout/Campo";
+import { DatoCopiable } from "@/components/checkout/DatoCopiable";
 import { SelectorFecha } from "@/components/checkout/SelectorFecha";
 import { SubidaComprobante } from "@/components/checkout/SubidaComprobante";
 
@@ -21,6 +22,11 @@ const BARRIO_OTRO = "__otro__";
 type Errores = Record<string, string>;
 
 type Paso = 1 | 2 | 3;
+
+/** "3124914660" -> "312 491 4660". Solo para mostrar: lo que se copia son los dígitos. */
+function conEspacios(numero: string): string {
+  return numero.replace(/^(\d{3})(\d{3})(\d{4})$/, "$1 $2 $3");
+}
 
 /**
  * Qué campos del esquema se revisan antes de dejar pasar al siguiente paso. El envío
@@ -44,6 +50,8 @@ export function CheckoutForm({
     direccion: string | null;
     nequiTitular: string | null;
     nequiNumero: string | null;
+    nequiLlave: string | null;
+    nequiLlaveTitular: string | null;
   };
 }) {
   const router = useRouter();
@@ -67,7 +75,14 @@ export function CheckoutForm({
   const datosHidratados = useDatosClienteHidratados();
   const hidratado = carritoHidratado && datosHidratados;
 
-  const [paso, setPaso] = useState<Paso>(1);
+  // Paso y pago viven en el carrito persistido: si el cliente sale a la app de Nequi y
+  // el navegador mata la pestaña, al volver encuentra el checkout como lo dejó.
+  const pasoGuardado = useCarrito((s) => s.paso);
+  const setPaso = useCarrito((s) => s.setPaso);
+  const metodoPago = useCarrito((s) => s.metodoPago);
+  const comprobanteUrl = useCarrito((s) => s.comprobanteUrl);
+  const pagoConfirmado = useCarrito((s) => s.pagoConfirmado);
+  const setPago = useCarrito((s) => s.setPago);
 
   // Estos campos NO son estado local: viven en un store persistido, así el cliente no
   // tiene que volver a escribirlos en su próximo pedido (ni si recarga a mitad del
@@ -84,8 +99,6 @@ export function CheckoutForm({
     datos.zonaId === BARRIO_OTRO || zonas.some((z) => z.id === datos.zonaId);
   const barrioSel = zonaGuardadaSigueValida ? datos.zonaId : zonas.length > 0 ? "" : BARRIO_OTRO;
 
-  const [metodoPago, setMetodoPago] = useState<"efectivo" | "nequi">("efectivo");
-  const [comprobanteUrl, setComprobanteUrl] = useState<string | null>(null);
   const [aceptaPolitica, setAceptaPolitica] = useState(false);
 
   const [errores, setErrores] = useState<Errores>({});
@@ -161,6 +174,9 @@ export function CheckoutForm({
 
   // En recoger no hay nada que preguntar sobre la entrega: el paso 2 se salta entero.
   const pasos: Paso[] = esDomicilio ? [1, 2, 3] : [1, 3];
+  // El paso guardado puede no existir para este tipo de pedido (si venía en el 2 y
+  // cambió a recoger). En ese caso se vuelve al principio en vez de quedar en la nada.
+  const paso = pasos.includes(pasoGuardado) ? pasoGuardado : pasos[0];
   const indiceActual = pasos.indexOf(paso);
   const esUltimo = indiceActual === pasos.length - 1;
 
@@ -753,7 +769,7 @@ export function CheckoutForm({
                       name="metodoPago"
                       value={m}
                       checked={metodoPago === m}
-                      onChange={() => setMetodoPago(m)}
+                      onChange={() => setPago({ metodoPago: m })}
                       className="size-4 accent-[var(--naranja)]"
                     />
                     <span className="font-semibold">{m === "efectivo" ? "Efectivo" : "Nequi"}</span>
@@ -762,26 +778,76 @@ export function CheckoutForm({
             </div>
 
             {metodoPago === "nequi" && (
-              <div className="flex flex-col gap-3 rounded-sm bg-crema p-3">
-                <div className="font-cuerpo text-sm text-cafe">
-                  <p>
-                    Transfiere <strong>{pesos(total + costoDomicilio)}</strong> a:
-                  </p>
-                  <p className="mt-1 text-lg font-bold text-naranja">{tienda.nequiNumero}</p>
-                  {tienda.nequiTitular && (
-                    <p className="text-[13px] text-cafe-suave">A nombre de {tienda.nequiTitular}</p>
-                  )}
-                  {porConfirmar && (
-                    <p className="mt-1 text-[13px] text-alerta">
-                      El domicilio va aparte: el negocio te lo confirma.
-                    </p>
-                  )}
-                </div>
-                <SubidaComprobante
-                  url={comprobanteUrl}
-                  onSubido={setComprobanteUrl}
-                  error={errorDe("comprobanteUrl")}
+              <div className="flex flex-col gap-4 rounded-sm bg-crema p-3">
+                <DatoCopiable
+                  etiqueta="Transfiere este valor"
+                  valor={pesos(total + costoDomicilio)}
+                  aCopiar={String(total + costoDomicilio)}
                 />
+
+                {porConfirmar && (
+                  <p className="rounded-sm bg-alerta/12 px-3 py-2 font-cuerpo text-[13px] text-alerta">
+                    El domicilio va aparte: el negocio te lo confirma.
+                  </p>
+                )}
+
+                {tienda.nequiNumero && (
+                  <DatoCopiable
+                    etiqueta="Puedes pagar por Nequi a este número"
+                    valor={conEspacios(tienda.nequiNumero)}
+                    aCopiar={tienda.nequiNumero}
+                    titular={tienda.nequiTitular}
+                  />
+                )}
+
+                {tienda.nequiLlave && (
+                  <DatoCopiable
+                    etiqueta="O con esta llave"
+                    valor={tienda.nequiLlave}
+                    aCopiar={tienda.nequiLlave}
+                    titular={tienda.nequiLlaveTitular}
+                  />
+                )}
+
+                {/* Se dice el recorrido completo ANTES de que se vaya a Nequi: si no,
+                    paga y cierra la pestaña sin saber que faltaba volver a adjuntar. */}
+                <p className="font-cuerpo text-[13px] text-cafe-suave">
+                  Paga desde tu app de Nequi, toma la captura del comprobante y vuelve aquí para
+                  adjuntarla.
+                </p>
+
+                {!pagoConfirmado ? (
+                  <>
+                    {/* Sin esto el checkout es un callejón sin salida: el pedido exige
+                        comprobante, pero la zona para subirlo todavía no existe. */}
+                    {errorDe("comprobanteUrl") && (
+                      <p className="rounded-sm bg-error/10 px-3 py-2 font-cuerpo text-[13px] font-semibold text-error">
+                        Toca «Ya realicé mi pago» para adjuntar el comprobante.
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setPago({ pagoConfirmado: true })}
+                      className="min-h-11 rounded-full bg-naranja px-6 py-3 font-cuerpo text-sm font-bold text-crema"
+                    >
+                      Ya realicé mi pago
+                    </button>
+                  </>
+                ) : (
+                  <div className="flex flex-col gap-2 border-t border-crema-oscura pt-3">
+                    <span className="font-cuerpo text-sm font-bold text-cafe">
+                      Adjunta el comprobante
+                    </span>
+                    <span className="font-cuerpo text-[13px] text-cafe-suave">
+                      Búscalo en tu galería: suele ser la captura más reciente.
+                    </span>
+                    <SubidaComprobante
+                      url={comprobanteUrl}
+                      onSubido={(url) => setPago({ comprobanteUrl: url })}
+                      error={errorDe("comprobanteUrl")}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </section>

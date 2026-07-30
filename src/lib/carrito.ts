@@ -40,20 +40,58 @@ export type ItemCarrito = {
   notas?: string | null;
 };
 
+export type MetodoPago = "efectivo" | "nequi";
+
+/**
+ * El pago del pedido EN CURSO. Vive aquí y no en `datos-cliente` a propósito: este
+ * store se limpia con `vaciar()` al crear el pedido, así que el comprobante nunca
+ * sobrevive al pedido que lo originó. En el store de datos del cliente —que persiste
+ * entre pedidos— el comprobante de ayer terminaría adjunto al pedido de hoy.
+ *
+ * Que se persista es justo lo que hace posible el viaje a Nequi: el cliente sale de la
+ * pestaña a pagar, Android la mata, vuelve, y encuentra todo como lo dejó.
+ */
 type EstadoCarrito = {
   items: ItemCarrito[];
   /** Observación del pedido completo (no por línea), ej. "Sin canela". */
   notas: string;
+  metodoPago: MetodoPago;
+  comprobanteUrl: string | null;
+  /** Tocó "Ya realicé mi pago": recién ahí se le ofrece adjuntar el comprobante. */
+  pagoConfirmado: boolean;
+  /** Paso del checkout, para volver donde estaba y no al principio. */
+  paso: 1 | 2 | 3;
   /** Producto sin modificadores: agrega directo, igual que hoy. */
   agregarSimple: (producto: { id: string; nombre: string; precioBase: number }) => void;
   /** Producto configurado desde la ficha (con o sin modificadores/upsells):
    * siempre crea una línea nueva, no intenta fusionar configuraciones. */
   agregarConfigurado: (item: Omit<ItemCarrito, "lineId">) => void;
   setNotas: (notas: string) => void;
+  setPago: (
+    pago: Partial<Pick<EstadoCarrito, "metodoPago" | "comprobanteUrl" | "pagoConfirmado">>,
+  ) => void;
+  setPaso: (paso: 1 | 2 | 3) => void;
   incrementar: (lineId: string) => void;
   decrementar: (lineId: string) => void;
   eliminar: (lineId: string) => void;
   vaciar: () => void;
+};
+
+/** Lo único del carrito que sobrevive entre visitas. Ver `partialize` más abajo. */
+type CarritoPersistido = {
+  items: ItemCarrito[];
+  metodoPago: MetodoPago;
+  comprobanteUrl: string | null;
+  pagoConfirmado: boolean;
+  paso: 1 | 2 | 3;
+};
+
+const PERSISTIDO_VACIO: CarritoPersistido = {
+  items: [],
+  metodoPago: "efectivo",
+  comprobanteUrl: null,
+  pagoConfirmado: false,
+  paso: 1,
 };
 
 /**
@@ -66,6 +104,10 @@ export const useCarrito = create<EstadoCarrito>()(
     (set) => ({
       items: [],
       notas: "",
+      metodoPago: "efectivo",
+      comprobanteUrl: null,
+      pagoConfirmado: false,
+      paso: 1,
       agregarSimple: (producto) =>
         set((estado) => {
           const existente = estado.items.find(
@@ -112,10 +154,42 @@ export const useCarrito = create<EstadoCarrito>()(
       eliminar: (lineId) =>
         set((estado) => ({ items: estado.items.filter((i) => i.lineId !== lineId) })),
       setNotas: (notas) => set({ notas }),
-      vaciar: () => set({ items: [], notas: "" }),
+      setPago: (pago) => set(pago),
+      setPaso: (paso) => set({ paso }),
+      // Con el pedido ya creado se borra TODO lo del pedido en curso, incluido el
+      // comprobante: si sobreviviera, el próximo pedido nacería con un pago ajeno.
+      vaciar: () =>
+        set({
+          items: [],
+          notas: "",
+          metodoPago: "efectivo",
+          comprobanteUrl: null,
+          pagoConfirmado: false,
+          paso: 1,
+        }),
     }),
     {
       name: "cronchy_carrito",
+      /**
+       * Lista explícita de lo que sobrevive entre visitas. Se enumera lo que SÍ se
+       * guarda en vez de omitir lo que no, para que agregar un campo al store obligue
+       * a decidir a conciencia si debe persistir, en vez de que se cuele solo.
+       *
+       * `notas` queda deliberadamente afuera: es lo que el cliente escribe para ESE
+       * pedido ("sin canela"). Si se guardara, quien lo pide una vez lo pediría para
+       * siempre sin enterarse. Sigue viviendo en el store durante la visita.
+       *
+       * Los datos de pago y el paso sí se guardan: son los que permiten salir a la app
+       * de Nequi, pagar y volver sin perder el comprobante. `vaciar()` los limpia al
+       * crear el pedido, así que tampoco se heredan al siguiente.
+       */
+      partialize: (estado): CarritoPersistido => ({
+        items: estado.items,
+        metodoPago: estado.metodoPago,
+        comprobanteUrl: estado.comprobanteUrl,
+        pagoConfirmado: estado.pagoConfirmado,
+        paso: estado.paso,
+      }),
       // v1 agregó lineId/seleccion/modificadores/avisos/precioUnitarioEstimado
       // a cada línea. Un carrito guardado en localStorage con la forma vieja
       // (antes de v1) no tiene esos campos — no hay forma de reconstruirlos
@@ -126,10 +200,24 @@ export const useCarrito = create<EstadoCarrito>()(
       // línea de bebida guardada antes lleva `seleccion: []` y el servidor la rechazaría
       // con un 422 en el checkout, donde el cliente ya no puede reconfigurarla. Se
       // descarta el carrito: perder un carrito una vez es mejor que un pedido bloqueado.
-      version: 2,
+      //
+      // v3: `notas` dejó de persistirse. Una nota guardada por una versión anterior
+      // sigue en localStorage, así que hay que descartarla explícitamente.
+      version: 3,
       migrate: (persistedState, version) => {
-        if (version < 2) return { items: [] };
-        return persistedState as EstadoCarrito;
+        if (version < 2) return PERSISTIDO_VACIO;
+
+        // Se reconstruye campo a campo, no con un spread: así la `notas` que las
+        // versiones anteriores sí guardaban queda fuera y no vuelve por la puerta de
+        // atrás al fusionarse con el estado inicial.
+        const guardado = persistedState as Partial<CarritoPersistido>;
+        return {
+          items: guardado.items ?? [],
+          metodoPago: guardado.metodoPago ?? "efectivo",
+          comprobanteUrl: guardado.comprobanteUrl ?? null,
+          pagoConfirmado: guardado.pagoConfirmado ?? false,
+          paso: guardado.paso ?? 1,
+        };
       },
     },
   ),

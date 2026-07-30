@@ -71,11 +71,13 @@ export function SubidaComprobante({
 
   return (
     <div className="flex flex-col gap-2">
+      {/* SIN `capture`: ese atributo abre la cámara directamente, y el comprobante de
+          Nequi es una CAPTURA DE PANTALLA que está en la galería. Sin él, el sistema
+          muestra su selector normal, que ofrece galería y cámara. */}
       <input
         ref={inputRef}
         type="file"
         accept="image/jpeg,image/png,image/webp"
-        capture="environment"
         className="hidden"
         onChange={(e) => {
           const archivo = e.target.files?.[0];
@@ -119,7 +121,7 @@ export function SubidaComprobante({
           ) : (
             <>
               <Upload className="size-4" />
-              {estado === "error" ? "Reintentar" : "Subir foto del comprobante"}
+              {estado === "error" ? "Reintentar" : "Elegir de la galería"}
             </>
           )}
         </button>
