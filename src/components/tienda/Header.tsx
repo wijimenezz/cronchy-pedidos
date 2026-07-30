@@ -7,6 +7,7 @@ import { CartButton } from "@/components/tienda/CartButton";
 type Tienda = {
   nombre: string;
   telefono: string | null;
+  whatsappUrl: string | null;
   direccion: string | null;
 };
 

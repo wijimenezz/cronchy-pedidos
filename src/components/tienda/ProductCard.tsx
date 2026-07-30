@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { Heart } from "lucide-react";
 import { ProductBadge } from "@/components/tienda/ProductBadge";
@@ -17,14 +17,23 @@ export function ProductCard({ producto }: { producto: ProductoDeMenu }) {
   const [fichaAbierta, setFichaAbierta] = useState(false);
   const foto = producto.imagenes[0];
   const agotado = !producto.disponible;
+  const raizRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Precarga en cuanto la tarjeta aparece (no al hacer click), para que la
-    // ficha se sienta instantánea: cuando el cliente toca, los datos ya están
-    // listos o a punto de llegar.
-    if (producto.tieneModificadores && !agotado) {
-      precargarProducto(producto.id).catch(() => {});
-    }
+    const el = raizRef.current;
+    if (!el || !producto.tieneModificadores || agotado) return;
+
+    // Precarga solo cuando la tarjeta entra en pantalla, no todas al montar:
+    // así el tap se sigue sintiendo instantáneo sin disparar un fetch por
+    // cada producto del catálogo apenas se abre el menú.
+    const observer = new IntersectionObserver(([entrada]) => {
+      if (entrada.isIntersecting) {
+        precargarProducto(producto.id).catch(() => {});
+        observer.disconnect();
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
   }, [producto.id, producto.tieneModificadores, agotado]);
 
   function alTocarTarjeta() {
@@ -38,6 +47,7 @@ export function ProductCard({ producto }: { producto: ProductoDeMenu }) {
 
   return (
     <div
+      ref={raizRef}
       role={producto.tieneModificadores ? "button" : undefined}
       tabIndex={producto.tieneModificadores ? 0 : undefined}
       onClick={producto.tieneModificadores ? alTocarTarjeta : undefined}

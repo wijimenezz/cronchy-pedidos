@@ -42,11 +42,14 @@ export type ItemCarrito = {
 
 type EstadoCarrito = {
   items: ItemCarrito[];
+  /** Observación del pedido completo (no por línea), ej. "Sin canela". */
+  notas: string;
   /** Producto sin modificadores: agrega directo, igual que hoy. */
   agregarSimple: (producto: { id: string; nombre: string; precioBase: number }) => void;
   /** Producto configurado desde la ficha (con o sin modificadores/upsells):
    * siempre crea una línea nueva, no intenta fusionar configuraciones. */
   agregarConfigurado: (item: Omit<ItemCarrito, "lineId">) => void;
+  setNotas: (notas: string) => void;
   incrementar: (lineId: string) => void;
   decrementar: (lineId: string) => void;
   eliminar: (lineId: string) => void;
@@ -62,6 +65,7 @@ export const useCarrito = create<EstadoCarrito>()(
   persist(
     (set) => ({
       items: [],
+      notas: "",
       agregarSimple: (producto) =>
         set((estado) => {
           const existente = estado.items.find(
@@ -107,7 +111,8 @@ export const useCarrito = create<EstadoCarrito>()(
         })),
       eliminar: (lineId) =>
         set((estado) => ({ items: estado.items.filter((i) => i.lineId !== lineId) })),
-      vaciar: () => set({ items: [] }),
+      setNotas: (notas) => set({ notas }),
+      vaciar: () => set({ items: [], notas: "" }),
     }),
     {
       name: "cronchy_carrito",

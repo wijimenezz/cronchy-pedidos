@@ -28,9 +28,14 @@ function getServerSnapshot(): TipoPedido | null {
 }
 
 /**
- * Lee el tipo de pedido (domicilio/recoger) elegido en el modal de bienvenida,
- * sin parpadeo ni mismatch de hidratación: React corrige el snapshot del
- * servidor (siempre null) al del cliente antes del primer paint.
+ * Lee el tipo de pedido (domicilio/recoger) elegido en el modal de bienvenida.
+ *
+ * `useSyncExternalStore` evita el error de hidratación, pero OJO: no evita el
+ * parpadeo. El snapshot del servidor es siempre `null`, así que en una página
+ * estática (ISR) el HTML se pinta como si nadie hubiera elegido nunca, y el valor
+ * real recién aparece al hidratar. Quien dependa de esto para decidir si pinta algo
+ * tiene que esperar al montaje —como hace `SelectorTipoPedido`— o el usuario verá
+ * aparecer y desaparecer cosas.
  */
 export function useTipoPedido(): TipoPedido | null {
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
