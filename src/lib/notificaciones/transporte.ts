@@ -55,9 +55,35 @@ export function normalizarTelefono(entrada: string): string {
   return digitos;
 }
 
+/**
+ * Un celular colombiano y nada más: indicativo 57 + 10 dígitos que empiezan por 3.
+ *
+ * Se compara contra el número YA normalizado, así que da igual cómo lo escriba el
+ * cliente ("3116435036", "311 643 5036", "+57 311 643 5036").
+ *
+ * El `length >= 12` de antes dejaba pasar cualquier basura que empezara por 57
+ * ("5799999999999999"), y un fijo de 7 dígitos no sirve para avisar por WhatsApp.
+ */
 export function esTelefonoValido(entrada: string): boolean {
-  const n = normalizarTelefono(entrada);
-  return n.startsWith("57") && n.length >= 12;
+  return /^573\d{9}$/.test(normalizarTelefono(entrada));
+}
+
+/**
+ * El link de "Contáctanos" que ve el cliente. Vive aquí para que el footer y el menú
+ * lateral no puedan terminar apuntando a chats distintos.
+ *
+ * Si la tienda tiene su link corto de WhatsApp Business (`wa.me/message/XXXX`) se usa
+ * tal cual: ese formato ya trae configurado su propio mensaje de bienvenida y no acepta
+ * `?text=`. Si no hay link corto, se arma uno con el teléfono.
+ */
+export function linkContactoWhatsapp(
+  tienda: { whatsappUrl?: string | null; telefono?: string | null },
+  mensaje: string,
+): string | null {
+  if (tienda.whatsappUrl) return tienda.whatsappUrl;
+  if (!tienda.telefono) return null;
+
+  return `https://wa.me/${normalizarTelefono(tienda.telefono)}?text=${encodeURIComponent(mensaje)}`;
 }
 
 // ------------------------------------------------------------
