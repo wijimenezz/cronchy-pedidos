@@ -37,6 +37,8 @@ export default async function CheckoutPage() {
           zonas={zonas}
           tienda={{
             nombre: tienda.nombre,
+            telefono: tienda.telefono,
+            direccion: tienda.direccion,
             nequiTitular: tienda.nequiTitular,
             nequiNumero: tienda.nequiNumero,
           }}
