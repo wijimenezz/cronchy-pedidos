@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   esTelefonoValido,
+  linkContactoWhatsapp,
   normalizarTelefono,
   prepararConfirmacion,
   transporteWaLink,
@@ -54,6 +55,47 @@ describe("esTelefonoValido", () => {
     expect(esTelefonoValido("123")).toBe(false);
     expect(esTelefonoValido("")).toBe(false);
     expect(esTelefonoValido("no soy un teléfono")).toBe(false);
+  });
+
+  it("acepta el celular con la separación que use el cliente", () => {
+    expect(esTelefonoValido("311 643 5036")).toBe(true);
+    expect(esTelefonoValido("(311) 643-50-36")).toBe(true);
+  });
+
+  it("exige exactamente 10 dígitos", () => {
+    expect(esTelefonoValido("311643503")).toBe(false); // 9
+    expect(esTelefonoValido("31164350361")).toBe(false); // 11
+  });
+
+  // La regla vieja (`empieza por 57` + 12 dígitos o más) dejaba pasar esto.
+  it("rechaza un número largo que solo empieza por 57", () => {
+    expect(esTelefonoValido("5799999999999999")).toBe(false);
+  });
+
+  // Un fijo no sirve: los avisos del pedido salen por WhatsApp.
+  it("rechaza un fijo de 7 dígitos", () => {
+    expect(esTelefonoValido("8712345")).toBe(false);
+  });
+});
+
+describe("linkContactoWhatsapp", () => {
+  // El link corto de WhatsApp Business ya trae su propio mensaje configurado y no
+  // admite `?text=`: se usa tal cual, sin tocarlo.
+  it("usa el link corto de la tienda si está cargado", () => {
+    const r = linkContactoWhatsapp(
+      { whatsappUrl: "https://wa.me/message/ABC123", telefono: "3001234567" },
+      "Hola",
+    );
+    expect(r).toBe("https://wa.me/message/ABC123");
+  });
+
+  it("cae al teléfono cuando no hay link corto", () => {
+    const r = linkContactoWhatsapp({ whatsappUrl: null, telefono: "300 123 4567" }, "Hola");
+    expect(r).toBe("https://wa.me/573001234567?text=Hola");
+  });
+
+  it("devuelve null si la tienda no tiene ni link ni teléfono", () => {
+    expect(linkContactoWhatsapp({ whatsappUrl: null, telefono: null }, "Hola")).toBeNull();
   });
 });
 
