@@ -1,15 +1,32 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import Image from "next/image";
 import { Bike, ChevronDown, ShoppingBag } from "lucide-react";
 import { elegirTipoPedido, useTipoPedido, type TipoPedido } from "@/lib/tienda/tipo-pedido";
 
+// A nivel de módulo para que su identidad no cambie entre renders: si no, React se
+// resuscribiría en cada uno.
+const sinSuscripcion = () => () => {};
+const enCliente = () => true;
+const enServidor = () => false;
+
+/** `false` en el servidor y mientras hidrata; `true` después. */
+function useHidratado(): boolean {
+  return useSyncExternalStore(sinSuscripcion, enCliente, enServidor);
+}
+
 export function SelectorTipoPedido() {
   const tipo = useTipoPedido();
   const [reabierto, setReabierto] = useState(false);
+  // El modal NO puede decidirse en el servidor: su única fuente de verdad es
+  // localStorage, que ahí no existe. Sin esta espera, el HTML estático (ISR) llega
+  // siempre con el modal puesto —en el servidor el tipo es null— y el navegador lo
+  // pinta antes de que exista JS; recién al hidratar se descubre que el cliente ya
+  // había elegido y se desmonta. Eso es el parpadeo.
+  const hidratado = useHidratado();
 
-  const mostrarModal = reabierto || tipo === null;
+  const mostrarModal = hidratado && (reabierto || tipo === null);
 
   function elegir(nuevo: TipoPedido) {
     elegirTipoPedido(nuevo);
