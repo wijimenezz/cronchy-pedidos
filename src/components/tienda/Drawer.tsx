@@ -3,17 +3,21 @@
 import { useState } from "react";
 import Image from "next/image";
 import { MessageCircle } from "lucide-react";
-import { normalizarTelefono } from "@/lib/notificaciones/transporte";
+import { linkContactoWhatsapp } from "@/lib/notificaciones/transporte";
 
-type Tienda = { nombre: string; telefono: string | null; direccion: string | null };
+type Tienda = {
+  nombre: string;
+  telefono: string | null;
+  whatsappUrl: string | null;
+  direccion: string | null;
+};
 
 export function Drawer({ tienda }: { tienda: Tienda }) {
   const [abierto, setAbierto] = useState(false);
-  const linkWhatsapp = tienda.telefono
-    ? `https://wa.me/${normalizarTelefono(tienda.telefono)}?text=${encodeURIComponent(
-        "Hola, quiero hacer un pedido en Cronchy",
-      )}`
-    : null;
+  const linkWhatsapp = linkContactoWhatsapp(
+    tienda,
+    `Hola, quiero hacer un pedido en ${tienda.nombre}`,
+  );
 
   return (
     <>
