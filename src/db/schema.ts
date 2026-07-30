@@ -20,6 +20,8 @@ export const store = pgTable("store", {
 	mensajeCerrado: text("mensaje_cerrado"),
 	nequiTitular: text("nequi_titular"),
 	nequiNumero: text("nequi_numero"),
+	nequiLlave: text("nequi_llave"),
+	nequiLlaveTitular: text("nequi_llave_titular"),
 	whatsappUrl: text("whatsapp_url"),
 	instagramUrl: text("instagram_url"),
 	tiktokUrl: text("tiktok_url"),
