@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { pesos } from "@/lib/notificaciones/plantillas";
 import { useCarrito } from "@/lib/carrito";
+import { Campo, claseControl } from "@/components/checkout/Campo";
 
 function resumenModificadores(item: { modificadores: { nombre: string; cantidad: number }[] }): string | null {
   if (item.modificadores.length === 0) return null;
@@ -13,6 +14,8 @@ export function CartSheet({ onClose }: { onClose: () => void }) {
   const items = useCarrito((s) => s.items);
   const incrementar = useCarrito((s) => s.incrementar);
   const decrementar = useCarrito((s) => s.decrementar);
+  const notas = useCarrito((s) => s.notas);
+  const setNotas = useCarrito((s) => s.setNotas);
   const total = items.reduce((t, i) => t + i.precioUnitarioEstimado * i.cantidad, 0);
 
   return (
@@ -84,7 +87,20 @@ export function CartSheet({ onClose }: { onClose: () => void }) {
         </div>
 
         {items.length > 0 && (
-          <div className="flex flex-col gap-2 border-t border-crema-oscura px-5 py-4">
+          <div className="flex flex-col gap-3 border-t border-crema-oscura px-5 py-4">
+            <Campo etiqueta="Notas para el pedido" ayuda="Opcional.">
+              {(props) => (
+                <textarea
+                  {...props}
+                  rows={2}
+                  value={notas}
+                  onChange={(e) => setNotas(e.target.value)}
+                  placeholder="Sin canela, por favor"
+                  className={claseControl()}
+                />
+              )}
+            </Campo>
+
             <div className="flex justify-between font-cuerpo text-base font-bold text-cafe">
               <span>Total</span>
               <span>{pesos(total)}</span>
