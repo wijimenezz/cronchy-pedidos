@@ -23,6 +23,11 @@ export async function crearPedidoEnDB(
         customerId: cliente.id,
         clienteNombre: input.clienteNombre,
         clienteTelefono: input.clienteTelefono,
+        clienteEmail: input.clienteEmail ?? null,
+        clienteCumple: input.clienteCumple ?? null,
+        // Solo aplica a domicilio: en recoger, quien pidió es quien pasa por el pedido.
+        recibeNombre: input.tipo === "domicilio" ? (input.recibeNombre ?? null) : null,
+        recibeTelefono: input.tipo === "domicilio" ? (input.recibeTelefono ?? null) : null,
         zonaId: input.tipo === "domicilio" ? (input.zonaId ?? null) : null,
         // Solo tiene sentido guardar el barrio escrito a mano si es un domicilio sin
         // zona de la lista; en cualquier otro caso sería un dato contradictorio.
