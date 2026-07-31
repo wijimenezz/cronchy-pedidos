@@ -1,9 +1,10 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { order, orderItem, orderStatusEvent } from "@/db/schema";
 import { upsertCustomer } from "@/db/queries/customers";
 import { itemCalculadoASnapshot, type PedidoCalculado } from "@/lib/precios";
 import { itemSnapshotSchema, type CrearPedidoInput } from "@/lib/validaciones";
+import { puntoDesdeGeoJSON } from "@/lib/zonas";
 import type { EstadoPedido, ItemSnapshot, TipoPedido } from "@/lib/notificaciones/plantillas";
 
 export async function crearPedidoEnDB(
@@ -28,17 +29,16 @@ export async function crearPedidoEnDB(
         // Solo aplica a domicilio: en recoger, quien pidió es quien pasa por el pedido.
         recibeNombre: input.tipo === "domicilio" ? (input.recibeNombre ?? null) : null,
         recibeTelefono: input.tipo === "domicilio" ? (input.recibeTelefono ?? null) : null,
-        zonaId: input.tipo === "domicilio" ? (input.zonaId ?? null) : null,
-        // Snapshot de la zona (regla 2 aplicada al domicilio): `zona_id` queda solo para
-        // reportes agregados. Lo que se muestra y se cobra sale de aquí.
+        // Snapshot de la zona (regla 2 aplicada al domicilio). Lo que se muestra y se cobra
+        // sale de aquí, no de un JOIN contra `delivery_zone`.
         zonaNombre: calculo.zonaNombre,
-        // Solo tiene sentido guardar el barrio escrito a mano si es un domicilio sin
-        // zona de la lista; en cualquier otro caso sería un dato contradictorio.
-        barrioTexto:
-          input.tipo === "domicilio" && !input.zonaId ? (input.barrioTexto ?? null) : null,
+        // El pin que determinó el precio. Es lo que abre el domiciliario en Maps.
+        punto:
+          input.tipo === "domicilio" && input.punto
+            ? sql`ST_SetSRID(ST_MakePoint(${input.punto.lng}, ${input.punto.lat}), 4326)`
+            : null,
         direccion: input.direccion ?? null,
         indicaciones: input.indicaciones ?? null,
-        domicilioPorConfirmar: calculo.domicilioPorConfirmar,
         notas: input.notas ?? null,
         metodoPago: input.metodoPago,
         comprobanteUrl: input.comprobanteUrl ?? null,
@@ -79,9 +79,10 @@ export type PedidoPublico = {
   clienteTelefono: string;
   direccion: string | null;
   indicaciones: string | null;
-  /** Nombre congelado de la zona, o el barrio que escribió el cliente si no estaba (US11). */
+  /** Nombre congelado de la zona que cobró el domicilio. */
   barrio: string | null;
-  domicilioPorConfirmar: boolean;
+  /** El pin del cliente. Es lo que convierte el aviso al negocio en un link de Maps. */
+  punto: { lat: number; lng: number } | null;
   metodoPago: string;
   /** No se expone la URL: el comprobante es privado y solo lo abre el panel. */
   tieneComprobante: boolean;
@@ -108,6 +109,8 @@ export async function obtenerPedidoPorToken(
 ): Promise<PedidoPublico | null> {
   const fila = await db.query.order.findFirst({
     where: and(eq(order.storeId, storeId), eq(order.tokenPublico, token)),
+    // El punto se pide como GeoJSON: un select normal sobre `geometry` devuelve WKB en hex.
+    extras: { puntoGeo: sql<string | null>`ST_AsGeoJSON(${order.punto})`.as("punto_geo") },
     with: {
       orderItems: { orderBy: asc(orderItem.orden) },
     },
@@ -131,8 +134,8 @@ export async function obtenerPedidoPorToken(
     clienteTelefono: fila.clienteTelefono,
     direccion: fila.direccion,
     indicaciones: fila.indicaciones,
-    barrio: fila.zonaNombre ?? fila.barrioTexto,
-    domicilioPorConfirmar: fila.domicilioPorConfirmar,
+    barrio: fila.zonaNombre,
+    punto: puntoDesdeGeoJSON(fila.puntoGeo),
     metodoPago: fila.metodoPago,
     tieneComprobante: Boolean(fila.comprobanteUrl),
     notas: fila.notas,
