@@ -108,7 +108,7 @@ export function fechaHora(fecha: Date): string {
   return `${p("hour")}:${p("minute")} ${p("dayPeriod")}, ${p("day")} ${mes} ${p("year")}`;
 }
 
-function mapsUrl(ubicacion: { lat: number; lng: number }): string {
+export function mapsUrl(ubicacion: { lat: number; lng: number }): string {
   return `https://maps.google.com/maps?q=${ubicacion.lat},${ubicacion.lng}`;
 }
 
@@ -379,5 +379,39 @@ export function confirmacionClienteCorta(
     urlSeguimiento(tienda, pedido.tokenPublico),
     "",
     "¡Estaremos en contacto!",
+  ].join("\n");
+}
+
+// ------------------------------------------------------------
+// Mensaje 5 — el cliente quedó fuera de cobertura
+// ------------------------------------------------------------
+
+/**
+ * Lo que el cliente le escribe a la tienda cuando su pin no cae en ninguna zona (regla 14).
+ *
+ * El pedido NO existe todavía: no hay número ni token, y por eso este mensaje no se parece a
+ * los otros. Va el carrito para que la tienda sepa de cuánto hablamos, y el link de Maps
+ * para que pueda decidir si le sirve el viaje. Si acepta, ese pedido se gestiona por chat.
+ *
+ * Se manda corto a propósito: viaja dentro de una URL `wa.me`, que se rompe si crece.
+ */
+export function fueraDeCobertura(
+  carrito: { items: ItemSnapshot[]; subtotal: number },
+  ubicacion: { lat: number; lng: number },
+  tienda: Tienda,
+): string {
+  const lineas = carrito.items.map((item) => `• ${item.cantidad}x ${item.nombre}`);
+
+  return [
+    `¡Hola! Quiero pedir en *${tienda.nombre}* pero mi dirección quedó fuera de cobertura.`,
+    "",
+    ...lineas,
+    "",
+    `*Subtotal:* ${pesos(carrito.subtotal)}`,
+    "",
+    "Mi ubicación:",
+    mapsUrl(ubicacion),
+    "",
+    "¿Me pueden cotizar el domicilio?",
   ].join("\n");
 }
