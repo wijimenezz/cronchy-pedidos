@@ -394,7 +394,7 @@ export function CheckoutForm({
     );
   }
 
-  const barrioEntrega = porConfirmar ? barrioTexto : zonaElegida?.barrio;
+  const barrioEntrega = porConfirmar ? barrioTexto : zonaElegida?.nombre;
 
   return (
     <form onSubmit={enviar} className="flex flex-col gap-4" noValidate>
@@ -519,7 +519,7 @@ export function CheckoutForm({
                     <option value="">Elige tu barrio…</option>
                     {zonas.map((z) => (
                       <option key={z.id} value={z.id}>
-                        {z.barrio} — {pesos(z.precio)}
+                        {z.nombre} — {pesos(z.precio)}
                       </option>
                     ))}
                     <option value={BARRIO_OTRO}>Mi barrio no aparece</option>
