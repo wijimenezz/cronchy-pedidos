@@ -9,7 +9,9 @@ import { CartBar } from "@/components/tienda/CartBar";
 import { Footer } from "@/components/tienda/Footer";
 import { SUBTITULO_CATEGORIA } from "@/lib/tienda/categoria-meta";
 
-// Interino hasta que exista el panel admin (Fase C) y pueda revalidar on-demand.
+// El panel ya revalida esta ruta al apagar un producto o una opción, así que el menú se
+// actualiza en el momento. El plazo se conserva como red de seguridad para lo que todavía
+// se cambia por fuera del panel —precios, categorías— hasta que llegue su CRUD.
 export const revalidate = 60;
 
 export default async function MenuPage() {
