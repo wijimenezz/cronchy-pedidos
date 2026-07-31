@@ -48,3 +48,28 @@ export async function subirComprobante(
 
   return { url: destino };
 }
+
+/**
+ * Lee un objeto del bucket privado. Sirve para que el panel muestre el comprobante sin
+ * hacer público el bucket: la URL guardada no abre sola —no lleva `/public/`— y quien la
+ * pide ya pasó por `exigirRol()`.
+ *
+ * Devuelve `null` si el objeto no está: un comprobante purgado a los 60 días no es un
+ * error del servidor, es lo que tenía que pasar.
+ */
+export async function descargarComprobante(
+  url: string,
+): Promise<{ cuerpo: ArrayBuffer; tipo: string } | null> {
+  const { key } = entorno();
+
+  const respuesta = await fetch(url, { headers: { Authorization: `Bearer ${key}` } });
+  if (respuesta.status === 404) return null;
+  if (!respuesta.ok) {
+    throw new Error(`Supabase Storage respondió ${respuesta.status} al leer el comprobante`);
+  }
+
+  return {
+    cuerpo: await respuesta.arrayBuffer(),
+    tipo: respuesta.headers.get("content-type") ?? "application/octet-stream",
+  };
+}

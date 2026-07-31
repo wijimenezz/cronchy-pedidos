@@ -29,6 +29,9 @@ export async function crearPedidoEnDB(
         recibeNombre: input.tipo === "domicilio" ? (input.recibeNombre ?? null) : null,
         recibeTelefono: input.tipo === "domicilio" ? (input.recibeTelefono ?? null) : null,
         zonaId: input.tipo === "domicilio" ? (input.zonaId ?? null) : null,
+        // Snapshot de la zona (regla 2 aplicada al domicilio): `zona_id` queda solo para
+        // reportes agregados. Lo que se muestra y se cobra sale de aquí.
+        zonaNombre: calculo.zonaNombre,
         // Solo tiene sentido guardar el barrio escrito a mano si es un domicilio sin
         // zona de la lista; en cualquier otro caso sería un dato contradictorio.
         barrioTexto:
@@ -76,7 +79,7 @@ export type PedidoPublico = {
   clienteTelefono: string;
   direccion: string | null;
   indicaciones: string | null;
-  /** Barrio de la lista, o el que escribió el cliente si no estaba (US11). */
+  /** Nombre congelado de la zona, o el barrio que escribió el cliente si no estaba (US11). */
   barrio: string | null;
   domicilioPorConfirmar: boolean;
   metodoPago: string;
@@ -94,9 +97,10 @@ export type PedidoPublico = {
  * Busca un pedido por su token público. Filtra por `storeId` (regla 5): un token de otra
  * tienda no debe resolver aquí.
  *
- * Los items salen del `snapshot` congelado, sin un solo JOIN contra `product` ni
- * `modifier_option` (regla 2): si mañana sube el churro, este pedido debe seguir
- * mostrando lo que el cliente pagó.
+ * Todo sale de datos congelados, sin un solo JOIN contra `product`, `modifier_option` ni
+ * `delivery_zone` (regla 2): los items desde `order_item.snapshot` y el barrio desde
+ * `order.zona_nombre`. Si mañana sube el churro o se renombra una zona, este pedido debe
+ * seguir mostrando lo que el cliente pagó.
  */
 export async function obtenerPedidoPorToken(
   storeId: string,
@@ -106,7 +110,6 @@ export async function obtenerPedidoPorToken(
     where: and(eq(order.storeId, storeId), eq(order.tokenPublico, token)),
     with: {
       orderItems: { orderBy: asc(orderItem.orden) },
-      deliveryZone: true,
     },
   });
 
@@ -128,7 +131,7 @@ export async function obtenerPedidoPorToken(
     clienteTelefono: fila.clienteTelefono,
     direccion: fila.direccion,
     indicaciones: fila.indicaciones,
-    barrio: fila.deliveryZone?.barrio ?? fila.barrioTexto,
+    barrio: fila.zonaNombre ?? fila.barrioTexto,
     domicilioPorConfirmar: fila.domicilioPorConfirmar,
     metodoPago: fila.metodoPago,
     tieneComprobante: Boolean(fila.comprobanteUrl),

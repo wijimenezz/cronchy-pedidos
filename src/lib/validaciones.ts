@@ -70,6 +70,16 @@ const itemSchema = z.object({
   notas: z.string().trim().max(280).optional(),
 });
 
+/**
+ * Login del panel. Deliberadamente laxo en la clave: aquí no se está creando una cuenta,
+ * se está comprobando una que ya existe, y exigir "mínimo 8 caracteres" al entrar solo
+ * le diría a quien prueba claves cuáles ni vale la pena intentar.
+ */
+export const loginSchema = z.object({
+  email: z.string({ error: REQUERIDO }).trim().min(1, REQUERIDO).max(160),
+  clave: z.string({ error: REQUERIDO }).min(1, REQUERIDO).max(200),
+});
+
 export const crearPedidoSchema = z
   .object({
     tipo: z.enum(["domicilio", "recoger"]),

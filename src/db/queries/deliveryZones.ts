@@ -2,15 +2,15 @@ import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { deliveryZone } from "@/db/schema";
 
-export type ZonaDomicilio = { id: string; barrio: string; precio: number };
+export type ZonaDomicilio = { id: string; nombre: string; precio: number };
 
 /** Zonas que el checkout ofrece en la lista de barrios. */
 export async function obtenerZonasActivas(storeId: string): Promise<ZonaDomicilio[]> {
   return db
-    .select({ id: deliveryZone.id, barrio: deliveryZone.barrio, precio: deliveryZone.precio })
+    .select({ id: deliveryZone.id, nombre: deliveryZone.nombre, precio: deliveryZone.precio })
     .from(deliveryZone)
     .where(and(eq(deliveryZone.storeId, storeId), eq(deliveryZone.activa, true)))
-    .orderBy(asc(deliveryZone.barrio));
+    .orderBy(asc(deliveryZone.nombre));
 }
 
 /**
@@ -21,7 +21,7 @@ export async function obtenerZonasActivas(storeId: string): Promise<ZonaDomicili
 export async function obtenerZonaActiva(
   storeId: string,
   zonaId: string,
-): Promise<{ id: string; barrio: string; precio: number; activa: boolean } | null> {
+): Promise<{ id: string; nombre: string; precio: number; activa: boolean } | null> {
   const zona = await db.query.deliveryZone.findFirst({
     where: and(eq(deliveryZone.storeId, storeId), eq(deliveryZone.id, zonaId)),
   });

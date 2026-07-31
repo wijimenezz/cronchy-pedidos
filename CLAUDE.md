@@ -16,12 +16,14 @@ Responde en español.
 | ------------- | --------------------------------------------------------- |
 | Framework     | Next.js 15 (App Router) + TypeScript estricto             |
 | Base de datos | PostgreSQL en Supabase                                    |
+| Geoespacial   | Extensión **PostGIS** (zonas de cobertura)                |
 | Archivos      | Supabase Storage (fotos de productos, comprobantes Nequi) |
 | ORM           | Drizzle                                                   |
 | Estilos       | Tailwind CSS + shadcn/ui                                  |
+| Mapas         | Leaflet + tiles de OpenStreetMap; Leaflet-Geoman en admin |
 | Carrito       | Zustand + persistencia en localStorage                    |
 | Validación    | Zod (compartida cliente/servidor)                         |
-| Auth (panel)  | Auth.js, credenciales contra `app_user`                   |
+| Auth (panel)  | Sesión propia: cookie firmada contra `app_user`            |
 | Tests         | Vitest                                                    |
 | Deploy        | Vercel                                                    |
 
@@ -50,19 +52,34 @@ src/
       page.tsx
       producto/[slug]/
     pedido/[token]/           seguimiento público del cliente
-    admin/                    panel — client components, protegido
-      pedidos/
-      productos/
-      opciones/               sabores, toppings, salsas
-      zonas/
+    admin/                    panel — protegido
+      login/
+      (panel)/                grupo con sesión: cabecera, nav y exigirRol()
+        pedidos/              lista con polling + [numero]/ detalle
+        catalogo/             switches de agotado (US21)
+        productos/            CRUD completo — pendiente
+        opciones/             sabores, toppings, salsas — pendiente
+        zonas/                mapa con polígonos de cobertura — pendiente
     api/
+  proxy.ts                    corta /admin/* sin sesión (antes "middleware")
   db/
     schema.ts                 definición Drizzle
+    tipos-geo.ts              customType geometry para PostGIS
     queries/                  consultas reutilizables
+      panel.ts                pedidos del panel + cambio de estado
+      disponibilidad.ts       switches de agotado
   lib/
     precios.ts                CÁLCULO DE PRECIOS — fuente única de verdad
+    zonas.ts                  CÁLCULO DE DOMICILIO — fuente única de verdad
     horario.ts                ¿está abierta la tienda ahora?
     validaciones.ts           esquemas Zod
+    autorizacion.ts           exigirRol() — permisos del panel
+    auth/
+      sesion.ts               firma/verifica la cookie (Web Crypto, corre en el proxy)
+      cookie.ts               leer/guardar/borrar — usa next/headers
+      password.ts             bcrypt (jamás desde el proxy)
+    pedidos/
+      estados.ts              etiquetas + máquina de transiciones
     notificaciones/
       plantillas.ts           TEXTO de los mensajes — fuente única
       transporte.ts           adaptador: whatsapp-link | whatsapp-api | telegram
@@ -114,13 +131,13 @@ precio, y un pedido sin ellos llega incompleto a cocina.
 
 Se modela con `min_select = max_select` y `avisar_incompleto = false` en el enganche:
 
-| Producto           | Salsas | Toppings |
-| ------------------ | ------ | -------- |
-| Clásico / Chiqui / Frutilla / Ring | 1 | 1 |
-| Cronchy Mega       | 1      | 2        |
-| Cronchy Amigos     | 2      | —        |
-| Cronchy Familiar   | 4      | —        |
-| Cronchy Churros    | 1      | —        |
+| Producto                           | Salsas | Toppings |
+| ---------------------------------- | ------ | -------- |
+| Clásico / Chiqui / Frutilla / Ring | 1      | 1        |
+| Cronchy Mega                       | 1      | 2        |
+| Cronchy Amigos                     | 2      | —        |
+| Cronchy Familiar                   | 4      | —        |
+| Cronchy Churros                    | 1      | —        |
 
 Los grupos en modo `adicional` (las salsas de pago) siguen siendo opcionales: `min_select = 0`.
 
@@ -164,7 +181,7 @@ agregado desde un churro.
 
 Por eso la línea base del carrito guarda su selección **sin** los grupos de tipo `upsell`
 (`seleccionSinUpsells` en `src/lib/checkout/mapeo.ts`): si el upsell viajara dentro de la
-selección del churro *y* como línea suelta, el servidor lo cobraría dos veces.
+selección del churro _y_ como línea suelta, el servidor lo cobraría dos veces.
 
 Si algún día se quiere un precio promocional por comprar la bebida junto al churro, hay
 que modelarlo como promoción explícita; `precio_delta` no sirve para eso.
@@ -194,6 +211,124 @@ estado no se haya notificado ya. Un pedido nunca debe generar dos veces el mismo
 y un estado que retrocede (ej. de `en_camino` a `preparando`) no dispara aviso.
 Registrar el envío en `order_status_event.notificado_en`.
 
+### 12. Roles del panel: `admin` y `colaborador`
+
+`app_user` lleva la columna `rol` (`'admin'` | `'colaborador'`). No hay más roles.
+
+- **admin** (los dueños): todo — CRUD de catálogo y precios, zonas, usuarios, pedidos.
+- **colaborador** (empleados): gestión de pedidos (aceptar, cambiar estado, imprimir,
+  asignar domiciliario, avisos) y los switches `disponible` / `agotado` de productos,
+  variantes y opciones. **No** puede: cambiar precios, crear ni eliminar productos,
+  tocar zonas ni usuarios.
+
+`src/proxy.ts` (el "middleware" de Next, renombrado en la 16) protege las rutas
+`/admin/*`, pero eso NO basta: **toda server action y route handler del panel llama
+`exigirRol()`** (`src/lib/autorizacion.ts`) declarando el rol mínimo, porque las
+mutaciones se pueden invocar sin pasar por la ruta. Una mutación sin `exigirRol()` es un
+bug de seguridad, no un descuido de estilo.
+
+**La sesión es propia, no Auth.js.** Aquí no hay OAuth ni providers ni registro público:
+son dos o tres empleados con correo y clave. Una cookie httpOnly con el payload firmado
+por HMAC-SHA256 (`src/lib/auth/sesion.ts`), 12 horas de vigencia y bcrypt para la clave.
+Se firma con **Web Crypto y no con `node:crypto`** porque el proxy corre en el Edge
+Runtime; por lo mismo `password.ts` vive aparte, ya que bcrypt no puede entrar ahí.
+El secreto es `AUTH_SECRET` y cambiarlo cierra todas las sesiones.
+
+El primer usuario se crea con `pnpm crear-usuario <correo> "<nombre>" admin` — el CRUD de
+usuarios vive dentro del panel, al que no se entra sin uno. Reejecutarlo con el mismo
+correo cambia la clave, que es cómo se recupera un acceso perdido.
+
+### 13. El domicilio se calcula por zonas dibujadas, y se congela en el pedido
+
+Las zonas de cobertura son polígonos que el admin dibuja sobre un mapa en
+`/admin/zonas`. Tabla `delivery_zone`:
+
+| Columna   | Tipo                    | Notas                                         |
+| --------- | ----------------------- | --------------------------------------------- |
+| id        | uuid                    |                                               |
+| store_id  | uuid                    | como todas las tablas (regla 5)               |
+| nombre    | text                    | ej. "Centro", "Balmoral"                      |
+| precio    | int                     | **CHECK precio > 0** — ver más abajo          |
+| poligono  | geometry(Polygon, 4326) | índice GiST                                   |
+| prioridad | int                     | menor = se evalúa primero                     |
+| color     | text                    | hex, para pintarla en el mapa del admin       |
+| activa    | boolean                 | apagar, no borrar (regla 9 aplica igual aquí) |
+
+Cálculo — vive completo en `src/lib/zonas.ts`, mismo trato que `precios.ts`:
+dado el punto del cliente, `ST_Covers` sobre las zonas activas ordenadas por
+`prioridad`; la **primera** que cubre el punto define nombre y precio. Los
+solapamientos son válidos y los resuelve la prioridad, nunca "la más barata".
+Punto en el borde del polígono = **dentro** (por eso `ST_Covers` y no `ST_Contains`).
+
+El pedido guarda `zona_nombre` y `costo_domicilio` como **snapshot** (regla 2 aplica al
+domicilio igual que a los items). Editar o eliminar una zona jamás altera pedidos ya
+creados. El total del pedido = subtotal de items + `costo_domicilio`.
+
+**El domicilio siempre se cobra**: lo ejecuta un courier externo. No existe envío
+gratis, no existe pedido mínimo, no existe zona a $0. Si alguien pide esas features,
+la respuesta es no (decisión de negocio, no técnica).
+
+Drizzle no trae tipo nativo para `geometry`: se define un **custom type** en
+`schema.ts`. La extensión PostGIS se habilita en una migración (`CREATE EXTENSION IF
+NOT EXISTS postgis`), no a mano en el dashboard.
+
+### 14. El pin manda
+
+El costo del domicilio se calcula sobre **la posición final del pin en el mapa,
+confirmada explícitamente por el cliente** ("Confirmar ubicación") — nunca sobre la
+lectura cruda del GPS ni sobre la dirección escrita.
+
+- "Usar mi ubicación" usa `navigator.geolocation` (gratis, requiere HTTPS). El pin
+  resultante **siempre es arrastrable**: el GPS de escritorio se ubica por IP y falla
+  por cuadras.
+- Si el cliente niega el permiso: mapa centrado en la tienda, pin manual.
+- Si el pin queda a más de 500 m de la lectura GPS original: aviso
+  ("verifica que el pin esté en tu dirección exacta"), **sin bloquear**.
+- La dirección escrita y las observaciones son referencia para el domiciliario;
+  no participan en el cálculo. El pedido guarda el punto (`geometry(Point, 4326)`).
+
+**Fuera de cobertura** (el punto no cae en ninguna zona activa): el checkout se
+bloquea y muestra un botón de WhatsApp con mensaje pre-armado — resumen del carrito +
+link de Google Maps con el pin — para que la tienda cotice el domicilio. Si el cliente
+acepta, ese pedido se gestiona por chat (v1). Pedidos manuales desde el panel con
+costo digitado: v1.1, el snapshot ya lo soporta.
+
+### 15. El panel traduce, no expone el modelo
+
+La UI de administración habla el idioma del negocio, no el del esquema. Quien edita un
+producto ve "Salsas incluidas: [2] · Toppings incluidos: [1] · ¿Permite adicionales?"
+— y el sistema genera o actualiza los enganches `product_modifier_group` (los dos
+`modo`, `min_select = max_select`, precios) por debajo. Nadie que use el panel debe
+saber qué es un "enganche". Esa traducción vive en el servidor, junto a la validación,
+no en el componente.
+
+Lo mismo aplica a zonas: dibujar, nombrar y ponerle precio; `prioridad` se maneja
+reordenando la lista con arrastre, no editando números.
+
+---
+
+## Panel admin — pantallas y permisos
+
+| Pantalla          | colaborador                                                  | admin                                                             |
+| ----------------- | ------------------------------------------------------------ | ----------------------------------------------------------------- |
+| `admin/pedidos`   | ver, aceptar, cambiar estado, imprimir, avisos, domiciliario | todo                                                              |
+| `admin/catalogo`  | switches `disponible` / `agotado` de productos y opciones    | igual                                                             |
+| `admin/productos` | solo switches `disponible` / `agotado`                       | CRUD completo, precios, fotos, enganches                          |
+| `admin/opciones`  | solo switch `disponible` (sabores de la semana)              | CRUD completo                                                     |
+| `admin/zonas`     | sin acceso (ni lectura)                                      | mapa: dibujar, editar vértices, precio, prioridad, activar/apagar |
+
+Estados de un producto (independientes entre sí — no colapsarlos en un enum):
+
+| Estado                                    | `visible` | `disponible` |
+| ----------------------------------------- | --------- | ------------ |
+| Normal (pedible)                          | true      | true         |
+| Agotado (se ve, con etiqueta, no se pide) | true      | false        |
+| Oculto (no aparece)                       | false     | —            |
+
+Los toggles del panel son a **un clic, sin confirmación** (operación diaria). Las
+acciones destructivas (eliminar producto) piden confirmación explícita y solo admin.
+Al guardar cualquier cambio de catálogo o zonas se revalida el menú público (ISR).
+
 ---
 
 ## Convenciones
@@ -207,17 +342,26 @@ Registrar el envío en `order_status_event.notificado_en`.
   componentes del navegador. Si esa llave se filtra, las tablas quedan expuestas.
   Las subidas a Storage también van desde el servidor.
 - **Storage:** las subidas van a buckets de Supabase. Los comprobantes de Nequi se
-  purgan a los 60 días con una tarea programada; el free tier son 1 GB.
+  purgan a los 60 días con **`pg_cron` dentro de Supabase** (no un cron de Vercel:
+  corre en la base y no depende del hosting); el free tier son 1 GB.
+- **Fotos de productos:** máximo 3 por producto; se comprimen ANTES de subir
+  (WebP, ~800 px, ~100–150 KB). La primera es la portada.
 - **Server Components por defecto.** `'use client'` solo donde hay interacción real
-  (modal de producto, carrito, panel).
+  (modal de producto, carrito, panel, mapas).
 - El menú público se sirve con **ISR**; se revalida cuando el admin guarda cambios.
-- Imágenes siempre con `next/image`. Los clientes entran desde datos móviles.
+- Imágenes siempre con `next/image`, con **loader apuntando al CDN de Supabase**
+  (o `unoptimized`): las fotos ya se suben optimizadas y no hay que gastar la cuota
+  de optimización de Vercel en trabajo ya hecho. Los clientes entran desde datos
+  móviles.
+- **Leaflet solo en el cliente:** los componentes de mapa se cargan con
+  `dynamic(..., { ssr: false })` — Leaflet toca `window` y revienta en SSR.
 - Mobile-first, siempre. El escritorio es el caso raro aquí.
 - Validación con Zod en el borde de cada route handler, antes de tocar la base.
 - Los estados del pedido se registran en `order_status_event`, no solo actualizando
   `order.estado`.
-- Tests con Vitest para `precios.ts` y `horario.ts` como mínimo — es donde un bug
-  cuesta plata real.
+- Tests con Vitest para `precios.ts`, `horario.ts` y `zonas.ts` como mínimo — es
+  donde un bug cuesta plata real. Para `zonas.ts`: punto dentro, fuera, en el borde,
+  en solapamiento (gana prioridad) y con todas las zonas apagadas.
 
 ## Qué NO hacer
 
@@ -226,5 +370,10 @@ Registrar el envío en `order_status_event.notificado_en`.
 - No usar la API de WhatsApp con el número actual del negocio: ese número se usa para
   hablar con proveedores y la Cloud API lo dejaría inutilizable en la app. Los avisos
   salen por `wa.me` desde el panel. Migrar a Cloud API solo con un número dedicado.
+- No usar APIs de Google Maps (Geocoding, Places, JS API): los mapas son Leaflet +
+  OpenStreetMap y el cálculo es PostGIS. Google queda como upgrade futuro explícito,
+  nunca como atajo.
+- No crear lógica de envío gratis, pedido mínimo ni descuentos de domicilio: no
+  existen en este negocio (regla 13).
 - No crear productos de prueba: el seed usa el catálogo real.
 - No convertir el proyecto en multi-tenant todavía.
