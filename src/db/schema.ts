@@ -1,10 +1,11 @@
 import { pgTable, unique, uuid, text, boolean, timestamp, foreignKey, check, smallint, time, date, integer, index, bigint, serial, jsonb, pgEnum } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
+import { geometria } from "./tipos-geo"
 
 export const estadoPedido = pgEnum("estado_pedido", ['nuevo', 'aceptado', 'preparando', 'en_camino', 'listo', 'entregado', 'cancelado'])
 export const metodoPago = pgEnum("metodo_pago", ['efectivo', 'nequi', 'transferencia', 'datafono'])
 export const modoGrupo = pgEnum("modo_grupo", ['incluido', 'adicional'])
-export const rolUsuario = pgEnum("rol_usuario", ['admin', 'empleado'])
+export const rolUsuario = pgEnum("rol_usuario", ['admin', 'colaborador'])
 export const tipoGrupo = pgEnum("tipo_grupo", ['seleccion', 'upsell'])
 export const tipoPedido = pgEnum("tipo_pedido", ['domicilio', 'recoger'])
 
@@ -70,7 +71,7 @@ export const appUser = pgTable("app_user", {
 	email: text().notNull(),
 	nombre: text().notNull(),
 	passwordHash: text("password_hash").notNull(),
-	rol: rolUsuario().default('empleado').notNull(),
+	rol: rolUsuario().default('colaborador').notNull(),
 	activo: boolean().default(true).notNull(),
 	creadoEn: timestamp("creado_en", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
@@ -212,17 +213,28 @@ export const productModifierGroup = pgTable("product_modifier_group", {
 export const deliveryZone = pgTable("delivery_zone", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	storeId: uuid("store_id").notNull(),
-	barrio: text().notNull(),
+	nombre: text().notNull(),
 	precio: integer().notNull(),
+	// Nullable: una zona recién creada todavía no está dibujada, y las que venían del
+	// modelo por barrio esperan a que el admin les trace el contorno. `zonas.ts` ignora
+	// las que no tienen polígono: sin geometría no pueden cubrir ningún punto.
+	poligono: geometria("poligono", { tipo: "Polygon" }),
+	prioridad: integer().default(0).notNull(),
+	color: text(),
 	activa: boolean().default(true).notNull(),
 }, (table) => [
+	// GiST es el índice que sabe responder ST_Covers. Se declara como expresión cruda a
+	// propósito: con `table.poligono.asc()` Drizzle emitiría `ASC NULLS LAST`, que gist rechaza.
+	index("idx_delivery_zone_poligono").using("gist", sql`${table.poligono}`),
+	index("idx_delivery_zone_prioridad").using("btree", table.storeId.asc().nullsLast().op("uuid_ops"), table.prioridad.asc().nullsLast().op("int4_ops")),
 	foreignKey({
 			columns: [table.storeId],
 			foreignColumns: [store.id],
 			name: "delivery_zone_store_id_fkey"
 		}).onDelete("cascade"),
-	unique("delivery_zone_store_id_barrio_key").on(table.storeId, table.barrio),
-	check("delivery_zone_precio_check", sql`precio >= 0`),
+	unique("delivery_zone_store_id_nombre_key").on(table.storeId, table.nombre),
+	// Regla 13: no existe zona a $0. El domicilio lo ejecuta un courier externo y siempre se cobra.
+	check("delivery_zone_precio_check", sql`precio > 0`),
 ]);
 
 export const customer = pgTable("customer", {
@@ -260,6 +272,13 @@ export const order = pgTable("order", {
 	recibeNombre: text("recibe_nombre"),
 	recibeTelefono: text("recibe_telefono"),
 	zonaId: uuid("zona_id"),
+	// Snapshot de la zona (regla 2 aplicada al domicilio, regla 13): editar o eliminar una
+	// zona jamás debe alterar un pedido ya creado. `zona_id` se queda solo para reportes
+	// agregados, igual que `order_item.product_id`.
+	zonaNombre: text("zona_nombre"),
+	// El pin que el cliente confirmó (regla 14). Es lo que determinó el costo del domicilio;
+	// la dirección escrita es referencia para el domiciliario y no participa en el cálculo.
+	punto: geometria("punto", { tipo: "Point" }),
 	barrioTexto: text("barrio_texto"),
 	direccion: text(),
 	indicaciones: text(),
