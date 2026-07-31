@@ -598,7 +598,7 @@ describe("calcularPedido", () => {
   it("domicilio con zona válida suma el costo de envío al total", async () => {
     const p = producto();
     vi.mocked(obtenerProductosConEngancles).mockResolvedValue(new Map([[p.id, p]]));
-    vi.mocked(obtenerZonaActiva).mockResolvedValue({ id: "zona-1", barrio: "Centro", precio: 3000, activa: true });
+    vi.mocked(obtenerZonaActiva).mockResolvedValue({ id: "zona-1", nombre: "Centro", precio: 3000, activa: true });
 
     const r = await calcularPedido("store-1", { tipo: "domicilio", items: [item()], zonaId: "zona-1" });
     expect(r.ok).toBe(true);
@@ -625,7 +625,7 @@ describe("calcularPedido", () => {
   it("domicilio con zona válida NO queda por confirmar", async () => {
     const p = producto();
     vi.mocked(obtenerProductosConEngancles).mockResolvedValue(new Map([[p.id, p]]));
-    vi.mocked(obtenerZonaActiva).mockResolvedValue({ id: "zona-1", barrio: "Centro", precio: 3000, activa: true });
+    vi.mocked(obtenerZonaActiva).mockResolvedValue({ id: "zona-1", nombre: "Centro", precio: 3000, activa: true });
 
     const r = await calcularPedido("store-1", { tipo: "domicilio", items: [item()], zonaId: "zona-1" });
     expect(r.ok).toBe(true);
@@ -664,7 +664,7 @@ describe("calcularPedido", () => {
   it("si llegan zonaId y barrioTexto, gana la zona de la lista", async () => {
     const p = producto();
     vi.mocked(obtenerProductosConEngancles).mockResolvedValue(new Map([[p.id, p]]));
-    vi.mocked(obtenerZonaActiva).mockResolvedValue({ id: "zona-1", barrio: "Centro", precio: 3000, activa: true });
+    vi.mocked(obtenerZonaActiva).mockResolvedValue({ id: "zona-1", nombre: "Centro", precio: 3000, activa: true });
 
     const r = await calcularPedido("store-1", {
       tipo: "domicilio",
