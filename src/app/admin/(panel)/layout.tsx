@@ -16,8 +16,9 @@ export const dynamic = "force-dynamic";
  * pantalla y cada acción exigen lo suyo por encima de esto.
  */
 export default async function PanelLayout({ children }: { children: React.ReactNode }) {
+  let sesion;
   try {
-    await exigirRol("colaborador");
+    sesion = await exigirRol("colaborador");
   } catch (error) {
     if (error instanceof NoAutenticadoError) redirect("/admin/login");
     throw error;
@@ -35,6 +36,10 @@ export default async function PanelLayout({ children }: { children: React.ReactN
         <nav className="mx-auto flex w-full max-w-contenido gap-1 px-4 pb-2">
           <Enlace href="/admin/pedidos">Pedidos</Enlace>
           <Enlace href="/admin/catalogo">Qué hay hoy</Enlace>
+          {/* El colaborador no tiene acceso a zonas ni de lectura, así que tampoco ve el
+              enlace. Ocultarlo es cortesía; quien corta de verdad es el `exigirRol` de la
+              propia pantalla (regla 12). */}
+          {sesion.rol === "admin" && <Enlace href="/admin/zonas">Zonas</Enlace>}
         </nav>
       </header>
 
