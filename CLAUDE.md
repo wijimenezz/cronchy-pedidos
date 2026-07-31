@@ -57,9 +57,9 @@ src/
       (panel)/                grupo con sesión: cabecera, nav y exigirRol()
         pedidos/              lista con polling + [numero]/ detalle
         catalogo/             switches de agotado (US21)
+        zonas/                mapa con polígonos de cobertura — solo admin
         productos/            CRUD completo — pendiente
         opciones/             sabores, toppings, salsas — pendiente
-        zonas/                mapa con polígonos de cobertura — pendiente
     api/
   proxy.ts                    corta /admin/* sin sesión (antes "middleware")
   db/
@@ -303,7 +303,9 @@ saber qué es un "enganche". Esa traducción vive en el servidor, junto a la val
 no en el componente.
 
 Lo mismo aplica a zonas: dibujar, nombrar y ponerle precio; `prioridad` se maneja
-reordenando la lista con arrastre, no editando números.
+reordenando la lista, no editando números. **Se reordena con botones ↑/↓ y no
+arrastrando**: el drag nativo de HTML5 no funciona en táctil y el panel se opera desde el
+teléfono; traer una librería de drag-and-drop solo para esto no se justificaba.
 
 ---
 
