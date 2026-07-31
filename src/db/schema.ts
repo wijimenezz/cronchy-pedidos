@@ -17,6 +17,9 @@ export const store = pgTable("store", {
 	telefono: text(),
 	direccion: text(),
 	timezone: text().default('America/Bogota').notNull(),
+	// Dónde queda el local. Centra el mapa de zonas en el panel y, sobre todo, el del
+	// checkout cuando el cliente niega el permiso de ubicación (regla 14).
+	ubicacion: geometria("ubicacion", { tipo: "Point" }),
 	aceptaPedidos: boolean("acepta_pedidos").default(true).notNull(),
 	mensajeCerrado: text("mensaje_cerrado"),
 	nequiTitular: text("nequi_titular"),
@@ -279,10 +282,8 @@ export const order = pgTable("order", {
 	// El pin que el cliente confirmó (regla 14). Es lo que determinó el costo del domicilio;
 	// la dirección escrita es referencia para el domiciliario y no participa en el cálculo.
 	punto: geometria("punto", { tipo: "Point" }),
-	barrioTexto: text("barrio_texto"),
 	direccion: text(),
 	indicaciones: text(),
-	domicilioPorConfirmar: boolean("domicilio_por_confirmar").default(false).notNull(),
 	notas: text(),
 	metodoPago: metodoPago("metodo_pago").notNull(),
 	comprobanteUrl: text("comprobante_url"),
@@ -310,7 +311,12 @@ export const order = pgTable("order", {
 			name: "order_zona_id_fkey"
 		}),
 	unique("order_token_publico_key").on(table.tokenPublico),
-	check("order_check", sql`(tipo = 'recoger'::tipo_pedido) OR (direccion IS NOT NULL)`),
+	// Un domicilio sin pin ya no es posible: el pin es lo que determinó el precio (regla 14),
+	// y sin él no se puede reconstruir por qué se cobró lo que se cobró.
+	check(
+		"order_check",
+		sql`(tipo = 'recoger'::tipo_pedido) OR (direccion IS NOT NULL AND punto IS NOT NULL)`,
+	),
 ]);
 
 export const orderItem = pgTable("order_item", {

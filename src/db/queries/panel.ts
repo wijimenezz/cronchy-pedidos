@@ -1,9 +1,10 @@
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { order, orderItem, orderStatusEvent } from "@/db/schema";
 import { itemSnapshotSchema } from "@/lib/validaciones";
 import { siguienteEstado, validarCambioEstado, type MotivoBloqueo } from "@/lib/pedidos/estados";
 import { puedeAvisarse } from "@/lib/notificaciones/avisos";
+import { puntoDesdeGeoJSON } from "@/lib/zonas";
 import type { EstadoPedido, ItemSnapshot, TipoPedido } from "@/lib/notificaciones/plantillas";
 
 /**
@@ -28,7 +29,8 @@ export type PedidoPanel = {
   direccion: string | null;
   indicaciones: string | null;
   barrio: string | null;
-  domicilioPorConfirmar: boolean;
+  /** El pin que confirmó el cliente. Es lo que abre el domiciliario en Maps (regla 14). */
+  punto: { lat: number; lng: number } | null;
   metodoPago: string;
   comprobanteUrl: string | null;
   notas: string | null;
@@ -116,7 +118,7 @@ export async function listarPedidos(
       creadoEn: new Date(fila.creadoEn),
       clienteNombre: fila.clienteNombre,
       clienteTelefono: fila.clienteTelefono,
-      barrio: fila.zonaNombre ?? fila.barrioTexto,
+      barrio: fila.zonaNombre,
       metodoPago: fila.metodoPago,
       total: fila.total,
       tieneComprobante: Boolean(fila.comprobanteUrl),
@@ -134,6 +136,9 @@ export async function obtenerPedidoPorNumero(
 ): Promise<{ pedido: PedidoPanel; historial: EventoEstado[] } | null> {
   const fila = await db.query.order.findFirst({
     where: and(eq(order.storeId, storeId), eq(order.numero, numero)),
+    // Un select normal sobre una columna `geometry` devuelve WKB en hexadecimal, así que el
+    // punto se pide aparte ya convertido a GeoJSON.
+    extras: { puntoGeo: sql<string | null>`ST_AsGeoJSON(${order.punto})`.as("punto_geo") },
     with: {
       orderItems: { orderBy: asc(orderItem.orden) },
       orderStatusEvents: { orderBy: asc(orderStatusEvent.creadoEn) },
@@ -156,8 +161,8 @@ export async function obtenerPedidoPorNumero(
       recibeTelefono: fila.recibeTelefono,
       direccion: fila.direccion,
       indicaciones: fila.indicaciones,
-      barrio: fila.zonaNombre ?? fila.barrioTexto,
-      domicilioPorConfirmar: fila.domicilioPorConfirmar,
+      barrio: fila.zonaNombre,
+      punto: puntoDesdeGeoJSON(fila.puntoGeo),
       metodoPago: fila.metodoPago,
       comprobanteUrl: fila.comprobanteUrl,
       notas: fila.notas,

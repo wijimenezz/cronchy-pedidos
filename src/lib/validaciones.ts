@@ -109,8 +109,17 @@ export const crearPedidoSchema = z
     ),
     recibeNombre: textoOpcional(120),
     recibeTelefono: opcional(z.string().trim().refine(esTelefonoValido, "Teléfono inválido")),
-    zonaId: opcional(z.string().uuid("Barrio inválido")),
-    barrioTexto: textoOpcional(120),
+    /**
+     * El pin que el cliente confirmó (regla 14). El servidor vuelve a resolver la zona con
+     * estas coordenadas: no llega ni el id de la zona ni el precio, porque el cliente no
+     * decide cuánto cuesta su domicilio (regla 1).
+     */
+    punto: z
+      .object({
+        lat: z.number().min(-90).max(90),
+        lng: z.number().min(-180).max(180),
+      })
+      .optional(),
     direccion: textoOpcional(280),
     indicaciones: textoOpcional(280),
     metodoPago: z.enum(["efectivo", "nequi", "transferencia", "datafono"]),
@@ -133,13 +142,12 @@ export const crearPedidoSchema = z
         message: REQUERIDO,
       });
     }
-    // US11: el barrio puede venir de la lista (zonaId) o escrito a mano (barrioTexto).
-    // Exigir solo zonaId dejaría sin poder pedir a todo barrio que no esté cargado.
-    if (data.tipo === "domicilio" && !data.zonaId && !data.barrioTexto) {
+    // Sin pin no hay domicilio: es lo que fija el precio (regla 14).
+    if (data.tipo === "domicilio" && !data.punto) {
       ctx.addIssue({
         code: "custom",
-        path: ["zonaId"],
-        message: REQUERIDO,
+        path: ["punto"],
+        message: "Confirma tu ubicación en el mapa.",
       });
     }
     // Un nombre sin teléfono (o al revés) deja al domiciliario sin a quién llamar.

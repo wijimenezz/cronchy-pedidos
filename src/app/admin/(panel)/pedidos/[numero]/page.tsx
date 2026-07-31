@@ -5,6 +5,7 @@ import { obtenerPedidoPorNumero } from "@/db/queries/panel";
 import { exigirRol } from "@/lib/autorizacion";
 import { pesos } from "@/lib/notificaciones/plantillas";
 import { ETIQUETA_ESTADO, METODO_PAGO_ETIQUETA, toneDeEstado } from "@/lib/pedidos/estados";
+import { urlMapa } from "@/lib/zonas";
 
 export const dynamic = "force-dynamic";
 
@@ -89,6 +90,23 @@ export default async function DetallePedidoPage({
             <Dato etiqueta="Dirección" valor={pedido.direccion ?? "—"} />
             {pedido.barrio && <Dato etiqueta="Barrio" valor={pedido.barrio} />}
             {pedido.indicaciones && <Dato etiqueta="Indicaciones" valor={pedido.indicaciones} />}
+            {/* El pin que fijó el precio. Es lo que el domiciliario abre para llegar: la
+                dirección escrita es referencia, esto es la coordenada exacta (regla 14). */}
+            {pedido.punto && (
+              <Dato
+                etiqueta="Ubicación"
+                valor={
+                  <a
+                    href={urlMapa(pedido.punto)}
+                    target="_blank"
+                    rel="noopener"
+                    className="font-bold text-naranja-osc underline-offset-2 hover:underline"
+                  >
+                    Abrir en Google Maps
+                  </a>
+                }
+              />
+            )}
           </>
         )}
         {pedido.notas && <Dato etiqueta="Notas" valor={pedido.notas} />}
@@ -129,10 +147,7 @@ export default async function DetallePedidoPage({
         <dl className="mt-4 border-t border-crema-oscura pt-3">
           <Total etiqueta="Subtotal" valor={pesos(pedido.subtotal)} />
           {pedido.tipo === "domicilio" && (
-            <Total
-              etiqueta="Domicilio"
-              valor={pedido.domicilioPorConfirmar ? "Por confirmar" : pesos(pedido.costoDomicilio)}
-            />
+            <Total etiqueta="Domicilio" valor={pesos(pedido.costoDomicilio)} />
           )}
           {pedido.descuento > 0 && (
             <Total etiqueta="Descuento" valor={`− ${pesos(pedido.descuento)}`} />

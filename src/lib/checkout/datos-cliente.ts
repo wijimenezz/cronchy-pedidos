@@ -15,9 +15,11 @@ export type DatosCliente = {
   telefono: string;
   email: string;
   cumple: string;
-  /** Id de la zona elegida, o el centinela de "mi barrio no aparece". */
-  zonaId: string;
-  barrioTexto: string;
+  /**
+   * El último pin que confirmó (regla 14). Se guarda porque casi siempre pide a la misma
+   * casa: al volver, el mapa abre donde lo dejó y solo tiene que confirmar.
+   */
+  punto: { lat: number; lng: number } | null;
   direccion: string;
   indicaciones: string;
   recibeOtro: boolean;
@@ -30,8 +32,7 @@ const VACIO: DatosCliente = {
   telefono: "",
   email: "",
   cumple: "",
-  zonaId: "",
-  barrioTexto: "",
+  punto: null,
   direccion: "",
   indicaciones: "",
   recibeOtro: false,
@@ -52,7 +53,29 @@ export const useDatosCliente = create<EstadoDatosCliente>()(
       set: (parcial) => set(parcial),
       olvidar: () => set(VACIO),
     }),
-    { name: "cronchy_datos_cliente", version: 1 },
+    {
+      name: "cronchy_datos_cliente",
+      // v2: `zonaId` y `barrioTexto` salieron cuando el domicilio pasó a calcularse por el
+      // pin (regla 14). Se descartan esos dos y se conserva todo lo demás: el nombre y el
+      // teléfono siguen siendo válidos, y hacer que el cliente los reescriba por un cambio
+      // interno sería cobrarle a él nuestra refactorización.
+      version: 2,
+      migrate: (estado) => {
+        const viejo = (estado ?? {}) as Partial<DatosCliente>;
+        return {
+          ...VACIO,
+          nombre: viejo.nombre ?? "",
+          telefono: viejo.telefono ?? "",
+          email: viejo.email ?? "",
+          cumple: viejo.cumple ?? "",
+          direccion: viejo.direccion ?? "",
+          indicaciones: viejo.indicaciones ?? "",
+          recibeOtro: viejo.recibeOtro ?? false,
+          recibeNombre: viejo.recibeNombre ?? "",
+          recibeTelefono: viejo.recibeTelefono ?? "",
+        } as EstadoDatosCliente;
+      },
+    },
   ),
 );
 

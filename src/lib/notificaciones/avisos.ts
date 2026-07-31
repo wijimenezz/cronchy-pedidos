@@ -26,7 +26,7 @@ export function tiendaParaMensaje(store: { nombre: string }): Tienda {
  * cuánto exponen.
  */
 export function pedidoParaMensaje(
-  pedido: Pick<PedidoPublico, keyof PedidoParaMensaje & keyof PedidoPublico>,
+  pedido: Pick<PedidoPublico, (keyof PedidoParaMensaje & keyof PedidoPublico) | "punto">,
 ): PedidoParaMensaje {
   return {
     numero: pedido.numero,
@@ -37,6 +37,9 @@ export function pedidoParaMensaje(
     direccion: pedido.direccion,
     barrio: pedido.barrio,
     indicaciones: pedido.indicaciones,
+    // El pin del cliente. Es lo que convierte la línea de Google Maps del aviso al negocio
+    // en algo que el domiciliario puede abrir (regla 14).
+    ubicacion: pedido.punto,
     items: pedido.items,
     subtotal: pedido.subtotal,
     costoDomicilio: pedido.costoDomicilio,
@@ -95,7 +98,7 @@ export function puedeAvisarse(estado: EstadoPedido): boolean {
  */
 export async function avisoCambioEstado(
   estado: EstadoPedido,
-  pedido: Pick<PedidoPublico, keyof PedidoParaMensaje & keyof PedidoPublico>,
+  pedido: Pick<PedidoPublico, (keyof PedidoParaMensaje & keyof PedidoPublico) | "punto">,
   store: { nombre: string },
 ): Promise<ResultadoEnvio | null> {
   const texto = cambioEstado(estado, pedidoParaMensaje(pedido), tiendaParaMensaje(store));

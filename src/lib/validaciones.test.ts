@@ -11,6 +11,9 @@ function mensajeDe(payload: unknown, campo: string): string | undefined {
 }
 
 const PRODUCT_ID = "11111111-1111-4111-8111-111111111111";
+/** Un pin cualquiera de Fusagasugá. El esquema no mira si está cubierto: eso es del servidor. */
+const PIN = { lat: 4.337, lng: -74.362 };
+
 const COMPROBANTE_URL =
   "https://koipbxrmkylpucbsgmqd.supabase.co/storage/v1/object/comprobantes/2026/07/11111111-1111-4111-8111-111111111111.jpg";
 
@@ -33,12 +36,12 @@ describe("crearPedidoSchema", () => {
     expect(r.success).toBe(true);
   });
 
-  it("acepta un pedido a domicilio con dirección, zona y pago nequi con comprobante", () => {
+  it("acepta un pedido a domicilio con dirección, pin y pago nequi con comprobante", () => {
     const r = crearPedidoSchema.safeParse(
       payloadBase({
         tipo: "domicilio",
         direccion: "Calle 10 # 5-20",
-        zonaId: "22222222-2222-4222-8222-222222222222",
+        punto: PIN,
         metodoPago: "nequi",
         comprobanteUrl: COMPROBANTE_URL,
       }),
@@ -55,7 +58,7 @@ describe("crearPedidoSchema", () => {
 
   it("rechaza domicilio sin dirección", () => {
     const r = crearPedidoSchema.safeParse(
-      payloadBase({ tipo: "domicilio", zonaId: "22222222-2222-4222-8222-222222222222" }),
+      payloadBase({ tipo: "domicilio", punto: PIN }),
     );
     expect(r.success).toBe(false);
     if (!r.success) {
@@ -63,30 +66,29 @@ describe("crearPedidoSchema", () => {
     }
   });
 
-  it("rechaza domicilio sin zonaId ni barrioTexto", () => {
+  // Regla 14: sin pin no hay domicilio, porque es el pin el que fija el precio. Antes se
+  // aceptaba un barrio escrito a mano (US11); eso se retiró con el mapa.
+  it("rechaza domicilio sin pin", () => {
     const r = crearPedidoSchema.safeParse(payloadBase({ tipo: "domicilio", direccion: "Calle 10 # 5-20" }));
     expect(r.success).toBe(false);
     if (!r.success) {
-      expect(r.error.issues.some((i) => i.path.includes("zonaId"))).toBe(true);
+      expect(r.error.issues.some((i) => i.path.includes("punto"))).toBe(true);
     }
   });
 
-  // US11 — el cliente escribe su barrio porque no está en la lista.
-  it("acepta domicilio con barrioTexto en vez de zonaId", () => {
-    const r = crearPedidoSchema.safeParse(
-      payloadBase({ tipo: "domicilio", direccion: "Calle 10 # 5-20", barrioTexto: "Vereda La Aguadita" }),
-    );
+  it("recoger no necesita pin", () => {
+    const r = crearPedidoSchema.safeParse(payloadBase({ tipo: "recoger" }));
     expect(r.success).toBe(true);
   });
 
-  it("un barrioTexto en blanco no cuenta como barrio escrito", () => {
+  it.each([
+    ["latitud fuera de rango", { lat: 91, lng: -74.362 }],
+    ["longitud fuera de rango", { lat: 4.337, lng: -181 }],
+  ])("rechaza un pin con %s", (_caso, punto) => {
     const r = crearPedidoSchema.safeParse(
-      payloadBase({ tipo: "domicilio", direccion: "Calle 10 # 5-20", barrioTexto: "   " }),
+      payloadBase({ tipo: "domicilio", direccion: "Calle 10 # 5-20", punto }),
     );
     expect(r.success).toBe(false);
-    if (!r.success) {
-      expect(r.error.issues.some((i) => i.path.includes("zonaId"))).toBe(true);
-    }
   });
 
   // Un <input> vacío llega como "", no como undefined: el mensaje debe ser el de
@@ -166,7 +168,7 @@ describe("crearPedidoSchema", () => {
     expect(mensajeDe(payloadBase({ clienteNombre: "" }), "clienteNombre")).toBe(REQUERIDO);
     expect(mensajeDe(payloadBase({ clienteTelefono: "" }), "clienteTelefono")).toBe(REQUERIDO);
     expect(
-      mensajeDe(payloadBase({ tipo: "domicilio", zonaId: "22222222-2222-4222-8222-222222222222" }), "direccion"),
+      mensajeDe(payloadBase({ tipo: "domicilio", punto: { lat: 4.337, lng: -74.362 } }), "direccion"),
     ).toBe(REQUERIDO);
   });
 

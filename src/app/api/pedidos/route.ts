@@ -36,8 +36,8 @@ export async function POST(request: Request) {
   const resultado = await calcularPedido(tienda.id, {
     tipo: input.tipo,
     items: input.items,
-    zonaId: input.zonaId,
-    barrioTexto: input.barrioTexto,
+    // Llega el pin, no la zona ni el precio: el servidor resuelve la cobertura de nuevo.
+    punto: input.punto,
     descuento: 0,
   });
 

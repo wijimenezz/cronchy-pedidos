@@ -64,6 +64,20 @@
       "when": 1785442183552,
       "tag": "0008_zonas_postgis",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785518475921,
+      "tag": "0009_ubicacion_tienda",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1785519319048,
+      "tag": "0010_corte_barrio_texto",
+      "breakpoints": true
     }
   ]
 }

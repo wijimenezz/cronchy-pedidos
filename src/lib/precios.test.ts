@@ -4,12 +4,18 @@ vi.mock("@/db/queries/productos", () => ({
   obtenerProductoConEngancles: vi.fn(),
   obtenerProductosConEngancles: vi.fn(),
 }));
-vi.mock("@/db/queries/deliveryZones", () => ({
-  obtenerZonaActiva: vi.fn(),
+// Solo se mockea la resolución de la zona: qué devuelve `ST_Covers` para un punto dado ya
+// está probado contra PostGIS en `zonas.test.ts`. Aquí interesa qué hace `calcularPedido`
+// con esa respuesta.
+vi.mock("@/lib/zonas", () => ({
+  resolverZona: vi.fn(),
 }));
 
 import { obtenerProductosConEngancles } from "@/db/queries/productos";
-import { obtenerZonaActiva } from "@/db/queries/deliveryZones";
+import { resolverZona } from "@/lib/zonas";
+
+/** Un pin cualquiera de Fusagasugá; el mock decide qué zona lo cubre. */
+const PIN = { lat: 4.337, lng: -74.362 };
 import {
   calcularItem,
   calcularPedido,
@@ -592,15 +598,15 @@ describe("gruposIncompletos", () => {
 describe("calcularPedido", () => {
   beforeEach(() => {
     vi.mocked(obtenerProductosConEngancles).mockReset();
-    vi.mocked(obtenerZonaActiva).mockReset();
+    vi.mocked(resolverZona).mockReset();
   });
 
-  it("domicilio con zona válida suma el costo de envío al total", async () => {
+  it("el pin dentro de una zona suma su precio al total", async () => {
     const p = producto();
     vi.mocked(obtenerProductosConEngancles).mockResolvedValue(new Map([[p.id, p]]));
-    vi.mocked(obtenerZonaActiva).mockResolvedValue({ id: "zona-1", nombre: "Centro", precio: 3000, activa: true });
+    vi.mocked(resolverZona).mockResolvedValue({ id: "zona-1", nombre: "Centro", precio: 3000 });
 
-    const r = await calcularPedido("store-1", { tipo: "domicilio", items: [item()], zonaId: "zona-1" });
+    const r = await calcularPedido("store-1", { tipo: "domicilio", items: [item()], punto: PIN });
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.valor.subtotal).toBe(5000);
@@ -609,90 +615,65 @@ describe("calcularPedido", () => {
     }
   });
 
-  it("recoger ignora zonaId, costoDomicilio es 0", async () => {
+  // Regla 2 aplicada al domicilio: el nombre se congela en el pedido, así que renombrar la
+  // zona después no reescribe lo que el cliente pagó.
+  it("congela el nombre de la zona que cobró", async () => {
+    const p = producto();
+    vi.mocked(obtenerProductosConEngancles).mockResolvedValue(new Map([[p.id, p]]));
+    vi.mocked(resolverZona).mockResolvedValue({ id: "zona-1", nombre: "Centro", precio: 3000 });
+
+    const r = await calcularPedido("store-1", { tipo: "domicilio", items: [item()], punto: PIN });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.valor.zonaNombre).toBe("Centro");
+  });
+
+  it("recoger no consulta zonas y no cobra domicilio", async () => {
     const p = producto();
     vi.mocked(obtenerProductosConEngancles).mockResolvedValue(new Map([[p.id, p]]));
 
-    const r = await calcularPedido("store-1", { tipo: "recoger", items: [item()] });
+    const r = await calcularPedido("store-1", { tipo: "recoger", items: [item()], punto: PIN });
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.valor.costoDomicilio).toBe(0);
+      expect(r.valor.zonaNombre).toBeNull();
       expect(r.valor.total).toBe(5000);
     }
-    expect(obtenerZonaActiva).not.toHaveBeenCalled();
+    expect(resolverZona).not.toHaveBeenCalled();
   });
 
-  it("domicilio con zona válida NO queda por confirmar", async () => {
-    const p = producto();
-    vi.mocked(obtenerProductosConEngancles).mockResolvedValue(new Map([[p.id, p]]));
-    vi.mocked(obtenerZonaActiva).mockResolvedValue({ id: "zona-1", nombre: "Centro", precio: 3000, activa: true });
-
-    const r = await calcularPedido("store-1", { tipo: "domicilio", items: [item()], zonaId: "zona-1" });
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.valor.domicilioPorConfirmar).toBe(false);
-  });
-
-  it("domicilio sin zonaId ni barrioTexto es un error", async () => {
+  it("domicilio sin pin es un error", async () => {
     const p = producto();
     vi.mocked(obtenerProductosConEngancles).mockResolvedValue(new Map([[p.id, p]]));
 
     const r = await calcularPedido("store-1", { tipo: "domicilio", items: [item()] });
-    expect(r).toEqual({ ok: false, error: { tipo: "zona_o_barrio_requerido" } });
+    expect(r).toEqual({ ok: false, error: { tipo: "punto_requerido" } });
+    expect(resolverZona).not.toHaveBeenCalled();
   });
 
-  // US11 — el barrio no está en la lista: se cobra 0 de domicilio y el negocio
-  // confirma el valor después, en vez de dejar al cliente sin poder pedir.
-  it("domicilio con barrio escrito a mano no cobra envío y queda por confirmar", async () => {
+  /**
+   * Regla 14: fuera de cobertura el pedido NO entra. Antes (US11) se aceptaba con $0 y
+   * "domicilio por confirmar"; eso le mostraba al cliente un total que no era el que iba a
+   * pagar, y por eso se quitó.
+   */
+  it("un pin fuera de toda zona no deja crear el pedido", async () => {
     const p = producto();
     vi.mocked(obtenerProductosConEngancles).mockResolvedValue(new Map([[p.id, p]]));
+    vi.mocked(resolverZona).mockResolvedValue(null);
 
-    const r = await calcularPedido("store-1", {
-      tipo: "domicilio",
-      items: [item()],
-      barrioTexto: "Vereda La Aguadita",
-    });
-    expect(r.ok).toBe(true);
-    if (r.ok) {
-      expect(r.valor.costoDomicilio).toBe(0);
-      expect(r.valor.domicilioPorConfirmar).toBe(true);
-      expect(r.valor.total).toBe(5000);
-    }
-    // No debe ir a la base a buscar una zona que no existe.
-    expect(obtenerZonaActiva).not.toHaveBeenCalled();
+    const r = await calcularPedido("store-1", { tipo: "domicilio", items: [item()], punto: PIN });
+    expect(r).toEqual({ ok: false, error: { tipo: "fuera_de_cobertura" } });
   });
 
-  it("si llegan zonaId y barrioTexto, gana la zona de la lista", async () => {
+  // El precio sale de la zona que resuelve el servidor, no de nada que mande el cliente.
+  it("el costo lo pone la zona resuelta en el servidor", async () => {
     const p = producto();
     vi.mocked(obtenerProductosConEngancles).mockResolvedValue(new Map([[p.id, p]]));
-    vi.mocked(obtenerZonaActiva).mockResolvedValue({ id: "zona-1", nombre: "Centro", precio: 3000, activa: true });
+    vi.mocked(resolverZona).mockResolvedValue({ id: "z", nombre: "Balmoral", precio: 5000 });
 
-    const r = await calcularPedido("store-1", {
-      tipo: "domicilio",
-      items: [item()],
-      zonaId: "zona-1",
-      barrioTexto: "Otra cosa",
-    });
+    const r = await calcularPedido("store-1", { tipo: "domicilio", items: [item()], punto: PIN });
     expect(r.ok).toBe(true);
-    if (r.ok) {
-      expect(r.valor.costoDomicilio).toBe(3000);
-      expect(r.valor.domicilioPorConfirmar).toBe(false);
-    }
-  });
-
-  it("recoger con barrioTexto no queda por confirmar: no hay domicilio que confirmar", async () => {
-    const p = producto();
-    vi.mocked(obtenerProductosConEngancles).mockResolvedValue(new Map([[p.id, p]]));
-
-    const r = await calcularPedido("store-1", {
-      tipo: "recoger",
-      items: [item()],
-      barrioTexto: "Vereda La Aguadita",
-    });
-    expect(r.ok).toBe(true);
-    if (r.ok) {
-      expect(r.valor.costoDomicilio).toBe(0);
-      expect(r.valor.domicilioPorConfirmar).toBe(false);
-    }
+    if (r.ok) expect(r.valor.costoDomicilio).toBe(5000);
+    expect(resolverZona).toHaveBeenCalledWith("store-1", PIN);
   });
 
   it("un descuento mayor al subtotal deja el total en 0, nunca negativo", async () => {

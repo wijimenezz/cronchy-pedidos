@@ -104,9 +104,17 @@ el subtotal, y poder cambiar cantidades o eliminar, antes de pagar.
 
 ### Cliente — checkout
 
-**US11.** Como cliente de domicilio, quiero ingresar mi **barrio** de una lista y
+**US11.** ~~Como cliente de domicilio, quiero ingresar mi **barrio** de una lista y
 ver el costo de domicilio; si mi barrio no aparece, quiero poder escribirlo y que
-el negocio confirme el valor después.
+el negocio confirme el valor después.~~ **RETIRADA.** La reemplaza la regla 14 de
+`CLAUDE.md`: el costo sale del **pin que el cliente confirma en un mapa**, contra los
+polígonos que el admin dibuja en `/admin/zonas`. Fuera de cobertura el checkout se
+bloquea y ofrece un WhatsApp con el carrito y el link de Google Maps para que la tienda
+cotice — un pedido "con domicilio por confirmar" le mostraba al cliente un total que no
+era el que iba a pagar, que es justo lo que esta plataforma vino a quitar.
+
+**US11b.** Como cliente de domicilio, quiero **marcar mi ubicación en un mapa** (con el
+GPS o arrastrando el pin) y ver de inmediato cuánto cuesta el domicilio hasta ahí.
 
 **US12.** Como cliente de domicilio, quiero ingresar mi **dirección e
 indicaciones** de entrega (ej. "al frente del Farmatodo").
@@ -161,8 +169,8 @@ descripción, fotos, categoría, activar/desactivar.
 (sabores de helado semanales, toppings, salsas) con un switch de disponible, sin
 borrarlas.
 
-**US26.** Como admin, quiero administrar las **zonas de domicilio** (barrio +
-precio).
+**US26.** Como admin, quiero administrar las **zonas de domicilio** dibujándolas
+sobre un mapa, con su precio, su color y su orden de cobro.
 
 **US27.** Como admin, quiero definir el **horario de atención** y un
 **interruptor manual** para cerrar pedidos de inmediato cuando la cocina se
@@ -248,8 +256,11 @@ cualquiera → cancelado
 
 - [x] El precio total lo recalcula el servidor; si difiere del carrito del
       cliente, gana el del servidor.
-- [x] En domicilio, elegir un barrio de la lista fija el costo; "mi barrio no
-      aparece" marca el pedido como `domicilio_por_confirmar`.
+- [x] En domicilio, el costo lo fija el **pin** que el cliente confirma en el mapa:
+      `ST_Covers` sobre las zonas activas por orden de prioridad. Fuera de cobertura el
+      checkout no deja confirmar y ofrece WhatsApp.
+      _(Sustituyó al desplegable de barrios y a `domicilio_por_confirmar`, retirados en la
+      migración 0010.)_
 - [x] El cliente elige método de pago (efectivo o Nequi); en efectivo pasa
       directo, sin pedir con cuánto paga.
 - [x] En Nequi, el checkout muestra los datos de la cuenta y el total, y exige
