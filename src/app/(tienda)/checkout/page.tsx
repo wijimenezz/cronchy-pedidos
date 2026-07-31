@@ -2,22 +2,29 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { ArrowLeft } from "lucide-react";
 import { getStore } from "@/db/queries/store";
-import { obtenerZonasActivas } from "@/db/queries/deliveryZones";
+import { obtenerUbicacionTienda } from "@/db/queries/zonas";
 import { estaAbierta } from "@/lib/horario";
+import { puntoDesdeGeoJSON } from "@/lib/zonas";
 import { CheckoutForm } from "./CheckoutForm";
 
-// Zonas y horario se leen con Drizzle, no con `fetch`: sin esto Next prerenderizaría
-// la página en build y serviría un horario evaluado el día del deploy.
+// El horario se lee con Drizzle, no con `fetch`: sin esto Next prerenderizaría la página en
+// build y serviría un horario evaluado el día del deploy.
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = { title: "Confirmar pedido — Cronchy" };
 
+/** Si nunca se fijó la tienda, el parque principal de Fusagasugá. */
+const CENTRO_POR_DEFECTO = { lat: 4.3372, lng: -74.3653 };
+
 export default async function CheckoutPage() {
   const tienda = await getStore();
-  const [zonas, disponibilidad] = await Promise.all([
-    obtenerZonasActivas(tienda.id),
+  const [ubicacion, disponibilidad] = await Promise.all([
+    obtenerUbicacionTienda(tienda.id),
     estaAbierta(),
   ]);
+
+  // Dónde abre el mapa cuando el cliente no da permiso de ubicación (regla 14).
+  const centroTienda = puntoDesdeGeoJSON(ubicacion) ?? CENTRO_POR_DEFECTO;
 
   return (
     <main className="mx-auto flex w-full max-w-[520px] flex-col gap-4 px-4 py-4">
@@ -34,11 +41,12 @@ export default async function CheckoutPage() {
 
       {disponibilidad.abierta ? (
         <CheckoutForm
-          zonas={zonas}
+          centroTienda={centroTienda}
           tienda={{
             nombre: tienda.nombre,
             telefono: tienda.telefono,
             direccion: tienda.direccion,
+            whatsappUrl: tienda.whatsappUrl,
             nequiTitular: tienda.nequiTitular,
             nequiNumero: tienda.nequiNumero,
             nequiLlave: tienda.nequiLlave,
