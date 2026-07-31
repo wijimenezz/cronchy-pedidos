@@ -9,15 +9,13 @@ import { useTipoPedido, elegirTipoPedido, type TipoPedido } from "@/lib/tienda/t
 import { carritoAItems } from "@/lib/checkout/mapeo";
 import { useDatosCliente, useDatosClienteHidratados } from "@/lib/checkout/datos-cliente";
 import { crearPedidoSchema, REQUERIDO } from "@/lib/validaciones";
-import { pesos } from "@/lib/notificaciones/plantillas";
-import type { ZonaDomicilio } from "@/db/queries/deliveryZones";
+import { fueraDeCobertura, pesos } from "@/lib/notificaciones/plantillas";
 import { Campo, claseControl } from "@/components/checkout/Campo";
 import { DatoCopiable } from "@/components/checkout/DatoCopiable";
 import { SelectorFecha } from "@/components/checkout/SelectorFecha";
 import { SubidaComprobante } from "@/components/checkout/SubidaComprobante";
-
-/** Valor del <select> que revela el campo de barrio libre (US11). */
-const BARRIO_OTRO = "__otro__";
+import { SelectorUbicacion, type Cobertura } from "@/components/checkout/SelectorUbicacion";
+import type { Punto } from "@/components/checkout/MapaUbicacion";
 
 type Errores = Record<string, string>;
 
@@ -35,19 +33,21 @@ function conEspacios(numero: string): string {
  */
 const CAMPOS_POR_PASO: Record<Paso, string[]> = {
   1: ["clienteNombre", "clienteTelefono", "clienteEmail", "clienteCumple"],
-  2: ["zonaId", "barrioTexto", "direccion", "indicaciones", "recibeNombre", "recibeTelefono"],
+  2: ["punto", "direccion", "indicaciones", "recibeNombre", "recibeTelefono"],
   3: ["metodoPago", "comprobanteUrl", "notas", "items"],
 };
 
 export function CheckoutForm({
-  zonas,
+  centroTienda,
   tienda,
 }: {
-  zonas: ZonaDomicilio[];
+  /** Dónde abre el mapa mientras el cliente no haya puesto su pin. */
+  centroTienda: Punto;
   tienda: {
     nombre: string;
     telefono: string | null;
     direccion: string | null;
+    whatsappUrl: string | null;
     nequiTitular: string | null;
     nequiNumero: string | null;
     nequiLlave: string | null;
@@ -90,16 +90,13 @@ export function CheckoutForm({
   // copie: aparecen solos en cuanto termina la hidratación.
   const datos = useDatosCliente();
   const setDatos = useDatosCliente((s) => s.set);
-  const { nombre, telefono, email, cumple, barrioTexto, direccion, indicaciones } = datos;
+  const { nombre, telefono, email, cumple, punto, direccion, indicaciones } = datos;
   const { recibeOtro, recibeNombre, recibeTelefono } = datos;
 
-  // Si la zona guardada ya no existe (el admin la desactivó), se vuelve a pedir el
-  // barrio en vez de dejar el <select> con un valor fantasma.
-  const zonaGuardadaSigueValida =
-    datos.zonaId === BARRIO_OTRO || zonas.some((z) => z.id === datos.zonaId);
-  const barrioSel = zonaGuardadaSigueValida ? datos.zonaId : zonas.length > 0 ? "" : BARRIO_OTRO;
-
   const [aceptaPolitica, setAceptaPolitica] = useState(false);
+  // Qué dijo el servidor del pin actual. Es lo que pinta el costo en vivo y lo que bloquea
+  // el envío si el cliente quedó fuera de cobertura (regla 14).
+  const [cobertura, setCobertura] = useState<Cobertura>({ estado: "sin_pin" });
 
   const [errores, setErrores] = useState<Errores>({});
   // Un campo "tocado" ya se validó al menos una vez (al salir de él o al intentar
@@ -113,10 +110,12 @@ export function CheckoutForm({
   const enVuelo = useRef(false);
 
   const total = items.reduce((t, i) => t + i.precioUnitarioEstimado * i.cantidad, 0);
-  const zonaElegida = zonas.find((z) => z.id === barrioSel);
-  const porConfirmar = barrioSel === BARRIO_OTRO;
   const esDomicilio = tipoPedido === "domicilio";
-  const costoDomicilio = esDomicilio ? (zonaElegida?.precio ?? 0) : 0;
+  // Lo que se muestra mientras el cliente arrastra el pin. El precio que se cobra lo
+  // recalcula el servidor al confirmar (regla 1); esto es solo información.
+  const costoDomicilio =
+    esDomicilio && cobertura.estado === "cubierto" ? cobertura.precio : 0;
+  const sinCobertura = esDomicilio && cobertura.estado === "fuera";
   // Si el negocio no cargó su Nequi, ofrecerlo sería mandar al cliente a un callejón sin salida.
   const nequiDisponible = Boolean(tienda.nequiNumero);
 
@@ -190,8 +189,9 @@ export function CheckoutForm({
       clienteCumple: cumple || undefined,
       recibeNombre: esDomicilio && recibeOtro ? recibeNombre : undefined,
       recibeTelefono: esDomicilio && recibeOtro ? recibeTelefono : undefined,
-      zonaId: porConfirmar ? undefined : barrioSel || undefined,
-      barrioTexto: porConfirmar ? barrioTexto : undefined,
+      // Viaja el pin, no la zona ni el precio: el servidor resuelve la cobertura de nuevo
+      // al recibirlo (regla 1).
+      punto: esDomicilio && punto ? punto : undefined,
       direccion: esDomicilio ? direccion : undefined,
       indicaciones: indicaciones || undefined,
       metodoPago,
@@ -215,8 +215,8 @@ export function CheckoutForm({
    * Lo único que el esquema NO puede validar: los dos interruptores que viven solo en
    * la UI. Para el servidor un pedido sin datos de quien recibe es válido (lo recibe
    * quien lo pidió), así que no puede saber que aquí se eligió "Alguien más" y se dejó
-   * en blanco; y con "mi barrio no aparece" el error del barrio cae en la ruta
-   * `zonaId`, o sea bajo el desplegable en vez de bajo el campo de texto.
+   * en blanco. Y el esquema acepta cualquier punto del planeta: que además esté cubierto
+   * lo dice el servidor, y su respuesta se refleja aquí.
    *
    * Aquí solo se exige que no queden vacíos: el formato (teléfono válido, largos
    * máximos) lo sigue validando `crearPedidoSchema`, para no tener la misma regla
@@ -224,8 +224,8 @@ export function CheckoutForm({
    */
   const fallosUI: Record<string, string> = {};
   if (esDomicilio) {
-    if (porConfirmar && !barrioTexto.trim()) {
-      fallosUI.barrioTexto = REQUERIDO;
+    if (sinCobertura) {
+      fallosUI.punto = "Todavía no llegamos hasta ahí.";
     }
     if (recibeOtro && !recibeNombre.trim()) {
       fallosUI.recibeNombre = REQUERIDO;
@@ -292,16 +292,16 @@ export function CheckoutForm({
       case "seleccion_excedida":
       case "enganche_no_encontrado":
         return `«${linea ?? "Un producto"}» cambió. Vuelve a configurarlo en el menú.`;
-      case "zona_no_encontrada":
-      case "zona_inactiva":
-        setErrores((e) => ({ ...e, zonaId: "Esa zona ya no está disponible." }));
+      // El admin apagó la zona o le cambió el contorno entre que el cliente vio el precio
+      // y confirmó. Manda el servidor (regla 1): se le devuelve al mapa.
+      case "fuera_de_cobertura":
+        setCobertura({ estado: "fuera" });
         setPaso(2);
-        router.refresh();
-        return "El barrio que elegiste ya no está disponible. Elige otro.";
-      case "zona_o_barrio_requerido":
-        setErrores((e) => ({ ...e, zonaId: "Selecciona tu barrio o escríbelo." }));
+        return "Ya no llegamos hasta esa dirección. Mueve el pin o escríbenos.";
+      case "punto_requerido":
+        setErrores((e) => ({ ...e, punto: "Confirma tu ubicación en el mapa." }));
         setPaso(2);
-        return "Falta indicar tu barrio.";
+        return "Falta confirmar tu ubicación.";
       default:
         return "No pudimos calcular tu pedido. Revísalo e intenta de nuevo.";
     }
@@ -394,7 +394,35 @@ export function CheckoutForm({
     );
   }
 
-  const barrioEntrega = porConfirmar ? barrioTexto : zonaElegida?.nombre;
+  const barrioEntrega = cobertura.estado === "cubierto" ? cobertura.zona : undefined;
+
+  /**
+   * El WhatsApp de "cotízame el domicilio" (regla 14). El pedido no existe todavía —no hay
+   * número ni token— así que va el carrito y el link al pin, que es lo que la tienda
+   * necesita para decidir.
+   */
+  function linkFueraDeCobertura(): string | null {
+    if (!punto || !tienda.telefono) return null;
+
+    const texto = fueraDeCobertura(
+      {
+        items: items.map((i) => ({
+          nombre: i.nombre,
+          cantidad: i.cantidad,
+          subtotal: i.precioUnitarioEstimado * i.cantidad,
+          modificadores: [],
+        })),
+        subtotal: total,
+      },
+      punto,
+      { nombre: tienda.nombre, baseUrl: "" },
+    );
+
+    // `wa.me` con el número del negocio: lo abre el cliente y el destinatario es la tienda.
+    // El link corto de WhatsApp Business no sirve aquí porque no acepta `?text=`.
+    const numero = tienda.telefono.replace(/\D/g, "").replace(/^(?!57)/, "57");
+    return `https://wa.me/${numero}?text=${encodeURIComponent(texto)}`;
+  }
 
   return (
     <form onSubmit={enviar} className="flex flex-col gap-4" noValidate>
@@ -506,51 +534,35 @@ export function CheckoutForm({
           <section className="flex flex-col gap-3 rounded-md bg-tarjeta p-4 shadow-tarjeta">
             <h2 className="font-titulo text-base font-semibold text-cafe">¿Dónde te lo llevamos?</h2>
 
-            {zonas.length > 0 && (
-              <Campo etiqueta="Barrio" requerido error={errorDe("zonaId")}>
-                {(props) => (
-                  <select
-                    {...props}
-                    value={barrioSel}
-                    onChange={(e) => setDatos({ zonaId: e.target.value })}
-                    onBlur={() => alSalirDe("zonaId")}
-                    className={claseControl(errorDe("zonaId"))}
-                  >
-                    <option value="">Elige tu barrio…</option>
-                    {zonas.map((z) => (
-                      <option key={z.id} value={z.id}>
-                        {z.nombre} — {pesos(z.precio)}
-                      </option>
-                    ))}
-                    <option value={BARRIO_OTRO}>Mi barrio no aparece</option>
-                  </select>
-                )}
-              </Campo>
+            {/* El pin manda (regla 14): de aquí sale el costo, no de la dirección escrita. */}
+            <SelectorUbicacion
+              centroTienda={centroTienda}
+              pin={punto}
+              onPin={(p) => {
+                setDatos({ punto: p });
+                alSalirDe("punto");
+              }}
+              cobertura={cobertura}
+              onCobertura={setCobertura}
+            />
+
+            {sinCobertura && linkFueraDeCobertura() && (
+              <a
+                href={linkFueraDeCobertura()!}
+                target="_blank"
+                rel="noopener"
+                className="flex min-h-11 items-center justify-center gap-2 rounded-full bg-naranja px-4 font-cuerpo text-sm font-bold text-crema transition-colors hover:bg-naranja-osc"
+              >
+                Escríbenos y te cotizamos
+              </a>
             )}
 
-            {porConfirmar && (
-              <>
-                <Campo etiqueta="Escribe tu barrio" requerido error={errorDe("barrioTexto")}>
-                  {(props) => (
-                    <input
-                      {...props}
-                      type="text"
-                      value={barrioTexto}
-                      onChange={(e) => setDatos({ barrioTexto: e.target.value })}
-                      onBlur={() => alSalirDe("barrioTexto")}
-                      placeholder="Vereda La Aguadita"
-                      className={claseControl(errorDe("barrioTexto"))}
-                    />
-                  )}
-                </Campo>
-                <p className="rounded-sm bg-alerta/12 px-3 py-2 font-cuerpo text-[13px] text-alerta">
-                  Como tu barrio no está en la lista, el negocio te confirma el valor del domicilio
-                  antes de salir.
-                </p>
-              </>
-            )}
-
-            <Campo etiqueta="Dirección" requerido error={errorDe("direccion")}>
+            <Campo
+              etiqueta="Dirección"
+              requerido
+              error={errorDe("direccion")}
+              ayuda="Para el domiciliario. El costo lo define el pin del mapa."
+            >
               {(props) => (
                 <input
                   {...props}
@@ -564,15 +576,6 @@ export function CheckoutForm({
                 />
               )}
             </Campo>
-
-            <button
-              type="button"
-              disabled
-              className="flex min-h-11 items-center justify-center gap-2 rounded-sm bg-crema-oscura/60 px-4 py-3 font-cuerpo text-sm font-semibold text-cafe-tenue disabled:cursor-not-allowed"
-            >
-              <MapPin className="size-4" />
-              Usar mi ubicación actual (próximamente)
-            </button>
 
             <Campo etiqueta="Indicaciones" error={errorDe("indicaciones")} ayuda="Opcional.">
               {(props) => (
@@ -742,7 +745,7 @@ export function CheckoutForm({
               {esDomicilio && (
                 <div className="flex justify-between">
                   <dt>Costo de envío</dt>
-                  <dd>{porConfirmar ? "Por confirmar" : pesos(costoDomicilio)}</dd>
+                  <dd>{pesos(costoDomicilio)}</dd>
                 </div>
               )}
               <div className="flex justify-between text-base font-bold text-cafe">
@@ -784,12 +787,6 @@ export function CheckoutForm({
                   valor={pesos(total + costoDomicilio)}
                   aCopiar={String(total + costoDomicilio)}
                 />
-
-                {porConfirmar && (
-                  <p className="rounded-sm bg-alerta/12 px-3 py-2 font-cuerpo text-[13px] text-alerta">
-                    El domicilio va aparte: el negocio te lo confirma.
-                  </p>
-                )}
 
                 {tienda.nequiNumero && (
                   <DatoCopiable
