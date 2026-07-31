@@ -105,12 +105,6 @@ export default async function SeguimientoPedido({
         )}
       </section>
 
-      {pedido.domicilioPorConfirmar && (
-        <p className="rounded-sm bg-alerta/12 px-3 py-2 font-cuerpo text-sm text-alerta">
-          Tu barrio no estaba en la lista: el negocio te confirma el valor del domicilio.
-        </p>
-      )}
-
       {aviso?.modo === "link" && pedido.estado === "nuevo" && (
         <div className="flex flex-col gap-1">
           <a
@@ -163,7 +157,7 @@ export default async function SeguimientoPedido({
           {pedido.tipo === "domicilio" && (
             <div className="flex justify-between">
               <dt>Domicilio</dt>
-              <dd>{pedido.domicilioPorConfirmar ? "Por confirmar" : pesos(pedido.costoDomicilio)}</dd>
+              <dd>{pesos(pedido.costoDomicilio)}</dd>
             </div>
           )}
           {pedido.descuento > 0 && (
