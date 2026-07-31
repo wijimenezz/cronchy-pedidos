@@ -57,6 +57,13 @@
       "when": 1785438595689,
       "tag": "0007_hard_sentry",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1785442183552,
+      "tag": "0008_zonas_postgis",
+      "breakpoints": true
     }
   ]
 }
