@@ -54,6 +54,9 @@ export type PedidoCalculado = {
   items: ItemCalculado[];
   subtotal: number;
   costoDomicilio: number;
+  /** Nombre de la zona que cobró el domicilio. Se congela en el pedido (regla 2): una
+   * zona que después se renombre o se borre no debe reescribir lo que el cliente pagó. */
+  zonaNombre: string | null;
   descuento: number;
   total: number;
   /** US11: el barrio no estaba en la lista, el negocio confirma el valor después.
@@ -101,6 +104,7 @@ export async function calcularPedido(
   }
 
   let costoDomicilio = 0;
+  let zonaNombre: string | null = null;
   let domicilioPorConfirmar = false;
   if (input.tipo === "domicilio") {
     if (input.zonaId) {
@@ -112,6 +116,7 @@ export async function calcularPedido(
         return { ok: false, error: { tipo: "zona_inactiva", zonaId: input.zonaId } };
       }
       costoDomicilio = zona.precio;
+      zonaNombre = zona.nombre;
     } else if (input.barrioTexto) {
       // US11: el barrio no está en la lista. Se cobra 0 de domicilio y el negocio
       // acuerda el valor con el cliente después. Cobrar un estimado sería peor:
@@ -127,6 +132,15 @@ export async function calcularPedido(
 
   return {
     ok: true,
-    valor: { items, subtotal, costoDomicilio, descuento, total, domicilioPorConfirmar, avisos },
+    valor: {
+      items,
+      subtotal,
+      costoDomicilio,
+      zonaNombre,
+      descuento,
+      total,
+      domicilioPorConfirmar,
+      avisos,
+    },
   };
 }
