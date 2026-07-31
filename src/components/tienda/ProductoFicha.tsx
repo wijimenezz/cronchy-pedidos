@@ -623,7 +623,10 @@ export function ProductoFicha({ productId, onClose }: { productId: string; onClo
       <button
         type="button"
         onClick={agregarAlCarrito}
-        disabled={!resultado?.ok}
+        // `todoOk` y no `resultado.ok`: este último solo mira el churro. Con una bebida de
+        // upsell a medio configurar el botón se habilitaba, `agregarAlCarrito` la
+        // descartaba en silencio y el cliente terminaba pagando menos de lo que creía pedir.
+        disabled={!todoOk}
         className="flex-1 rounded-full bg-naranja px-4 py-3 font-cuerpo text-sm font-bold text-crema transition-colors hover:bg-naranja-osc disabled:pointer-events-none disabled:opacity-40"
       >
         {textoBoton}
