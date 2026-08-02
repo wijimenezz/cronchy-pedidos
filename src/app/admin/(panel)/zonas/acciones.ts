@@ -12,6 +12,7 @@ import {
 } from "@/db/queries/zonas";
 import { exigirRol } from "@/lib/autorizacion";
 import { esPuntoValido } from "@/lib/zonas";
+import { idSchema } from "@/lib/validaciones";
 
 /**
  * Zonas de cobertura. **Todo aquí es de admin** (`exigirRol("admin")`): la tabla de
@@ -28,7 +29,7 @@ export type ResultadoZona = { ok: true } | { ok: false; error: string };
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
 const zonaSchema = z.object({
-  id: z.string().uuid().optional(),
+  id: idSchema.optional(),
   nombre: z.string().trim().min(1, "Ponle un nombre").max(60, "Máximo 60 caracteres"),
   // Regla 13: no existe zona a $0. El CHECK de la base dice lo mismo; esto es para que el
   // admin lea un mensaje en vez de un error de Postgres.
@@ -76,7 +77,7 @@ export async function cambiarActiva(entrada: {
 }): Promise<ResultadoZona> {
   const sesion = await exigirRol("admin");
 
-  const parsed = z.object({ id: z.string().uuid(), activa: z.boolean() }).safeParse(entrada);
+  const parsed = z.object({ id: idSchema, activa: z.boolean() }).safeParse(entrada);
   if (!parsed.success) return { ok: false, error: "Datos inválidos" };
 
   const cambiada = await cambiarActivaZona(sesion.storeId, parsed.data.id, parsed.data.activa);
@@ -89,7 +90,7 @@ export async function cambiarActiva(entrada: {
 export async function reordenar(entrada: { ids: string[] }): Promise<ResultadoZona> {
   const sesion = await exigirRol("admin");
 
-  const parsed = z.object({ ids: z.array(z.string().uuid()).max(200) }).safeParse(entrada);
+  const parsed = z.object({ ids: z.array(idSchema).max(200) }).safeParse(entrada);
   if (!parsed.success) return { ok: false, error: "Datos inválidos" };
 
   await reordenarZonas(sesion.storeId, parsed.data.ids);

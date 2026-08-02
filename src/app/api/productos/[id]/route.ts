@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getStore } from "@/db/queries/store";
 import { obtenerProductoParaFicha } from "@/db/queries/productos";
+import { idSchema } from "@/lib/validaciones";
 
-const paramsSchema = z.object({ id: z.string().uuid() });
+const paramsSchema = z.object({ id: idSchema });
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const parsed = paramsSchema.safeParse(await params);
