@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Check, ChevronDown, ChevronUp, Pencil, Plus, X } from "lucide-react";
+import { Check, Pencil, Plus, X } from "lucide-react";
+import { BotonOrden } from "@/components/admin/BotonOrden";
 import { BotonSwitch } from "@/components/admin/Interruptor";
 import type { CategoriaPanel } from "@/db/queries/catalogo";
 import {
@@ -175,32 +176,6 @@ export function ColumnaCategorias({
         )}
       </ol>
     </section>
-  );
-}
-
-function BotonOrden({
-  direccion,
-  nombre,
-  onClick,
-  deshabilitado,
-}: {
-  direccion: "subir" | "bajar";
-  nombre: string;
-  onClick: () => void;
-  deshabilitado: boolean;
-}) {
-  const Icono = direccion === "subir" ? ChevronUp : ChevronDown;
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={deshabilitado}
-      aria-label={`${direccion === "subir" ? "Subir" : "Bajar"} ${nombre}`}
-      className="flex h-6 w-8 items-center justify-center text-cafe-tenue transition-colors hover:text-cafe disabled:opacity-30"
-    >
-      <Icono className="size-4" />
-    </button>
   );
 }
 
