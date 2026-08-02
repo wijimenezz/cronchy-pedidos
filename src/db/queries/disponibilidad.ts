@@ -46,7 +46,10 @@ export async function listarOpcionesParaDisponibilidad(
   storeId: string,
 ): Promise<GrupoDisponibilidad[]> {
   const grupos = await db.query.modifierGroup.findMany({
-    where: eq(modifierGroup.storeId, storeId),
+    // Las listas archivadas no salen: quien abre esta pantalla a media tarde busca el sabor
+    // que se acabó, no el grupo que se dejó de usar hace meses. Se archivan en
+    // `/admin/opciones` y siguen siendo visibles allí.
+    where: and(eq(modifierGroup.storeId, storeId), eq(modifierGroup.activo, true)),
     orderBy: asc(modifierGroup.nombre),
     with: {
       modifierOptions: {

@@ -151,16 +151,25 @@ export type GrupoEnganchable = {
   id: string;
   nombre: string;
   tipo: "seleccion" | "upsell";
+  activo: boolean;
   totalOpciones: number;
 };
 
-/** El catálogo de grupos que se pueden enganchar. Crearlos es cosa de `/admin/opciones`. */
+/**
+ * El catálogo de grupos que se pueden enganchar. Crearlos es cosa de `/admin/opciones`.
+ *
+ * Devuelve también los archivados (`activo = false`), y filtrarlos aquí sería un bug: esta
+ * lista es además el diccionario con el que `Modificadores.tsx` resuelve el nombre de cada
+ * enganche ya guardado, así que un producto enganchado a una lista archivada pasaría a
+ * mostrar "Grupo desconocido". Quien filtra es la UI, y solo sobre lo que se puede AÑADIR.
+ */
 export async function listarGruposEnganchables(storeId: string): Promise<GrupoEnganchable[]> {
   return db
     .select({
       id: modifierGroup.id,
       nombre: modifierGroup.nombre,
       tipo: modifierGroup.tipo,
+      activo: modifierGroup.activo,
       totalOpciones: count(modifierOption.id),
     })
     .from(modifierGroup)
