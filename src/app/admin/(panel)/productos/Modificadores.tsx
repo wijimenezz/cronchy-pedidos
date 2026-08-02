@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { Plus, X } from "lucide-react";
 import { BotonSwitch } from "@/components/admin/Interruptor";
 import type { GrupoEnganchable, ProductoDelPanel } from "@/db/queries/catalogo";
@@ -18,6 +19,8 @@ import { guardarModificadores } from "./acciones";
  * Lo que este componente NO hace es crear grupos ni opciones: añadir una salsa nueva o un
  * sabor de la semana es `/admin/opciones`. Aquí solo se engancha lo que ya existe.
  */
+
+const OPCIONES = "/admin/opciones";
 
 /** El borrador es exactamente la configuración que espera el servidor, sin traducción extra. */
 type Borrador = ReturnType<typeof configuracionDesde>;
@@ -38,11 +41,20 @@ export function Modificadores({
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
 
+  // El mapa lleva TODOS los grupos, incluidos los archivados: es con el que se resuelve el
+  // nombre de cada enganche ya guardado, y filtrarlo dejaría "Grupo desconocido" en un
+  // producto que sigue funcionando perfectamente.
   const porId = new Map(grupos.map((g) => [g.id, g]));
-  // Un grupo sin opciones no se puede ofrecer: el cliente vería una sección vacía y, si es
-  // obligatoria, no podría añadir el producto al carrito.
-  const seleccionables = grupos.filter((g) => g.tipo === "seleccion" && g.totalOpciones > 0);
-  const deUpsell = grupos.filter((g) => g.tipo === "upsell" && g.totalOpciones > 0);
+  // Lo que se puede AÑADIR sí se filtra. Un grupo sin opciones no se puede ofrecer —el
+  // cliente vería una sección vacía y, si es obligatoria, no podría añadir el producto al
+  // carrito— y uno archivado se archivó justamente para no volver a engancharlo.
+  const ofrecible = (g: GrupoEnganchable) => g.activo && g.totalOpciones > 0;
+  const seleccionables = grupos.filter((g) => g.tipo === "seleccion" && ofrecible(g));
+  // Un upsell ya encendido se sigue mostrando aunque su lista se haya archivado: si no, el
+  // switch desaparecería de la pantalla sin haberse apagado y no habría forma de quitarlo.
+  const deUpsell = grupos.filter(
+    (g) => g.tipo === "upsell" && (ofrecible(g) || borrador.upsells.includes(g.id)),
+  );
 
   function set(cambio: Partial<Borrador>) {
     setBorrador((b) => ({ ...b, ...cambio }));
@@ -233,6 +245,16 @@ export function Modificadores({
           Descartar
         </button>
       </div>
+
+      {/* Aquí se engancha lo que ya existe; crear una salsa nueva o cambiar el sabor de la
+          semana es la otra pantalla, y llegar a ella sin salir de esta ahorra el rodeo. */}
+      <p className="font-cuerpo text-[13px] text-cafe-tenue">
+        ¿Falta una salsa o un sabor?{" "}
+        <Link href={OPCIONES} className="font-bold text-naranja underline">
+          Edítalos en Opciones
+        </Link>
+        .
+      </p>
     </div>
   );
 }
@@ -321,7 +343,11 @@ function Anadir({
   if (opciones.length === 0) {
     return (
       <p className="font-cuerpo text-[13px] text-cafe-tenue">
-        No queda ningún grupo por añadir. Los grupos nuevos se crean en Opciones.
+        No queda ninguna lista por añadir.{" "}
+        <Link href={OPCIONES} className="font-bold text-naranja underline">
+          Crea una nueva en Opciones
+        </Link>
+        .
       </p>
     );
   }
