@@ -78,6 +78,13 @@
       "when": 1785519319048,
       "tag": "0010_corte_barrio_texto",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1785525238780,
+      "tag": "0011_catalogo_fotos",
+      "breakpoints": true
     }
   ]
 }

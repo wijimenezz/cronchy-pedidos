@@ -39,6 +39,7 @@ pnpm test             # Vitest
 pnpm db:generate      # generar migración desde src/db/schema.ts
 pnpm db:migrate       # aplicar migraciones
 pnpm db:studio        # explorar la base de datos
+pnpm configurar-purga # deja SUPABASE_URL y la service key en Vault (una vez, ver más abajo)
 ```
 
 ---
@@ -58,7 +59,7 @@ src/
         pedidos/              lista con polling + [numero]/ detalle
         catalogo/             switches de agotado (US21)
         zonas/                mapa con polígonos de cobertura — solo admin
-        productos/            CRUD completo — pendiente
+        productos/            CRUD completo: 3 columnas categoría/producto/detalle
         opciones/             sabores, toppings, salsas — pendiente
     api/
   proxy.ts                    corta /admin/* sin sesión (antes "middleware")
@@ -68,12 +69,17 @@ src/
     queries/                  consultas reutilizables
       panel.ts                pedidos del panel + cambio de estado
       disponibilidad.ts       switches de agotado
+      catalogo.ts             CRUD de categorías, productos y enganches
   lib/
     precios.ts                CÁLCULO DE PRECIOS — fuente única de verdad
     zonas.ts                  CÁLCULO DE DOMICILIO — fuente única de verdad
     horario.ts                ¿está abierta la tienda ahora?
     validaciones.ts           esquemas Zod
     autorizacion.ts           exigirRol() — permisos del panel
+    texto.ts                  slugify() + slugLibre()
+    imagenes.ts               magic bytes, buckets, tope de fotos
+    catalogo/
+      engancles.ts            TRADUCCIÓN de la regla 15 — puro, testeado
     auth/
       sesion.ts               firma/verifica la cookie (Web Crypto, corre en el proxy)
       cookie.ts               leer/guardar/borrar — usa next/headers
@@ -315,7 +321,7 @@ teléfono; traer una librería de drag-and-drop solo para esto no se justificaba
 | ----------------- | ------------------------------------------------------------ | ----------------------------------------------------------------- |
 | `admin/pedidos`   | ver, aceptar, cambiar estado, imprimir, avisos, domiciliario | todo                                                              |
 | `admin/catalogo`  | switches `disponible` / `agotado` de productos y opciones    | igual                                                             |
-| `admin/productos` | solo switches `disponible` / `agotado`                       | CRUD completo, precios, fotos, enganches                          |
+| `admin/productos` | solo Visible↔Agotado (ni ocultar ni reactivar)               | CRUD completo, precios, fotos, categorías, enganches              |
 | `admin/opciones`  | solo switch `disponible` (sabores de la semana)              | CRUD completo                                                     |
 | `admin/zonas`     | sin acceso (ni lectura)                                      | mapa: dibujar, editar vértices, precio, prioridad, activar/apagar |
 
@@ -343,14 +349,48 @@ Al guardar cualquier cambio de catálogo o zonas se revalida el menú público (
   prohibido usar `NEXT_PUBLIC_SUPABASE_ANON_KEY` o el cliente de Supabase en
   componentes del navegador. Si esa llave se filtra, las tablas quedan expuestas.
   Las subidas a Storage también van desde el servidor.
-- **Storage:** las subidas van a buckets de Supabase. Los comprobantes de Nequi se
-  purgan a los 60 días con **`pg_cron` dentro de Supabase** (no un cron de Vercel:
-  corre en la base y no depende del hosting); el free tier son 1 GB.
+- **Storage: dos buckets, y la diferencia importa.** `comprobantes` es **privado**
+  —guarda datos personales y se lee por un proxy autenticado del panel— y se purga a
+  los 60 días con **`pg_cron` dentro de Supabase** (no un cron de Vercel: corre en la
+  base y no depende del hosting). `productos` es **público**: son las fotos de la carta,
+  las ve cualquiera sin sesión. El free tier son 1 GB entre los dos.
+- **Las dos cabeceras de Storage.** `src/lib/storage.ts` manda `Authorization: Bearer` **y**
+  `apikey`. Las llaves nuevas de Supabase (`sb_secret_…`) no son JWT y con solo
+  `Authorization` el servicio contesta `400 Invalid Compact JWS`, sin mencionar la cabecera
+  que falta. Y ojo al leer: un objeto ausente llega como **400 con el 404 dentro del
+  cuerpo** (`NoSuchKey`), no como 404.
+- **La purga vive en la migración `0012`** (`public.purgar_comprobantes`, job diario de
+  `pg_cron` a las 02:30 de Bogotá). Borra el objeto vía `pg_net` —quitar la fila de
+  `storage.objects` dejaría el archivo ocupando cuota— y pone `order.comprobante_url` a
+  NULL sin tocar el snapshot (regla 2). La URL y la llave las lee de **Vault**, no del
+  archivo de migración: se cargan una vez con `pnpm configurar-purga`, y sin ellas la
+  función falla a propósito en vez de borrar a medias.
 - **Fotos de productos:** máximo 3 por producto; se comprimen ANTES de subir
   (WebP, ~800 px, ~100–150 KB). La primera es la portada.
 - **Server Components por defecto.** `'use client'` solo donde hay interacción real
   (modal de producto, carrito, panel, mapas).
-- El menú público se sirve con **ISR**; se revalida cuando el admin guarda cambios.
+- **El menú público se sirve con ISR, y encima hay cuatro capas de caché.** Solo la última
+  la resuelve `revalidatePath("/")`; las otras tres explican por qué un cambio del panel
+  no aparece solo en una pestaña ya abierta. Esto no se deduce del código —los defaults
+  hay que ir a buscarlos a `node_modules`— así que queda escrito:
+
+  | Capa | Qué retiene | Cuánto |
+  | ---- | ----------- | ------ |
+  | Pestaña ya abierta | todo | para siempre; lo mitiga `RefrescarAlVolver` |
+  | `lib/tienda/productos-cache.ts` | la ficha ya descargada | vida de la pestaña |
+  | Router Cache de Next (`experimental.staleTimes.static`) | el menú al volver con `<Link>` | default **300 s**, bajado a 30 |
+  | ISR (`export const revalidate = 60`) | el HTML de `/` | 60 s, y **0 tras guardar en el panel** |
+
+  Nada de esto es una barrera: quien decide sigue siendo el servidor, que recalcula precios
+  y disponibilidad al confirmar (regla 1) y cuyo error traduce el checkout a un mensaje
+  accionable. Ver una carta vieja es incómodo, nunca peligroso.
+
+  **`pnpm dev` no prueba nada de esto**: en desarrollo no existen ni el Router Cache ni el
+  ISR real. Cualquier cambio de caché se verifica con `pnpm build && pnpm start`.
+- **Nada de polling en la tienda pública.** El panel sí lo usa (son 2-3 empleados); la carta
+  la ven todos los clientes desde datos móviles, y una petición por visitante cada N
+  segundos no se justifica. `RefrescarAlVolver` reacciona a que el cliente vuelva a la
+  pestaña: mientras nadie mira, no sale ni una petición.
 - Imágenes siempre con `next/image`, con **loader apuntando al CDN de Supabase**
   (o `unoptimized`): las fotos ya se suben optimizadas y no hay que gastar la cuota
   de optimización de Vercel en trabajo ya hecho. Los clientes entran desde datos
