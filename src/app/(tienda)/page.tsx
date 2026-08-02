@@ -7,6 +7,7 @@ import { SectionTitle } from "@/components/tienda/SectionTitle";
 import { ProductCard } from "@/components/tienda/ProductCard";
 import { CartBar } from "@/components/tienda/CartBar";
 import { Footer } from "@/components/tienda/Footer";
+import { RefrescarAlVolver } from "@/components/tienda/RefrescarAlVolver";
 import { SUBTITULO_CATEGORIA } from "@/lib/tienda/categoria-meta";
 
 // El panel ya revalida esta ruta al apagar un producto o una opción, así que el menú se
@@ -22,6 +23,9 @@ export default async function MenuPage() {
 
   return (
     <>
+      {/* Solo aquí y no en el layout: el layout arrastraría al checkout, donde refrescar a
+          mitad del formulario es ruido —ahí la regla 1 ya protege el precio al confirmar. */}
+      <RefrescarAlVolver />
       <Header tienda={tienda} categorias={categorias} />
       <CategoryNav categorias={categorias} variant="mobile" />
 
