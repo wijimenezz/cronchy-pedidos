@@ -23,6 +23,7 @@ import { cambiarDisponibilidadProducto } from "@/db/queries/disponibilidad";
 import { exigirRol } from "@/lib/autorizacion";
 import { planificarEngancles } from "@/lib/catalogo/engancles";
 import { esUrlDeFotoProducto, MAX_FOTOS } from "@/lib/imagenes";
+import { borrarFotoProducto } from "@/lib/storage";
 import { slugify, slugLibre } from "@/lib/texto";
 import { idSchema } from "@/lib/validaciones";
 
@@ -262,8 +263,27 @@ export async function guardarFotos(entrada: {
   const guardado = await guardarImagenesProducto(sesion.storeId, parsed.data.id, parsed.data.urls);
   if (!guardado) return { ok: false, error: "Ese producto ya no existe." };
 
+  await borrarSobrantes(guardado.previas, parsed.data.urls);
+
   revalidar();
   return { ok: true };
+}
+
+/**
+ * Saca del bucket las fotos que dejaron de estar en la lista.
+ *
+ * Va DESPUÉS de escribir la columna y no antes: si el UPDATE falla, las fotos siguen
+ * siendo válidas y borrarlas habría dejado al producto apuntando a objetos inexistentes.
+ * Se ejecuta en best-effort —`borrarFotoProducto` traga sus propios errores— porque la
+ * fuente de verdad es la columna: un objeto huérfano son 150 KB del free tier, mientras
+ * que reventar aquí tumbaría un guardado que por lo demás salió bien.
+ *
+ * Se espera (`await`) a propósito: en una función serverless, disparar el fetch sin
+ * esperarlo hace que la instancia muera antes de que salga la petición.
+ */
+async function borrarSobrantes(previas: string[], actuales: string[]): Promise<void> {
+  const sobran = previas.filter((url) => !actuales.includes(url));
+  await Promise.all(sobran.map(borrarFotoProducto));
 }
 
 // ------------------------------------------------------------
@@ -362,6 +382,12 @@ export async function guardarBanner(entrada: {
 
   const guardado = await guardarBannerCategoria(sesion.storeId, parsed.data.id, parsed.data.url);
   if (!guardado) return { ok: false, error: "Esa categoría ya no existe." };
+
+  // Reemplazar un banner deja el anterior colgando en el bucket, igual que las fotos.
+  await borrarSobrantes(
+    guardado.previo ? [guardado.previo] : [],
+    parsed.data.url ? [parsed.data.url] : [],
+  );
 
   revalidar();
   return { ok: true };

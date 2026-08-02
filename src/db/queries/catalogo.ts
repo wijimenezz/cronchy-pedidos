@@ -332,18 +332,34 @@ export async function reordenarProductos(
   });
 }
 
+/**
+ * Devuelve las fotos que HABÍA, no las nuevas, y por eso no basta con un `RETURNING`: ese
+ * da los valores ya escritos. Quien llama las necesita para borrar del bucket las que
+ * dejaron de estar en la lista; sin eso, cada foto reemplazada queda ahí para siempre
+ * comiéndose el free tier.
+ *
+ * `null` si el producto no existe, para distinguirlo de "existía y no tenía fotos".
+ */
 export async function guardarImagenesProducto(
   storeId: string,
   productId: string,
   urls: string[],
-): Promise<boolean> {
-  const filas = await db
-    .update(product)
-    .set({ imagenes: urls })
-    .where(and(eq(product.storeId, storeId), eq(product.id, productId)))
-    .returning({ id: product.id });
+): Promise<{ previas: string[] } | null> {
+  return db.transaction(async (tx) => {
+    const [antes] = await tx
+      .select({ imagenes: product.imagenes })
+      .from(product)
+      .where(and(eq(product.storeId, storeId), eq(product.id, productId)));
 
-  return filas.length > 0;
+    if (!antes) return null;
+
+    await tx
+      .update(product)
+      .set({ imagenes: urls })
+      .where(and(eq(product.storeId, storeId), eq(product.id, productId)));
+
+    return { previas: antes.imagenes.filter(Boolean) };
+  });
 }
 
 // ------------------------------------------------------------
@@ -396,18 +412,27 @@ export async function cambiarActivaCategoria(
   return filas.length > 0;
 }
 
+/** Mismo trato que las fotos de producto: devuelve el banner ANTERIOR para poder borrarlo. */
 export async function guardarBannerCategoria(
   storeId: string,
   categoryId: string,
   bannerUrl: string | null,
-): Promise<boolean> {
-  const filas = await db
-    .update(category)
-    .set({ bannerUrl })
-    .where(and(eq(category.storeId, storeId), eq(category.id, categoryId)))
-    .returning({ id: category.id });
+): Promise<{ previo: string | null } | null> {
+  return db.transaction(async (tx) => {
+    const [antes] = await tx
+      .select({ bannerUrl: category.bannerUrl })
+      .from(category)
+      .where(and(eq(category.storeId, storeId), eq(category.id, categoryId)));
 
-  return filas.length > 0;
+    if (!antes) return null;
+
+    await tx
+      .update(category)
+      .set({ bannerUrl })
+      .where(and(eq(category.storeId, storeId), eq(category.id, categoryId)));
+
+    return { previo: antes.bannerUrl };
+  });
 }
 
 export async function reordenarCategorias(storeId: string, idsEnOrden: string[]): Promise<void> {

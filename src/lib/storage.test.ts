@@ -77,6 +77,27 @@ describe("autenticación", () => {
     expect(cabecerasDe()).toMatchObject({ apikey: "sb_secret_prueba" });
   });
 
+  it("borra contra la ruta de escritura, no contra la pública", async () => {
+    responder(ok());
+    await borrarFotoProducto(`${BASE}/storage/v1/object/public/productos/${PRODUCTO}/f.webp`);
+
+    // La columna guarda la URL de LECTURA (`/object/public/…`), pero el DELETE va a la de
+    // escritura. Mandarlo a la pública devuelve 200 y no borra nada: el fallo sería
+    // silencioso y los objetos se acumularían igual.
+    expect(llamadas[0].url).toBe(`${BASE}/storage/v1/object/productos/${PRODUCTO}/f.webp`);
+    expect(llamadas[0].url).not.toContain("/public/");
+  });
+
+  it("no lanza si Storage rechaza el borrado", async () => {
+    // Es best-effort: la fuente de verdad es la columna `imagenes`. Si esto lanzara,
+    // tumbaría un guardado que por lo demás salió bien.
+    responder(new Response("boom", { status: 500 }));
+
+    await expect(
+      borrarFotoProducto(`${BASE}/storage/v1/object/public/productos/${PRODUCTO}/f.webp`),
+    ).resolves.toBeUndefined();
+  });
+
   it("no sube nada si falta la configuración", async () => {
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
     responder(ok());
