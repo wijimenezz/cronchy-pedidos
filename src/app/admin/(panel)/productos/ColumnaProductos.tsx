@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from "react";
 import Image from "next/image";
-import { ChevronDown, ChevronUp, ImageOff, Plus, Star } from "lucide-react";
+import { ImageOff, Plus, Star } from "lucide-react";
+import { BotonOrden } from "@/components/admin/BotonOrden";
 import type { CategoriaPanel } from "@/db/queries/catalogo";
 import { pesos } from "@/lib/notificaciones/plantillas";
 import { crearProductoNuevo, reordenarProductosDeCategoria } from "./acciones";
@@ -168,32 +169,6 @@ function Miniatura({ url, nombre }: { url: string | undefined; nombre: string })
           la cuota de optimización de Vercel en trabajo que ya está hecho. */}
       <Image src={url} alt={nombre} fill sizes="40px" className="object-cover" unoptimized />
     </span>
-  );
-}
-
-function BotonOrden({
-  direccion,
-  nombre,
-  onClick,
-  deshabilitado,
-}: {
-  direccion: "subir" | "bajar";
-  nombre: string;
-  onClick: () => void;
-  deshabilitado: boolean;
-}) {
-  const Icono = direccion === "subir" ? ChevronUp : ChevronDown;
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={deshabilitado}
-      aria-label={`${direccion === "subir" ? "Subir" : "Bajar"} ${nombre}`}
-      className="flex h-6 w-8 items-center justify-center text-cafe-tenue transition-colors hover:text-cafe disabled:opacity-30"
-    >
-      <Icono className="size-4" />
-    </button>
   );
 }
 

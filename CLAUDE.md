@@ -60,7 +60,7 @@ src/
         catalogo/             switches de agotado (US21)
         zonas/                mapa con polígonos de cobertura — solo admin
         productos/            CRUD completo: 3 columnas categoría/producto/detalle
-        opciones/             sabores, toppings, salsas — pendiente
+        opciones/             salsas, toppings, sabores: 2 columnas lista/opciones
     api/
   proxy.ts                    corta /admin/* sin sesión (antes "middleware")
   db/
@@ -70,6 +70,7 @@ src/
       panel.ts                pedidos del panel + cambio de estado
       disponibilidad.ts       switches de agotado
       catalogo.ts             CRUD de categorías, productos y enganches
+      opciones.ts             CRUD de las listas de opciones y sus opciones
   lib/
     precios.ts                CÁLCULO DE PRECIOS — fuente única de verdad
     zonas.ts                  CÁLCULO DE DOMICILIO — fuente única de verdad
@@ -197,6 +198,23 @@ que modelarlo como promoción explícita; `precio_delta` no sirve para eso.
 Los sabores de helado cambian cada semana. El panel usa el switch `disponible`, no
 DELETE. Borrar rompe la trazabilidad de pedidos viejos.
 
+Una **lista** entera (`modifier_group`) tampoco se borra: se archiva con
+`modifier_group.activo`. Además de la trazabilidad, aquí borrar es destructivo de verdad —
+`modifier_option.group_id` y `product_modifier_group.group_id` son `ON DELETE CASCADE`, así
+que un DELETE se llevaría en silencio las opciones **y** los enganches de todos los productos
+que la usaban.
+
+`activo = false` significa exactamente dos cosas, y ninguna más:
+
+- no aparece en el desplegable de la Carta, así que no se puede enganchar a productos nuevos;
+- no sale en "Qué hay hoy".
+
+**La carta pública no se entera**: los productos que ya la usan la siguen ofreciendo. Sacarla
+de la ficha de un churro que exige elegir 1 salsa lo dejaría sin ninguna que ofrecer y, por la
+regla 4, imposible de añadir al carrito. Por lo mismo `listarGruposEnganchables` devuelve
+también las archivadas —es el diccionario con el que el panel resuelve el nombre de cada
+enganche ya guardado— y quien filtra es la UI, solo sobre lo que se puede **añadir**.
+
 ### 10. Mensajería: el texto y el transporte van separados
 
 El **contenido** de cada mensaje vive en `src/lib/notificaciones/plantillas.ts` y se
@@ -322,7 +340,7 @@ teléfono; traer una librería de drag-and-drop solo para esto no se justificaba
 | `admin/pedidos`   | ver, aceptar, cambiar estado, imprimir, avisos, domiciliario | todo                                                              |
 | `admin/catalogo`  | switches `disponible` / `agotado` de productos y opciones    | igual                                                             |
 | `admin/productos` | solo Visible↔Agotado (ni ocultar ni reactivar)               | CRUD completo, precios, fotos, categorías, enganches              |
-| `admin/opciones`  | solo switch `disponible` (sabores de la semana)              | CRUD completo                                                     |
+| `admin/opciones`  | solo switch `disponible` (sabores de la semana)              | crear/renombrar/ordenar opciones, precio propio, archivar listas  |
 | `admin/zonas`     | sin acceso (ni lectura)                                      | mapa: dibujar, editar vértices, precio, prioridad, activar/apagar |
 
 Estados de un producto (independientes entre sí — no colapsarlos en un enum):

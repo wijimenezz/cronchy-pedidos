@@ -2,36 +2,34 @@
 
 import { useState, useTransition } from "react";
 import { Check, Pencil, Plus, X } from "lucide-react";
-import { BotonOrden } from "@/components/admin/BotonOrden";
 import { BotonSwitch } from "@/components/admin/Interruptor";
-import type { CategoriaPanel } from "@/db/queries/catalogo";
-import {
-  crearCategoriaNueva,
-  marcarCategoriaActiva,
-  renombrarCategoriaExistente,
-  reordenarCategoriasDelMenu,
-} from "./acciones";
+import type { ListaDelPanel } from "@/db/queries/opciones";
+import { archivarLista, crearListaNueva, renombrarListaExistente } from "./acciones";
 
 /**
- * La columna izquierda: Churros, Churros con Helado, Bebidas, Adicionales.
+ * La columna izquierda: Salsas, Toppings, Sabor de helado…
  *
- * No hay borrado. Apagar y no borrar (regla 9), y además la FK de `product.category_id` no
- * lleva `ON DELETE`: una categoría con productos no se puede borrar aunque se intente. El
- * switch la saca de la carta y es reversible.
+ * No hay borrado. Además de la regla 9, borrar aquí sería destructivo de verdad: las FK que
+ * apuntan a `modifier_group` van en cascada, así que quitar una lista se llevaría por
+ * delante sus opciones Y los enganches de todos los productos que la usaban, en silencio.
+ * El switch la archiva y es reversible.
  *
- * El orden se cambia con ↑/↓, igual que en zonas y por la misma razón (regla 15).
+ * Sin ↑/↓: el orden es alfabético. El orden en el que el cliente ve las secciones lo decide
+ * cada producto en la Carta, así que un orden global aquí no significaría nada.
  */
-export function ColumnaCategorias({
-  categorias,
+export function ColumnaListas({
+  listas,
   seleccionada,
   esAdmin,
   onElegir,
+  onCreada,
   className,
 }: {
-  categorias: CategoriaPanel[];
+  listas: ListaDelPanel[];
   seleccionada: string | null;
   esAdmin: boolean;
   onElegir: (id: string) => void;
+  onCreada: (id: string) => void;
   className: string;
 }) {
   const [pendiente, iniciar] = useTransition();
@@ -39,27 +37,10 @@ export function ColumnaCategorias({
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [creando, setCreando] = useState(false);
 
-  function mover(indice: number, delta: number) {
-    const destino = indice + delta;
-    if (destino < 0 || destino >= categorias.length) return;
-
-    const ids = categorias.map((c) => c.id);
-    [ids[indice], ids[destino]] = [ids[destino], ids[indice]];
-
+  function alternarActiva(lista: ListaDelPanel) {
     setError(null);
     iniciar(async () => {
-      const resultado = await reordenarCategoriasDelMenu({ ids });
-      if (!resultado.ok) setError(resultado.error);
-    });
-  }
-
-  function alternarActiva(categoria: CategoriaPanel) {
-    setError(null);
-    iniciar(async () => {
-      const resultado = await marcarCategoriaActiva({
-        id: categoria.id,
-        activa: !categoria.activa,
-      });
+      const resultado = await archivarLista({ id: lista.id, activo: !lista.activo });
       if (!resultado.ok) setError(resultado.error);
     });
   }
@@ -69,12 +50,12 @@ export function ColumnaCategorias({
       className={`min-h-0 flex-col rounded-md border border-crema-oscura bg-tarjeta ${className}`}
     >
       <header className="flex items-center justify-between gap-2 border-b border-crema-oscura px-3 py-2">
-        <h2 className="font-titulo text-base font-bold text-cafe">Categorías</h2>
+        <h2 className="font-titulo text-base font-bold text-cafe">Listas</h2>
         {esAdmin && (
           <button
             type="button"
             onClick={() => setCreando(true)}
-            aria-label="Añadir categoría"
+            aria-label="Añadir lista"
             className="flex size-11 shrink-0 items-center justify-center rounded-full text-naranja transition-colors hover:bg-crema"
           >
             <Plus className="size-5" />
@@ -88,80 +69,59 @@ export function ColumnaCategorias({
         </p>
       )}
 
-      {creando && <FormularioNueva onCerrar={() => setCreando(false)} />}
+      {creando && <FormularioNueva onCerrar={() => setCreando(false)} onCreada={onCreada} />}
 
       <ol className="min-h-0 flex-1 divide-y divide-crema-oscura overflow-y-auto">
-        {categorias.map((categoria, i) => (
-          <li key={categoria.id} className="px-2 py-1">
-            {editandoId === categoria.id ? (
-              <FormularioRenombrar
-                categoria={categoria}
-                onCerrar={() => setEditandoId(null)}
-              />
+        {listas.map((lista) => (
+          <li key={lista.id} className="px-2 py-1">
+            {editandoId === lista.id ? (
+              <FormularioRenombrar lista={lista} onCerrar={() => setEditandoId(null)} />
             ) : (
               <div className="flex items-center gap-1">
                 <button
                   type="button"
-                  onClick={() => onElegir(categoria.id)}
-                  aria-current={categoria.id === seleccionada}
+                  onClick={() => onElegir(lista.id)}
+                  aria-current={lista.id === seleccionada}
                   className={`flex min-h-11 flex-1 items-center gap-2 rounded-sm px-2 text-left transition-colors ${
-                    categoria.id === seleccionada ? "bg-crema" : "hover:bg-crema"
+                    lista.id === seleccionada ? "bg-crema" : "hover:bg-crema"
                   }`}
                 >
                   <span className="min-w-0 flex-1">
                     <span
                       className={`block truncate font-cuerpo text-[15px] ${
-                        categoria.activa ? "text-cafe" : "text-cafe-tenue line-through"
+                        lista.activo ? "text-cafe" : "text-cafe-tenue line-through"
                       }`}
                     >
-                      {categoria.nombre}
+                      {lista.nombre}
                     </span>
                     <span className="block font-cuerpo text-[13px] text-cafe-tenue">
-                      {categoria.productos.length}{" "}
-                      {categoria.productos.length === 1 ? "producto" : "productos"}
+                      {resumen(lista)}
                     </span>
                   </span>
                 </button>
 
                 {esAdmin && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setEditandoId(categoria.id)}
-                      aria-label={`Renombrar ${categoria.nombre}`}
-                      className="flex size-9 shrink-0 items-center justify-center rounded-full text-cafe-tenue transition-colors hover:bg-crema hover:text-cafe"
-                    >
-                      <Pencil className="size-4" />
-                    </button>
-
-                    <span className="flex shrink-0 flex-col">
-                      <BotonOrden
-                        direccion="subir"
-                        nombre={categoria.nombre}
-                        onClick={() => mover(i, -1)}
-                        deshabilitado={pendiente || i === 0}
-                      />
-                      <BotonOrden
-                        direccion="bajar"
-                        nombre={categoria.nombre}
-                        onClick={() => mover(i, 1)}
-                        deshabilitado={pendiente || i === categorias.length - 1}
-                      />
-                    </span>
-                  </>
+                  <button
+                    type="button"
+                    onClick={() => setEditandoId(lista.id)}
+                    aria-label={`Renombrar ${lista.nombre}`}
+                    className="flex size-9 shrink-0 items-center justify-center rounded-full text-cafe-tenue transition-colors hover:bg-crema hover:text-cafe"
+                  >
+                    <Pencil className="size-4" />
+                  </button>
                 )}
               </div>
             )}
 
-            {esAdmin && editandoId !== categoria.id && (
+            {esAdmin && editandoId !== lista.id && (
               <div className="flex items-center justify-between gap-2 px-2 pb-1">
                 <span className="font-cuerpo text-[13px] text-cafe-tenue">
-                  {categoria.activa ? "En la carta" : "Fuera de la carta"}
+                  {lista.activo ? "En uso" : "Archivada"}
                 </span>
                 <BotonSwitch
-                  activo={categoria.activa}
-                  etiqueta={`${categoria.nombre}: ${categoria.activa ? "en la carta" : "fuera de la carta"}`}
-                  onClick={() => alternarActiva(categoria)}
+                  activo={lista.activo}
+                  etiqueta={`${lista.nombre}: ${lista.activo ? "en uso" : "archivada"}`}
+                  onClick={() => alternarActiva(lista)}
                   deshabilitado={pendiente}
                 />
               </div>
@@ -169,17 +129,39 @@ export function ColumnaCategorias({
           </li>
         ))}
 
-        {categorias.length === 0 && (
+        {listas.length === 0 && (
           <li className="px-3 py-6 text-center font-cuerpo text-[13px] text-cafe-tenue">
-            Todavía no hay categorías.
+            Todavía no hay listas.
           </li>
         )}
       </ol>
+
+      {esAdmin && listas.some((l) => !l.activo) && (
+        <p className="border-t border-crema-oscura px-3 py-2 font-cuerpo text-[13px] text-cafe-tenue">
+          Una lista archivada no se puede añadir a productos nuevos ni sale en “Qué hay hoy”.
+          Los productos que ya la usan siguen igual.
+        </p>
+      )}
     </section>
   );
 }
 
-function FormularioNueva({ onCerrar }: { onCerrar: () => void }) {
+/** "6 opciones · en 5 productos" — lo que hay que saber antes de tocar nada. */
+function resumen(lista: ListaDelPanel): string {
+  const opciones = `${lista.opciones.length} ${lista.opciones.length === 1 ? "opción" : "opciones"}`;
+
+  if (lista.usadaEn === 0) return `${opciones} · sin usar`;
+
+  return `${opciones} · en ${lista.usadaEn} ${lista.usadaEn === 1 ? "producto" : "productos"}`;
+}
+
+function FormularioNueva({
+  onCerrar,
+  onCreada,
+}: {
+  onCerrar: () => void;
+  onCreada: (id: string) => void;
+}) {
   const [pendiente, iniciar] = useTransition();
   const [nombre, setNombre] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -187,9 +169,13 @@ function FormularioNueva({ onCerrar }: { onCerrar: () => void }) {
   function guardar() {
     setError(null);
     iniciar(async () => {
-      const resultado = await crearCategoriaNueva({ nombre });
-      if (resultado.ok) onCerrar();
-      else setError(resultado.error);
+      const resultado = await crearListaNueva({ nombre });
+      if (resultado.ok) {
+        onCerrar();
+        onCreada(resultado.id);
+      } else {
+        setError(resultado.error);
+      }
     });
   }
 
@@ -199,8 +185,8 @@ function FormularioNueva({ onCerrar }: { onCerrar: () => void }) {
         autoFocus
         value={nombre}
         onChange={(e) => setNombre(e.target.value)}
-        placeholder="Nombre de la categoría"
-        aria-label="Nombre de la categoría"
+        placeholder="Salsas, Toppings, Sabor de helado…"
+        aria-label="Nombre de la lista"
         maxLength={80}
         className="min-h-11 w-full rounded-sm border border-crema-oscura bg-tarjeta px-3 font-cuerpo text-[15px] text-cafe placeholder:text-cafe-tenue focus:outline-none focus:ring-2 focus:ring-naranja"
       />
@@ -233,20 +219,20 @@ function FormularioNueva({ onCerrar }: { onCerrar: () => void }) {
 }
 
 function FormularioRenombrar({
-  categoria,
+  lista,
   onCerrar,
 }: {
-  categoria: CategoriaPanel;
+  lista: ListaDelPanel;
   onCerrar: () => void;
 }) {
   const [pendiente, iniciar] = useTransition();
-  const [nombre, setNombre] = useState(categoria.nombre);
+  const [nombre, setNombre] = useState(lista.nombre);
   const [error, setError] = useState<string | null>(null);
 
   function guardar() {
     setError(null);
     iniciar(async () => {
-      const resultado = await renombrarCategoriaExistente({ id: categoria.id, nombre });
+      const resultado = await renombrarListaExistente({ id: lista.id, nombre });
       if (resultado.ok) onCerrar();
       else setError(resultado.error);
     });
@@ -259,7 +245,7 @@ function FormularioRenombrar({
           autoFocus
           value={nombre}
           onChange={(e) => setNombre(e.target.value)}
-          aria-label={`Nuevo nombre de ${categoria.nombre}`}
+          aria-label={`Nuevo nombre de ${lista.nombre}`}
           maxLength={80}
           className="min-h-11 min-w-0 flex-1 rounded-sm border border-crema-oscura bg-tarjeta px-2 font-cuerpo text-[15px] text-cafe focus:outline-none focus:ring-2 focus:ring-naranja"
         />
@@ -285,6 +271,13 @@ function FormularioRenombrar({
       {error && (
         <p role="alert" className="font-cuerpo text-[13px] font-semibold text-error">
           {error}
+        </p>
+      )}
+
+      {lista.usadaEn > 0 && (
+        <p className="px-1 font-cuerpo text-[13px] text-cafe-tenue">
+          El nombre nuevo se ve al instante en{" "}
+          {lista.usadaEn === 1 ? "el producto que la usa" : `los ${lista.usadaEn} productos que la usan`}.
         </p>
       )}
     </div>

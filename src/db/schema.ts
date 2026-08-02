@@ -144,6 +144,11 @@ export const modifierGroup = pgTable("modifier_group", {
 	tipo: tipoGrupo().default('seleccion').notNull(),
 	permiteCantidad: boolean("permite_cantidad").default(false).notNull(),
 	maxPorOpcion: integer("max_por_opcion"),
+	// Archivar y no borrar (regla 9): una lista con `activo = false` no se puede enganchar a
+	// productos nuevos y desaparece de "Qué hay hoy", pero NO toca la carta pública ni los
+	// productos que ya la usan. Quitarle las salsas a un churro que exige elegir una lo
+	// dejaría imposible de añadir al carrito (regla 4).
+	activo: boolean().default(true).notNull(),
 }, (table) => [
 	foreignKey({
 			columns: [table.storeId],
