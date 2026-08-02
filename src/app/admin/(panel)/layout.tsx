@@ -33,12 +33,16 @@ export default async function PanelLayout({ children }: { children: React.ReactN
           <span className="truncate font-titulo text-lg font-bold text-cafe">{tienda.nombre}</span>
           <BotonSalir />
         </div>
-        <nav className="mx-auto flex w-full max-w-contenido gap-1 px-4 pb-2">
+        {/* `overflow-x-auto`: son cinco pestañas y en un teléfono estrecho no caben. Antes
+            de que se desbordaran no hacía falta. */}
+        <nav className="mx-auto flex w-full max-w-contenido gap-1 overflow-x-auto px-4 pb-2">
           <Enlace href="/admin/pedidos">Pedidos</Enlace>
           <Enlace href="/admin/catalogo">Qué hay hoy</Enlace>
           {/* El colaborador entra: necesita ver la carta y marcar agotados. Los controles
               de edición los esconde la propia pantalla según el rol. */}
           <Enlace href="/admin/productos">Carta</Enlace>
+          {/* Igual que la Carta: el colaborador entra a apagar el sabor que se acabó. */}
+          <Enlace href="/admin/opciones">Opciones</Enlace>
           {/* El colaborador no tiene acceso a zonas ni de lectura, así que tampoco ve el
               enlace. Ocultarlo es cortesía; quien corta de verdad es el `exigirRol` de la
               propia pantalla (regla 12). */}
@@ -55,7 +59,7 @@ function Enlace({ href, children }: { href: string; children: React.ReactNode })
   return (
     <Link
       href={href}
-      className="flex min-h-11 items-center rounded-full px-4 font-cuerpo text-sm font-bold text-cafe-suave transition-colors hover:bg-crema-oscura"
+      className="flex min-h-11 shrink-0 items-center rounded-full px-4 font-cuerpo text-sm font-bold text-cafe-suave transition-colors hover:bg-crema-oscura"
     >
       {children}
     </Link>
