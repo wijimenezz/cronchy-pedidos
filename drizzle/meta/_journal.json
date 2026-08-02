@@ -92,6 +92,13 @@
       "when": 1785594771695,
       "tag": "0012_purga_comprobantes",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1785666743422,
+      "tag": "0013_spotty_gideon",
+      "breakpoints": true
     }
   ]
 }
