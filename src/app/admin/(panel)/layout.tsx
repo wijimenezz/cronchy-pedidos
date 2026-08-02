@@ -36,6 +36,9 @@ export default async function PanelLayout({ children }: { children: React.ReactN
         <nav className="mx-auto flex w-full max-w-contenido gap-1 px-4 pb-2">
           <Enlace href="/admin/pedidos">Pedidos</Enlace>
           <Enlace href="/admin/catalogo">Qué hay hoy</Enlace>
+          {/* El colaborador entra: necesita ver la carta y marcar agotados. Los controles
+              de edición los esconde la propia pantalla según el rol. */}
+          <Enlace href="/admin/productos">Carta</Enlace>
           {/* El colaborador no tiene acceso a zonas ni de lectura, así que tampoco ve el
               enlace. Ocultarlo es cortesía; quien corta de verdad es el `exigirRol` de la
               propia pantalla (regla 12). */}

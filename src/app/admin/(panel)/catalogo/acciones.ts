@@ -7,6 +7,7 @@ import {
   cambiarDisponibilidadProducto,
 } from "@/db/queries/disponibilidad";
 import { exigirRol } from "@/lib/autorizacion";
+import { idSchema } from "@/lib/validaciones";
 
 /**
  * Los switches de agotado (US21). Es lo único del catálogo que puede tocar un colaborador
@@ -16,7 +17,7 @@ import { exigirRol } from "@/lib/autorizacion";
  * seguiría ofreciéndose hasta un minuto después, y alguien lo pediría.
  */
 
-const schema = z.object({ id: z.string().uuid(), disponible: z.boolean() });
+const schema = z.object({ id: idSchema, disponible: z.boolean() });
 
 export type ResultadoToggle = { ok: true } | { ok: false; error: string };
 

@@ -111,7 +111,9 @@ export const product = pgTable("product", {
 	slug: text().notNull(),
 	descripcion: text(),
 	precioBase: integer("precio_base").notNull(),
-	imagenes: text().array().default([""]).notNull(),
+	// Default `{}` y no `{""}`: un producto sin fotos tiene CERO fotos, no una foto vacía.
+	// El CHECK es el tope de 3 de CLAUDE.md, aplicado también en el servidor.
+	imagenes: text().array().default([]).notNull(),
 	recomendado: boolean().default(false).notNull(),
 	activo: boolean().default(true).notNull(),
 	disponible: boolean().default(true).notNull(),
@@ -132,6 +134,7 @@ export const product = pgTable("product", {
 		}).onDelete("cascade"),
 	unique("product_store_id_slug_key").on(table.storeId, table.slug),
 	check("product_precio_base_check", sql`precio_base >= 0`),
+	check("product_imagenes_check", sql`cardinality(imagenes) <= 3`),
 ]);
 
 export const modifierGroup = pgTable("modifier_group", {

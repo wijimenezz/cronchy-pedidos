@@ -4,7 +4,7 @@ import {
   listarProductosParaDisponibilidad,
 } from "@/db/queries/disponibilidad";
 import { exigirRol } from "@/lib/autorizacion";
-import { Interruptor } from "./Interruptor";
+import { Interruptor } from "@/components/admin/Interruptor";
 import { marcarOpcionDisponible, marcarProductoDisponible } from "./acciones";
 
 export const dynamic = "force-dynamic";

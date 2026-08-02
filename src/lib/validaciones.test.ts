@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { crearPedidoSchema, REQUERIDO } from "./validaciones";
+import { crearPedidoSchema, idSchema, REQUERIDO } from "./validaciones";
 
 /** El mensaje que le llega al cliente para un campo, tal cual lo pinta el checkout. */
 function mensajeDe(payload: unknown, campo: string): string | undefined {
@@ -30,7 +30,71 @@ function payloadBase(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/**
+ * Los ids que las migraciones de seed escribieron a mano, copiados de la base tal cual.
+ *
+ * NO cumplen RFC 4122 —llevan un 0 donde iría la versión y otro donde iría la variante—
+ * porque se eligieron para que las migraciones se puedan leer: 2222 son categorías, 3333
+ * grupos de modificadores. Postgres los guarda sin rechistar; el `z.uuid()` de Zod 4 no, y
+ * eso tumbó el guardado de productos, el CRUD de categorías y el editor de adiciones.
+ */
+const CATEGORIA_CHURROS = "22222222-0000-0000-0000-000000000001";
+const GRUPO_SALSAS = "33333333-0000-0000-0000-000000000003";
+
+describe("idSchema", () => {
+  it("acepta los ids sembrados a mano, que no cumplen RFC 4122", () => {
+    // Si alguien vuelve a poner `z.uuid()` en su lugar, este test se pone rojo. Es su
+    // única razón de existir.
+    expect(idSchema.safeParse(CATEGORIA_CHURROS).success).toBe(true);
+    expect(idSchema.safeParse(GRUPO_SALSAS).success).toBe(true);
+  });
+
+  it("acepta un uuid v4 normal, de los que genera la base", () => {
+    expect(idSchema.safeParse("9b157f9b-0756-4a5f-a072-0ab6751fd121").success).toBe(true);
+  });
+
+  it("sigue rechazando lo que no tiene forma de uuid", () => {
+    for (const malo of [
+      "",
+      "no-es-uuid",
+      "22222222-0000-0000-0000-00000000000", // un dígito de menos
+      "22222222-0000-0000-0000-0000000000011", // uno de más
+      "gggggggg-0000-0000-0000-000000000001", // no es hexadecimal
+    ]) {
+      expect(idSchema.safeParse(malo).success, `debería rechazar "${malo}"`).toBe(false);
+    }
+  });
+
+  it("responde en español cuando rechaza", () => {
+    const r = idSchema.safeParse("no-es-uuid");
+    expect(r.success).toBe(false);
+    if (!r.success) expect(r.error.issues[0].message).toBe("Identificador inválido");
+  });
+});
+
 describe("crearPedidoSchema", () => {
+  it("acepta un pedido cuyo producto tenga un id sembrado a mano", () => {
+    // El checkout es el camino que cobra: si un seed futuro le pone un id "bonito" a un
+    // producto o a una salsa, el pedido tiene que seguir pasando.
+    const r = crearPedidoSchema.safeParse(
+      payloadBase({
+        items: [
+          {
+            productId: CATEGORIA_CHURROS,
+            cantidad: 1,
+            seleccion: [
+              {
+                productModifierGroupId: GRUPO_SALSAS,
+                opciones: [{ modifierOptionId: GRUPO_SALSAS, cantidad: 1 }],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(r.success).toBe(true);
+  });
+
   it("acepta un pedido para recoger, pago en efectivo", () => {
     const r = crearPedidoSchema.safeParse(payloadBase());
     expect(r.success).toBe(true);

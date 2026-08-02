@@ -12,6 +12,26 @@ import { esUrlDeComprobante } from "@/lib/comprobantes";
 export const REQUERIDO = "Campo requerido";
 
 /**
+ * Un id del dominio: cualquier UUID que Postgres acepte, que es lo que de verdad hay.
+ *
+ * `z.uuid()` NO sirve aquí. Exige RFC 4122 —el 13º dígito tiene que ser la versión (1-8) y
+ * el 17º la variante (8/9/a/b)— y las migraciones de seed escribieron ids legibles a mano:
+ * `22222222-0000-…` las categorías, `33333333-0000-…` los grupos de modificadores. Llevan
+ * ceros justo en esas dos posiciones, así que Zod los rechazaba con un "Invalid UUID" que
+ * el panel mostraba tal cual, en inglés, al intentar guardar un producto.
+ *
+ * Esos ids son perfectamente válidos para una columna `uuid`: Postgres guarda 128 bits en
+ * formato 8-4-4-4-12 y no mira versión ni variante. El que se estaba inventando una regla
+ * era el validador, no la base. `z.guid()` comprueba la forma y nada más, que es
+ * exactamente el contrato que tenemos.
+ *
+ * Úsalo para TODO id que venga de fuera. Si vuelve a aparecer un `.uuid()` suelto, el día
+ * que un seed escriba otro id "bonito" se rompe la pantalla que lo valide — y si es el
+ * checkout, se rompe el cobro.
+ */
+export const idSchema = z.guid("Identificador inválido");
+
+/**
  * Campo que puede no venir. Un `<input>` vacío llega como "" (no como undefined), así
  * que se normaliza ANTES de validar: `barrioTexto: "  "` no cuenta como barrio escrito
  * y un comprobante vacío no falla por "URL inválida".
@@ -52,11 +72,11 @@ function esFechaRealYPasada(valor: string): boolean {
 }
 
 const seleccionEngancheSchema = z.object({
-  productModifierGroupId: z.string().uuid(),
+  productModifierGroupId: idSchema,
   opciones: z
     .array(
       z.object({
-        modifierOptionId: z.string().uuid(),
+        modifierOptionId: idSchema,
         cantidad: z.number().int().positive().max(20),
       }),
     )
@@ -64,7 +84,7 @@ const seleccionEngancheSchema = z.object({
 });
 
 const itemSchema = z.object({
-  productId: z.string().uuid(),
+  productId: idSchema,
   cantidad: z.number().int().positive().max(20),
   seleccion: z.array(seleccionEngancheSchema).max(20),
   notas: z.string().trim().max(280).optional(),

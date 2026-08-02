@@ -11,6 +11,7 @@ import {
 import { exigirRol } from "@/lib/autorizacion";
 import { avisoCambioEstado, puedeAvisarse } from "@/lib/notificaciones/avisos";
 import { MENSAJE_BLOQUEO } from "@/lib/pedidos/estados";
+import { idSchema } from "@/lib/validaciones";
 
 /**
  * Mutaciones del panel de pedidos.
@@ -37,7 +38,7 @@ const ESTADOS = [
 // El id llega del navegador: se valida como cualquier entrada, aunque venga de un botón
 // que nosotros mismos pintamos.
 const cambioSchema = z.object({
-  pedidoId: z.string().uuid(),
+  pedidoId: idSchema,
   estado: z.enum(ESTADOS),
 });
 
