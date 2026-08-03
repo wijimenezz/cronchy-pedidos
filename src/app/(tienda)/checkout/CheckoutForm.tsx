@@ -10,6 +10,7 @@ import { carritoAItems } from "@/lib/checkout/mapeo";
 import { useDatosCliente, useDatosClienteHidratados } from "@/lib/checkout/datos-cliente";
 import { crearPedidoSchema, REQUERIDO } from "@/lib/validaciones";
 import { fueraDeCobertura, pesos } from "@/lib/notificaciones/plantillas";
+import { decidirBarrio, type MotivoConsulta } from "@/lib/barrio";
 import { Campo, claseControl } from "@/components/checkout/Campo";
 import { DatoCopiable } from "@/components/checkout/DatoCopiable";
 import { SelectorFecha } from "@/components/checkout/SelectorFecha";
@@ -202,31 +203,39 @@ export function CheckoutForm({
   const ultimaCotizacion = useRef(0);
 
   /**
-   * La última sugerencia de barrio que escribimos nosotros.
+   * La última sugerencia que dio el mapa en esta sesión, **se haya escrito o no**.
    *
-   * Es lo que distingue "el campo trae lo que puso el mapa" de "el campo trae lo que tecleó
-   * una persona". Sin esta memoria no habría forma de actualizar el barrio al mover el pin
-   * sin arriesgarse a borrar lo que el cliente escribió a mano.
+   * Ese "o no" es lo que arregla el bug: antes solo se recordaba cuando se escribía, así que
+   * en la segunda visita —campo con el barrio del pedido pasado, memoria vacía— la
+   * comparación no cuadraba nunca y el campo quedaba congelado.
+   *
+   * Es memoria de sesión a propósito: solo sirve para distinguir un ajuste de unos metros de
+   * un salto a otro barrio, y eso solo tiene sentido dentro de la misma visita.
    */
-  const barrioSugerido = useRef<string | null>(null);
+  const ultimaSugerencia = useRef<string | null>(null);
 
   /**
-   * Escribe la sugerencia solo si no pisa a nadie: si el campo está vacío, o si sigue tal
-   * como lo dejamos la vez anterior. En cuanto el cliente lo corrige, deja de tocarse — el
-   * texto que lee el domiciliario lo confirma un humano, y el mapa solo ahorra teclear.
+   * Lleva la sugerencia al campo, si toca. Quién decide es `decidirBarrio`, que es puro y está
+   * probado; aquí solo se le dan los datos y se guarda lo que responda.
    *
-   * Se lee del store y no del render: esto corre dentro de una promesa y el valor cerrado en
-   * la clausura puede ser de hace tres pulsaciones.
+   * El campo se lee del store y no del render: esto corre dentro de una promesa y el valor
+   * capturado en la clausura puede ser de hace tres pulsaciones.
    */
-  const aplicarBarrio = useCallback((sugerido: string | null) => {
-    if (!sugerido) return;
+  const aplicarBarrio = useCallback(
+    (sugerido: string | null, motivo: MotivoConsulta) => {
+      const nuevo = decidirBarrio({
+        actual: useDatosCliente.getState().barrio,
+        sugerido,
+        ultimaSugerencia: ultimaSugerencia.current,
+        motivo,
+      });
 
-    const actual = useDatosCliente.getState().barrio;
-    if (actual === "" || actual === barrioSugerido.current) {
-      setDatos({ barrio: sugerido });
-      barrioSugerido.current = sugerido;
-    }
-  }, [setDatos]);
+      if (nuevo !== null) setDatos({ barrio: nuevo });
+      // Fuera del `if`: se recuerda lo que el mapa dijo, no lo que se escribió.
+      if (sugerido) ultimaSugerencia.current = sugerido;
+    },
+    [setDatos],
+  );
 
   // Mover el pin es una acción del cliente, así que se le contesta de inmediato con el
   // "calculando…" antes de salir a la red.
@@ -238,7 +247,8 @@ export function CheckoutForm({
       void consultarCobertura(punto).then(({ cobertura, barrio }) => {
         if (turno !== ultimaCotizacion.current) return;
         setCobertura(cobertura);
-        aplicarBarrio(barrio);
+        // Mover el pin es cambiar de dirección: el barrio sigue al pin.
+        aplicarBarrio(barrio, "pin-movido");
       });
     },
     [aplicarBarrio],
@@ -259,9 +269,9 @@ export function CheckoutForm({
     void consultarCobertura(datos.punto).then(({ cobertura, barrio }) => {
       if (turno !== ultimaCotizacion.current) return;
       setCobertura(cobertura);
-      // Al volver con el pin guardado, quien ya tiene barrio escrito lo conserva: `aplicarBarrio`
-      // solo llena el hueco.
-      aplicarBarrio(barrio);
+      // El pin guardado es la misma dirección de siempre, así que esto solo llena el hueco:
+      // si hay un barrio escrito —el del pedido pasado, o una corrección— se respeta.
+      aplicarBarrio(barrio, "montaje");
     });
     // Solo al terminar la hidratación, que es cuando aparece el pin guardado. De ahí en
     // adelante manda el mapa.
