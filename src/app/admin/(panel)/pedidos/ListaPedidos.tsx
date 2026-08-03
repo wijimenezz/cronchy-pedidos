@@ -53,6 +53,15 @@ export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
     void refrescar(valor);
   }
 
+  // Los programados van aparte y ordenados por su hora, no por cuándo entraron. La consulta
+  // sigue devolviendo lo más reciente primero, que es lo correcto para lo inmediato; pero un
+  // pedido para las 9 de la noche encabezando la lista a las 3 de la tarde es una distracción
+  // en plena operación. Se separa aquí, en el cliente, sin tocar la query ni sus índices.
+  const paraAhora = pedidos.filter((p) => !p.programadoPara);
+  const programados = pedidos
+    .filter((p) => p.programadoPara)
+    .sort((a, b) => +new Date(a.programadoPara!) - +new Date(b.programadoPara!));
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-3">
@@ -87,14 +96,52 @@ export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
           {terminados ? "No hay pedidos." : "No hay pedidos pendientes."}
         </p>
       ) : (
-        <ul className="flex flex-col gap-3">
-          {pedidos.map((pedido) => (
-            <li key={pedido.id}>
-              <TarjetaPedido pedido={pedido} alCambiar={() => refrescar(terminados)} />
-            </li>
-          ))}
-        </ul>
+        <>
+          <Grupo
+            pedidos={paraAhora}
+            alCambiar={() => refrescar(terminados)}
+            titulo={programados.length > 0 ? "Para ahora" : null}
+          />
+          <Grupo
+            pedidos={programados}
+            alCambiar={() => refrescar(terminados)}
+            titulo="Programados"
+          />
+        </>
       )}
     </div>
+  );
+}
+
+function Grupo({
+  pedidos,
+  titulo,
+  alCambiar,
+}: {
+  pedidos: PedidoEnLista[];
+  /** `null` cuando no hay con qué contrastar y el encabezado sobraría. */
+  titulo: string | null;
+  alCambiar: () => void;
+}) {
+  if (pedidos.length === 0) return null;
+
+  return (
+    <section className="flex flex-col gap-2">
+      {titulo && (
+        <h2 className="font-titulo text-base font-bold text-cafe-suave">
+          {titulo}
+          <span className="ml-2 font-cuerpo text-sm font-normal text-cafe-tenue">
+            {pedidos.length}
+          </span>
+        </h2>
+      )}
+      <ul className="flex flex-col gap-3">
+        {pedidos.map((pedido) => (
+          <li key={pedido.id}>
+            <TarjetaPedido pedido={pedido} alCambiar={alCambiar} />
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

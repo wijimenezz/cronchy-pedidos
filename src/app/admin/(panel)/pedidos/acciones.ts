@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { getStore } from "@/db/queries/store";
+import { actualizarTiempoEstimado, getStore } from "@/db/queries/store";
 import {
   cambiarEstadoPedido,
   marcarEstadoNotificado,
@@ -73,6 +73,48 @@ export async function cambiarEstado(entrada: {
 
   revalidatePath("/admin/pedidos");
   revalidatePath(`/admin/pedidos/${resultado.numero}`);
+
+  return { ok: true };
+}
+
+const estimadoSchema = z
+  .object({
+    min: z
+      .number()
+      .int("Tiene que ser un número entero de minutos")
+      .min(1, "Tiene que ser al menos 1 minuto")
+      .max(600, "Eso son más de diez horas"),
+    max: z
+      .number()
+      .int("Tiene que ser un número entero de minutos")
+      .min(1, "Tiene que ser al menos 1 minuto")
+      .max(600, "Eso son más de diez horas"),
+  })
+  .refine((v) => v.max >= v.min, {
+    path: ["max"],
+    message: "El máximo no puede ser menor que el mínimo",
+  });
+
+/**
+ * Cambiar el "llega en 30–45 min" en caliente. Es de admin: mueve lo que se le promete al
+ * cliente en la carta, y además corre la primera franja que se puede programar.
+ */
+export async function guardarTiempoEstimado(entrada: unknown): Promise<ResultadoAccion> {
+  const sesion = await exigirRol("admin");
+
+  const parsed = estimadoSchema.safeParse(entrada);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
+  }
+
+  const guardado = await actualizarTiempoEstimado(sesion.storeId, parsed.data.min, parsed.data.max);
+  if (!guardado) return { ok: false, error: "No pudimos guardar el tiempo estimado." };
+
+  // El checkout es `force-dynamic`, pero la carta pública es ISR y muestra el mismo dato en
+  // cuanto lo pinte; revalidar las dos cuesta nada y evita prometer un tiempo viejo.
+  revalidatePath("/");
+  revalidatePath("/checkout");
+  revalidatePath("/admin/pedidos");
 
   return { ok: true };
 }

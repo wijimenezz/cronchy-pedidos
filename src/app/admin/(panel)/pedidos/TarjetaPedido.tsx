@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import type { PedidoEnLista } from "@/db/queries/panel";
-import { pesos } from "@/lib/notificaciones/plantillas";
+import { cuandoCorto, pesos } from "@/lib/notificaciones/plantillas";
 import { ETIQUETA_ESTADO, METODO_PAGO_ETIQUETA, toneDeEstado } from "@/lib/pedidos/estados";
 import { cambiarEstado, prepararAviso } from "./acciones";
 
@@ -32,9 +32,10 @@ export function TarjetaPedido({
   const [pendiente, iniciar] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  // El polling entrega `creadoEn` como string al pasar por JSON; el render del servidor lo
-  // da como Date. Se normaliza aquí en vez de en dos sitios.
+  // El polling entrega las fechas como string al pasar por JSON; el render del servidor las
+  // da como Date. Se normalizan aquí en vez de en dos sitios.
   const creadoEn = new Date(pedido.creadoEn);
+  const programadoPara = pedido.programadoPara ? new Date(pedido.programadoPara) : null;
 
   function avanzar(estado: string) {
     setError(null);
@@ -78,6 +79,13 @@ export function TarjetaPedido({
         </div>
 
         <div className="flex flex-col items-end gap-1">
+          {/* Con pedidos de hoy y de mañana mezclados, una hora suelta es una promesa
+              ambigua: el día va siempre, y por eso `cuandoCorto` y no la hora pelada. */}
+          {programadoPara && (
+            <span className="rounded-full bg-cafe px-2.5 py-1 font-cuerpo text-xs font-bold text-crema">
+              Programado · {cuandoCorto(programadoPara)}
+            </span>
+          )}
           <span
             className={`rounded-full px-2.5 py-1 font-cuerpo text-xs font-bold ${TONO_BADGE[toneDeEstado(pedido.estado)]}`}
           >

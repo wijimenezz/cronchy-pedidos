@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { getStore } from "@/db/queries/store";
 import { obtenerPedidoPorNumero } from "@/db/queries/panel";
 import { exigirRol } from "@/lib/autorizacion";
-import { pesos } from "@/lib/notificaciones/plantillas";
+import { cuandoCorto, pesos } from "@/lib/notificaciones/plantillas";
 import { ETIQUETA_ESTADO, METODO_PAGO_ETIQUETA, toneDeEstado } from "@/lib/pedidos/estados";
 import { urlMapa } from "@/lib/zonas";
 
@@ -64,6 +64,15 @@ export default async function DetallePedidoPage({
       </header>
 
       <Seccion titulo={pedido.tipo === "domicilio" ? "Entrega" : "Recoge en tienda"}>
+        {/* Lo primero de la sección: es lo que cambia cuándo hay que empezar a freír. */}
+        <Dato
+          etiqueta={pedido.tipo === "domicilio" ? "Entregar" : "Recoge"}
+          valor={
+            pedido.programadoPara
+              ? cuandoCorto(pedido.programadoPara)
+              : "lo más pronto posible"
+          }
+        />
         <Dato etiqueta="Cliente" valor={pedido.clienteNombre} />
         {/* `tel:` y no un wa.me: cuando el domiciliario no encuentra la dirección, se
             llama. Los mensajes con plantilla salen por el botón de avisar, que es quien
