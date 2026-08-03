@@ -74,6 +74,7 @@ src/
   lib/
     precios.ts                CÁLCULO DE PRECIOS — fuente única de verdad
     zonas.ts                  CÁLCULO DE DOMICILIO — fuente única de verdad
+    barrio.ts                 SUGERENCIA de barrio desde el pin (OSM) — nunca fuente de verdad
     horario.ts                ¿está abierta la tienda en tal instante?
     validaciones.ts           esquemas Zod
     autorizacion.ts           exigirRol() — permisos del panel
@@ -234,6 +235,17 @@ abre con un toque desde el WhatsApp normal del negocio. Mañana puede implementa
 `whatsapp-api` sin tocar ni una plantilla. Nunca llames a un proveedor de mensajería
 directamente desde un route handler o un componente.
 
+**Ningún aviso sale solo, y eso no es un pendiente: es el transporte.** `wa.me` necesita que
+un humano toque el link, así que todo mensaje al cliente —incluido el "recibimos tu pedido",
+que el panel ofrece en cuanto entra— lo dispara un empleado. Enviar de verdad en automático
+exige la Cloud API con un número dedicado. Si alguien pide "que le llegue solo al cliente", la
+respuesta es esa, no un cron.
+
+`llevaAviso(estado)` dice si un estado tiene mensaje **sin armarlo**, porque el candado de
+idempotencia (regla 11) se cierra antes de enviar. No lo reimplementes llamando a
+`cambioEstado` con un pedido de mentira: eso se hacía antes y reventó en cuanto una plantilla
+empezó a leer el total.
+
 Formato: texto plano, `*negrita*` de WhatsApp, separadores `--------------------------------`.
 
 ### 11. Los avisos son idempotentes
@@ -316,8 +328,21 @@ lectura cruda del GPS ni sobre la dirección escrita.
 - Si el cliente niega el permiso: mapa centrado en la tienda, pin manual.
 - Si el pin queda a más de 500 m de la lectura GPS original: aviso
   ("verifica que el pin esté en tu dirección exacta"), **sin bloquear**.
-- La dirección escrita y las observaciones son referencia para el domiciliario;
-  no participan en el cálculo. El pedido guarda el punto (`geometry(Point, 4326)`).
+- La dirección escrita, **el barrio** y las observaciones son referencia para el
+  domiciliario; no participan en el cálculo. El pedido guarda el punto
+  (`geometry(Point, 4326)`).
+
+**`order.barrio` NO es `order.zona_nombre`, y confundirlos fue un bug real**: el panel y el
+WhatsApp del domiciliario llegaron a mostrar "zona 2" bajo la etiqueta "Barrio". La zona es
+una herramienta interna para partir el mapa y cobrar; el barrio es lo que lee quien entrega.
+Conviven en columnas distintas y el detalle del panel muestra las dos por separado.
+
+El barrio lo **sugiere el pin** vía Nominatim (`src/lib/barrio.ts`) y lo **confirma el
+cliente**: se rellena el campo, nunca se guarda a ciegas. Solo se mira `address.neighbourhood`
+—`suburb` devuelve la comuna, tan inútil para el domiciliario como "zona 2"—, la llamada sale
+del servidor colgada de `/api/zonas/cotizar`, y si falla o tarda más de 1,5 s el campo se
+queda vacío y se escribe a mano: el precio del domicilio no puede depender de un servicio
+comunitario gratuito. Es OSM, no Google, igual que los mapas.
 
 **Fuera de cobertura** (el punto no cae en ninguna zona activa): el checkout se
 bloquea y muestra un botón de WhatsApp con mensaje pre-armado — resumen del carrito +
@@ -449,6 +474,13 @@ Al guardar cualquier cambio de catálogo o zonas se revalida el menú público (
   la ven todos los clientes desde datos móviles, y una petición por visitante cada N
   segundos no se justifica. `RefrescarAlVolver` reacciona a que el cliente vuelva a la
   pestaña: mientras nadie mira, no sale ni una petición.
+
+  **La única excepción es `/pedido/[token]`**, y está medida: ahí no hay "todos los
+  visitantes", hay **una** persona con **un** pedido en curso mirando si avanza. `SeguirEstado`
+  consulta cada 15 s, solo con la pestaña visible, solo hasta `entregado`/`cancelado`, y contra
+  un endpoint que devuelve `{ estado }` y nada más — la página completa se vuelve a pedir solo
+  cuando el estado cambió de verdad. Son ~20 consultas diminutas en la vida de un pedido. No lo
+  copies a la carta: ahí el cálculo da otro resultado.
 - Imágenes siempre con `next/image`, con **loader apuntando al CDN de Supabase**
   (o `unoptimized`): las fotos ya se suben optimizadas y no hay que gastar la cuota
   de optimización de Vercel en trabajo ya hecho. Los clientes entran desde datos

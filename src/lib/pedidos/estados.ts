@@ -32,6 +32,58 @@ export function pasosDelPedido(tipo: TipoPedido): EstadoPedido[] {
     : ["nuevo", "aceptado", "preparando", "listo", "entregado"];
 }
 
+// ------------------------------------------------------------
+// Hitos — los cuatro iconos de la barra del seguimiento
+// ------------------------------------------------------------
+
+/**
+ * Lo que el cliente ve avanzar. Son cuatro y no cinco a propósito: `aceptado` y `preparando`
+ * comparten hito porque, desde la acera, "ya lo confirmaron" y "ya lo están haciendo" son la
+ * misma noticia — el pedido dejó de estar en el aire y la cocina lo tiene.
+ *
+ * La secuencia interna (`pasosDelPedido`) sigue teniendo los cinco estados y no cambia: el
+ * panel opera con ellos y el historial los registra uno a uno. Esto es solo cómo se cuentan.
+ */
+export type Hito = "recibido" | "preparando" | "saliendo" | "entregado";
+
+/** El tercer hito se llama distinto según cómo llega el pedido a su dueño. */
+export function hitosDelPedido(tipo: TipoPedido): { hito: Hito; etiqueta: string }[] {
+  return [
+    { hito: "recibido", etiqueta: "Recibido" },
+    { hito: "preparando", etiqueta: "En preparación" },
+    {
+      hito: "saliendo",
+      etiqueta: tipo === "domicilio" ? "En camino" : "Listo",
+    },
+    { hito: "entregado", etiqueta: tipo === "domicilio" ? "Entregado" : "Recogido" },
+  ];
+}
+
+const HITO_DE_ESTADO: Record<EstadoPedido, Hito | null> = {
+  nuevo: "recibido",
+  aceptado: "preparando",
+  preparando: "preparando",
+  en_camino: "saliendo",
+  listo: "saliendo",
+  entregado: "entregado",
+  // Cancelado no es un punto del recorrido, es salirse de él: la barra no se pinta.
+  cancelado: null,
+};
+
+/**
+ * En qué hito está el pedido, como índice de `hitosDelPedido`. `-1` = no hay barra que pintar.
+ *
+ * Función pura y testeada como el resto del módulo: es lo único que traduce el modelo a lo
+ * que el cliente cree que está pasando, y equivocarse aquí es decirle que su comida va en
+ * camino cuando nadie la ha empezado.
+ */
+export function indiceDeHito(estado: EstadoPedido, tipo: TipoPedido): number {
+  const hito = HITO_DE_ESTADO[estado];
+  if (!hito) return -1;
+
+  return hitosDelPedido(tipo).findIndex((h) => h.hito === hito);
+}
+
 export type ToneEstado = "activo" | "exito" | "cancelado";
 
 export function toneDeEstado(estado: EstadoPedido): ToneEstado {

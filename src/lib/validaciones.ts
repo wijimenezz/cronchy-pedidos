@@ -236,6 +236,9 @@ export type CrearPedidoInput = z.infer<typeof crearPedidoSchema>;
  */
 export const itemSnapshotSchema = z.object({
   nombre: z.string(),
+  // `.nullish()` por lo mismo que `notas`: los pedidos anteriores a esta columna no traen la
+  // clave, y un snapshot que deja de parsear es un pedido que desaparece de su seguimiento.
+  imagen: z.string().nullish(),
   cantidad: z.number().int().positive(),
   subtotal: z.number().int(),
   modificadores: z
