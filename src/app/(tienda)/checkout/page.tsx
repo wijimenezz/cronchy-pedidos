@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { ArrowLeft } from "lucide-react";
 import { getStore } from "@/db/queries/store";
 import { obtenerUbicacionTienda } from "@/db/queries/zonas";
-import { estaAbierta } from "@/lib/horario";
+import { opcionesDeEntrega } from "@/lib/pedidos/entrega";
 import { puntoDesdeGeoJSON } from "@/lib/zonas";
 import { CheckoutForm } from "./CheckoutForm";
 
@@ -18,10 +18,15 @@ const CENTRO_POR_DEFECTO = { lat: 4.3372, lng: -74.3653 };
 
 export default async function CheckoutPage() {
   const tienda = await getStore();
-  const [ubicacion, disponibilidad] = await Promise.all([
+  const [ubicacion, entrega] = await Promise.all([
     obtenerUbicacionTienda(tienda.id),
-    estaAbierta(),
+    opcionesDeEntrega(),
   ]);
+
+  // Estar cerrado ya no es el fin del camino: si quedan horas que ofrecer, el formulario se
+  // pinta igual y el cliente programa. Solo cuando no hay ninguna de las dos opciones —el
+  // interruptor manual apagado, o ni hoy ni mañana con horario— se corta el paso.
+  const sePuedePedir = Boolean(entrega.pronto) || entrega.dias.length > 0;
 
   // Dónde abre el mapa cuando el cliente no da permiso de ubicación (regla 14).
   const centroTienda = puntoDesdeGeoJSON(ubicacion) ?? CENTRO_POR_DEFECTO;
@@ -39,9 +44,10 @@ export default async function CheckoutPage() {
         <h1 className="font-titulo text-xl font-semibold text-cafe">Confirmar pedido</h1>
       </header>
 
-      {disponibilidad.abierta ? (
+      {sePuedePedir ? (
         <CheckoutForm
           centroTienda={centroTienda}
+          entrega={entrega}
           tienda={{
             nombre: tienda.nombre,
             telefono: tienda.telefono,
@@ -56,7 +62,7 @@ export default async function CheckoutPage() {
       ) : (
         <div className="flex flex-col items-center gap-3 rounded-md bg-tarjeta p-6 text-center shadow-tarjeta">
           <h2 className="font-titulo text-lg font-semibold text-cafe">Estamos cerrados</h2>
-          <p className="font-cuerpo text-sm text-cafe-suave">{disponibilidad.mensaje}</p>
+          <p className="font-cuerpo text-sm text-cafe-suave">{entrega.mensajeCerrado}</p>
           <p className="font-cuerpo text-[13px] text-cafe-tenue">
             Tu carrito te espera: cuando abramos, vuelve y confirma.
           </p>

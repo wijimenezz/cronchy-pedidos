@@ -3,7 +3,7 @@
 import { useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Clock, Loader2, MapPin, Phone, Store } from "lucide-react";
+import { ArrowLeft, Loader2, MapPin, Phone, Store } from "lucide-react";
 import { useCarrito } from "@/lib/carrito";
 import { useTipoPedido, elegirTipoPedido, type TipoPedido } from "@/lib/tienda/tipo-pedido";
 import { carritoAItems } from "@/lib/checkout/mapeo";
@@ -15,6 +15,12 @@ import { DatoCopiable } from "@/components/checkout/DatoCopiable";
 import { SelectorFecha } from "@/components/checkout/SelectorFecha";
 import { SubidaComprobante } from "@/components/checkout/SubidaComprobante";
 import { SelectorUbicacion, type Cobertura } from "@/components/checkout/SelectorUbicacion";
+import {
+  SelectorCuando,
+  cuandoInicial,
+  type Cuando,
+} from "@/components/checkout/SelectorCuando";
+import type { OpcionesEntrega } from "@/lib/pedidos/entrega";
 import type { Punto } from "@/components/checkout/MapaUbicacion";
 
 type Errores = Record<string, string>;
@@ -34,15 +40,18 @@ function conEspacios(numero: string): string {
 const CAMPOS_POR_PASO: Record<Paso, string[]> = {
   1: ["clienteNombre", "clienteTelefono", "clienteEmail", "clienteCumple"],
   2: ["punto", "direccion", "indicaciones", "recibeNombre", "recibeTelefono"],
-  3: ["metodoPago", "comprobanteUrl", "notas", "items"],
+  3: ["metodoPago", "comprobanteUrl", "notas", "items", "programadoPara"],
 };
 
 export function CheckoutForm({
   centroTienda,
+  entrega,
   tienda,
 }: {
   /** Dónde abre el mapa mientras el cliente no haya puesto su pin. */
   centroTienda: Punto;
+  /** Las horas que ofrece el servidor. Las mismas contra las que validará al confirmar. */
+  entrega: OpcionesEntrega;
   tienda: {
     nombre: string;
     telefono: string | null;
@@ -94,6 +103,10 @@ export function CheckoutForm({
   const { recibeOtro, recibeNombre, recibeTelefono } = datos;
 
   const [aceptaPolitica, setAceptaPolitica] = useState(false);
+  // Cuándo lo quiere. NO va al carrito persistido, por lo mismo que las notas: una hora
+  // elegida hace tres horas ya no vale, y rescatarla de localStorage sería prometer una franja
+  // que el servidor va a rechazar.
+  const [cuando, setCuando] = useState<Cuando>(() => cuandoInicial(entrega.pronto));
   // Qué dijo el servidor del pin actual. Es lo que pinta el costo en vivo y lo que bloquea
   // el envío si el cliente quedó fuera de cobertura (regla 14).
   const [cobertura, setCobertura] = useState<Cobertura>({ estado: "sin_pin" });
@@ -194,6 +207,9 @@ export function CheckoutForm({
       punto: esDomicilio && punto ? punto : undefined,
       direccion: esDomicilio ? direccion : undefined,
       indicaciones: indicaciones || undefined,
+      // Ausente = lo más pronto posible. El servidor comprueba que esta hora sea una de las
+      // que él mismo ofrece; aquí solo se transmite cuál eligió el cliente.
+      programadoPara: cuando.modo === "programar" ? cuando.franja?.instante : undefined,
       metodoPago,
       comprobanteUrl: comprobanteUrl ?? undefined,
       notas: notas || undefined,
@@ -223,6 +239,12 @@ export function CheckoutForm({
    * escrita en dos lados.
    */
   const fallosUI: Record<string, string> = {};
+  // El esquema no puede saberlo: para él un pedido sin `programadoPara` es "lo antes posible",
+  // que es perfectamente válido. Lo que no vale es haber tocado "Programar" y no haber elegido
+  // hora, y eso solo se ve desde aquí.
+  if (cuando.modo === "programar" && !cuando.franja) {
+    fallosUI.programadoPara = "Elige a qué hora lo quieres.";
+  }
   if (esDomicilio) {
     if (sinCobertura) {
       fallosUI.punto = "Todavía no llegamos hasta ahí.";
@@ -315,6 +337,16 @@ export function CheckoutForm({
     setErrorGeneral(null);
     setLineasConProblema([]);
 
+    // `fallosUI` no lo ve el esquema. Sin esta guardia, quien tocó "Programar" y no eligió
+    // hora mandaría un pedido "lo antes posible" sin enterarse: el payload es válido, solo
+    // que dice algo distinto de lo que él quiso.
+    const pendientes = Object.keys(fallosUI);
+    if (pendientes.length > 0) {
+      setTocados((t) => ({ ...t, ...Object.fromEntries(pendientes.map((c) => [c, true])) }));
+      setErrorGeneral("Revisa los datos marcados.");
+      return;
+    }
+
     // `parsed` ya salió del mismo esquema que usa el servidor: los mensajes coinciden
     // y no hay dos verdades.
     if (!parsed.success) {
@@ -344,6 +376,17 @@ export function CheckoutForm({
       }
 
       if (r.status === 409) {
+        // La franja caducó mientras llenaba el formulario. La tienda sigue abierta y solo hay
+        // que volver a elegir: cambiar el formulario por "Estamos cerrados" sería mentirle.
+        if (json?.motivo === "franja_caducada") {
+          setCuando({ modo: "programar", franja: null });
+          setTocados((t) => ({ ...t, programadoPara: true }));
+          setErrorGeneral(json?.error ?? "Esa hora ya no está disponible. Elige otra.");
+          // La página es `force-dynamic`: esto vuelve a pedir las franjas ya sin la caducada.
+          router.refresh();
+          return;
+        }
+
         // Cerró entre que cargó la página y le dio a confirmar.
         setCerrado(json?.error ?? "Estamos cerrados en este momento.");
         return;
@@ -701,10 +744,18 @@ export function CheckoutForm({
                 Te avisamos cuando esté listo para recoger.
               </p>
             )}
-            <p className="flex items-center gap-2 font-cuerpo text-[13px] text-cafe-suave">
-              <Clock className="size-4 shrink-0" />
-              Lo antes posible
-            </p>
+          </section>
+
+          <section className="flex flex-col gap-2 rounded-md bg-tarjeta p-4 shadow-tarjeta">
+            <SelectorCuando
+              pronto={entrega.pronto}
+              dias={entrega.dias}
+              mensajeCerrado={entrega.mensajeCerrado}
+              esDomicilio={esDomicilio}
+              valor={cuando}
+              onCambiar={setCuando}
+              error={errorDe("programadoPara")}
+            />
           </section>
 
           <section className="flex flex-col gap-3 rounded-md bg-tarjeta p-4 shadow-tarjeta">

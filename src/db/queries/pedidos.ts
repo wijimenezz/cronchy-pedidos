@@ -39,6 +39,9 @@ export async function crearPedidoEnDB(
             : null,
         direccion: input.direccion ?? null,
         indicaciones: input.indicaciones ?? null,
+        // NULL = "lo más pronto posible". El route handler ya comprobó que esta hora es una de
+        // las que la tienda ofrece; aquí solo se guarda.
+        programadoPara: input.programadoPara ?? null,
         notas: input.notas ?? null,
         metodoPago: input.metodoPago,
         comprobanteUrl: input.comprobanteUrl ?? null,
@@ -75,6 +78,8 @@ export type PedidoPublico = {
   tipo: TipoPedido;
   estado: EstadoPedido;
   creadoEn: Date;
+  /** La hora que el cliente eligió, o `null` si pidió "lo más pronto posible". */
+  programadoPara: Date | null;
   clienteNombre: string;
   clienteTelefono: string;
   direccion: string | null;
@@ -130,6 +135,7 @@ export async function obtenerPedidoPorToken(
     tipo: fila.tipo,
     estado: fila.estado,
     creadoEn: new Date(fila.creadoEn),
+    programadoPara: fila.programadoPara ? new Date(fila.programadoPara) : null,
     clienteNombre: fila.clienteNombre,
     clienteTelefono: fila.clienteTelefono,
     direccion: fila.direccion,

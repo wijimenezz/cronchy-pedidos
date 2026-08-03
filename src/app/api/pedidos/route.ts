@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { crearPedidoSchema } from "@/lib/validaciones";
 import { calcularPedido } from "@/lib/precios";
-import { estaAbierta } from "@/lib/horario";
+import { esFranjaOfrecida, opcionesDeEntrega } from "@/lib/pedidos/entrega";
 import { getStore } from "@/db/queries/store";
 import { crearPedidoEnDB } from "@/db/queries/pedidos";
 
@@ -20,10 +20,29 @@ export async function POST(request: Request) {
   }
   const input = parsed.data;
 
-  const disponibilidad = await estaAbierta();
-  if (!disponibilidad.abierta) {
+  // El "cuándo" se valida igual que el "cuánto" (regla 1): el servidor genera las opciones y
+  // solo acepta una de las suyas. De paso resuelve la carrera de la franja que caduca mientras
+  // el cliente llena el formulario — a las 6:59 la de las 7:00 ya no está en la lista.
+  const opciones = await opcionesDeEntrega();
+
+  if (input.programadoPara) {
+    if (!esFranjaOfrecida(opciones, new Date(input.programadoPara))) {
+      // Dos situaciones distintas bajo el mismo 409, y el checkout las trata distinto: si
+      // quedan horas, solo caducó la suya y basta con volver a elegir; si no queda ninguna,
+      // la tienda cerró de verdad y no hay nada que reintentar.
+      return opciones.dias.length > 0
+        ? NextResponse.json(
+            { error: "Esa hora ya no está disponible. Elige otra.", motivo: "franja_caducada" },
+            { status: 409 },
+          )
+        : NextResponse.json(
+            { error: opciones.mensajeCerrado ?? "Estamos cerrados en este momento." },
+            { status: 409 },
+          );
+    }
+  } else if (!opciones.pronto) {
     return NextResponse.json(
-      { error: disponibilidad.mensaje, motivo: disponibilidad.motivo },
+      { error: opciones.mensajeCerrado ?? "Estamos cerrados en este momento." },
       { status: 409 },
     );
   }

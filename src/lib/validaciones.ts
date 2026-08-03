@@ -142,6 +142,16 @@ export const crearPedidoSchema = z
       .optional(),
     direccion: textoOpcional(280),
     indicaciones: textoOpcional(280),
+    /**
+     * La hora que el cliente eligió, en ISO 8601. Ausente = "lo más pronto posible".
+     *
+     * Aquí solo se comprueba la **forma**. Que esa hora sea una de las que la tienda ofrece lo
+     * decide el route handler comparándola contra las franjas que él mismo acaba de generar
+     * (`esFranjaOfrecida`), que es la regla 1 aplicada al tiempo: el navegador manda cuál
+     * eligió, nunca si vale. Un rango escrito en Zod sería una segunda fuente de verdad que
+     * envejecería sola en cuanto cambiara el horario.
+     */
+    programadoPara: opcional(z.string().datetime({ offset: true, message: "Hora inválida" })),
     metodoPago: z.enum(["efectivo", "nequi", "transferencia", "datafono"]),
     // Solo se acepta una URL que haya salido de nuestro propio endpoint de subida:
     // el cliente controla este campo y si no, podría apuntar a cualquier dominio.
