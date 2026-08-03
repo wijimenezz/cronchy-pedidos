@@ -22,6 +22,8 @@ export type PedidoPanel = {
   tipo: TipoPedido;
   estado: EstadoPedido;
   creadoEn: Date;
+  /** La hora que pidió el cliente, o `null` si quiere su pedido lo antes posible. */
+  programadoPara: Date | null;
   clienteNombre: string;
   clienteTelefono: string;
   recibeNombre: string | null;
@@ -55,6 +57,7 @@ export type PedidoEnLista = Pick<
   | "tipo"
   | "estado"
   | "creadoEn"
+  | "programadoPara"
   | "clienteNombre"
   | "clienteTelefono"
   | "barrio"
@@ -116,6 +119,7 @@ export async function listarPedidos(
       tipo: fila.tipo,
       estado: fila.estado,
       creadoEn: new Date(fila.creadoEn),
+      programadoPara: fila.programadoPara ? new Date(fila.programadoPara) : null,
       clienteNombre: fila.clienteNombre,
       clienteTelefono: fila.clienteTelefono,
       barrio: fila.zonaNombre,
@@ -155,6 +159,7 @@ export async function obtenerPedidoPorNumero(
       tipo: fila.tipo,
       estado: fila.estado,
       creadoEn: new Date(fila.creadoEn),
+      programadoPara: fila.programadoPara ? new Date(fila.programadoPara) : null,
       clienteNombre: fila.clienteNombre,
       clienteTelefono: fila.clienteTelefono,
       recibeNombre: fila.recibeNombre,

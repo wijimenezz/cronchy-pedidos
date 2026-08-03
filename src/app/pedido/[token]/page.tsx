@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { getStore } from "@/db/queries/store";
 import { obtenerPedidoPorToken } from "@/db/queries/pedidos";
 import { avisoNuevoPedido } from "@/lib/notificaciones/avisos";
-import { fechaHora, pesos } from "@/lib/notificaciones/plantillas";
+import { cuandoCorto, fechaHora, pesos } from "@/lib/notificaciones/plantillas";
 import {
   DETALLE_ESTADO,
   ETIQUETA_ESTADO,
@@ -55,6 +55,14 @@ export default async function SeguimientoPedido({
           {pedido.estado === "nuevo" ? "¡Recibimos tu pedido!" : ETIQUETA_ESTADO[pedido.estado]}
         </h1>
         <p className="font-cuerpo text-sm text-cafe-suave">{DETALLE_ESTADO[pedido.estado]}</p>
+        {/* Debajo del estado y no enterrado en la lista de datos: quien programó su pedido
+            abre esta pantalla precisamente para confirmar que la hora quedó bien. */}
+        {pedido.programadoPara && pedido.estado !== "cancelado" && (
+          <p className="font-cuerpo text-sm font-bold text-cafe">
+            {pedido.tipo === "domicilio" ? "Llega" : "Lo recoges"}{" "}
+            {cuandoCorto(pedido.programadoPara)}
+          </p>
+        )}
       </header>
 
       <section className="rounded-md bg-tarjeta p-4 shadow-tarjeta">
