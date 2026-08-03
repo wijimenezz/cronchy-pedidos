@@ -1,11 +1,17 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ArrowLeft, MapPin, MessageCircle, Phone } from "lucide-react";
 import { getStore } from "@/db/queries/store";
 import { obtenerPedidoPorNumero } from "@/db/queries/panel";
+import { historialDelCliente, type HistorialCliente } from "@/db/queries/customers";
 import { exigirRol } from "@/lib/autorizacion";
 import { cuandoCorto, pesos } from "@/lib/notificaciones/plantillas";
-import { ETIQUETA_ESTADO, METODO_PAGO_ETIQUETA, toneDeEstado } from "@/lib/pedidos/estados";
+import { normalizarTelefono } from "@/lib/notificaciones/transporte";
+import { puedeAvisarse } from "@/lib/notificaciones/avisos";
+import { ETIQUETA_ESTADO, siguienteEstado, toneDeEstado } from "@/lib/pedidos/estados";
 import { urlMapa } from "@/lib/zonas";
+import { MapaPedido } from "@/components/pedido/MapaPedido";
+import { AccionesPedido } from "./AccionesPedido";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +27,20 @@ function fechaHora(fecha: Date): string {
     timeStyle: "short",
     timeZone: "America/Bogota",
   }).format(fecha);
+}
+
+function fechaCorta(fecha: Date): string {
+  return new Intl.DateTimeFormat("es-CO", {
+    dateStyle: "medium",
+    timeZone: "America/Bogota",
+  }).format(fecha);
+}
+
+/** "3er pedido" · "12º pedido". El primero se rotula aparte, con su distintivo. */
+function ordinal(n: number): string {
+  if (n === 2) return "2º";
+  if (n === 3) return "3er";
+  return `${n}º`;
 }
 
 export default async function DetallePedidoPage({
@@ -39,179 +59,314 @@ export default async function DetallePedidoPage({
   if (!encontrado) notFound();
 
   const { pedido, historial } = encontrado;
+  const cliente = await historialDelCliente(tienda.id, pedido.customerId, pedido.numero);
+
+  const esDomicilio = pedido.tipo === "domicilio";
+  // Se derivan aquí y no en la consulta: son las mismas dos preguntas que responde la lista,
+  // con los datos que este pedido ya trae.
+  const siguiente = siguienteEstado(pedido.estado, pedido.tipo);
+  const avisoPendiente =
+    puedeAvisarse(pedido.estado) &&
+    !historial.some((e) => e.estado === pedido.estado && e.notificadoEn);
+
+  const telefono = normalizarTelefono(pedido.clienteTelefono);
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <Link
-          href="/admin/pedidos"
-          className="font-cuerpo text-sm font-bold text-cafe-suave underline-offset-2 hover:underline"
-        >
-          ← Pedidos
-        </Link>
-      </div>
+      <Link
+        href="/admin/pedidos"
+        className="flex min-h-11 items-center gap-2 self-start font-cuerpo text-sm font-bold text-cafe-suave underline-offset-2 hover:underline"
+      >
+        <ArrowLeft className="size-4" />
+        Pedidos
+      </Link>
 
-      <header className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="font-titulo text-2xl font-bold text-cafe">#{pedido.numero}</h1>
-          <p className="font-cuerpo text-[13px] text-cafe-tenue">{fechaHora(pedido.creadoEn)}</p>
-        </div>
+      <header className="flex flex-wrap items-center gap-3">
+        <h1 className="font-titulo text-2xl font-bold text-cafe">#{pedido.numero}</h1>
         <span
           className={`rounded-full px-3 py-1 font-cuerpo text-sm font-bold ${TONO_BADGE[toneDeEstado(pedido.estado)]}`}
         >
           {ETIQUETA_ESTADO[pedido.estado]}
         </span>
+        <span className="rounded-full bg-crema px-3 py-1 font-cuerpo text-sm font-bold text-cafe-suave">
+          {esDomicilio ? "Domicilio" : "Recoge en tienda"}
+        </span>
+        {pedido.metodoPago === "nequi" && !pedido.comprobanteUrl && (
+          <span className="rounded-full bg-error/12 px-3 py-1 font-cuerpo text-sm font-bold text-error">
+            Pago pendiente
+          </span>
+        )}
+        <span className="font-cuerpo text-[13px] text-cafe-tenue">
+          {fechaHora(pedido.creadoEn)}
+        </span>
       </header>
 
-      <Seccion titulo={pedido.tipo === "domicilio" ? "Entrega" : "Recoge en tienda"}>
-        {/* Lo primero de la sección: es lo que cambia cuándo hay que empezar a freír. */}
-        <Dato
-          etiqueta={pedido.tipo === "domicilio" ? "Entregar" : "Recoge"}
-          valor={
-            pedido.programadoPara
-              ? cuandoCorto(pedido.programadoPara)
-              : "lo más pronto posible"
-          }
-        />
-        <Dato etiqueta="Cliente" valor={pedido.clienteNombre} />
-        {/* `tel:` y no un wa.me: cuando el domiciliario no encuentra la dirección, se
-            llama. Los mensajes con plantilla salen por el botón de avisar, que es quien
-            respeta la idempotencia. */}
-        <Dato
-          etiqueta="Teléfono"
-          valor={
-            <a
-              href={`tel:${pedido.clienteTelefono}`}
-              className="font-bold text-naranja-osc underline-offset-2 hover:underline"
-            >
-              {pedido.clienteTelefono}
-            </a>
-          }
-        />
-        {pedido.recibeNombre && (
-          <Dato
-            etiqueta="Recibe"
-            valor={`${pedido.recibeNombre} · ${pedido.recibeTelefono ?? ""}`}
-          />
-        )}
-        {pedido.tipo === "domicilio" && (
-          <>
-            <Dato etiqueta="Dirección" valor={pedido.direccion ?? "—"} />
-            {pedido.barrio && <Dato etiqueta="Barrio" valor={pedido.barrio} />}
-            {pedido.indicaciones && <Dato etiqueta="Indicaciones" valor={pedido.indicaciones} />}
-            {/* La zona va aparte y con su nombre real, no disfrazada de barrio: no es una
-                dirección, es la respuesta a por qué el domicilio costó lo que costó. */}
-            {pedido.zonaNombre && (
-              <Dato etiqueta="Zona de cobertura" valor={pedido.zonaNombre} />
+      {/* Dos columnas en la tablet del mostrador y en escritorio; apiladas por debajo. La
+          izquierda es qué preparar, la derecha a quién entregárselo y qué cobrar. */}
+      <div className="grid gap-4 lg:grid-cols-[1fr_360px] lg:items-start">
+        <div className="flex flex-col gap-4">
+          <Seccion titulo="Qué preparar">
+            <ul className="flex flex-col gap-3">
+              {pedido.items.map((item, i) => (
+                <li key={i} className="flex justify-between gap-3">
+                  <div>
+                    <p className="font-cuerpo text-[15px] font-bold text-cafe">
+                      {item.cantidad}× {item.nombre}
+                    </p>
+                    {item.modificadores.length > 0 && (
+                      <ul className="mt-0.5">
+                        {item.modificadores.map((mod, j) => (
+                          <li key={j} className="font-cuerpo text-[13px] text-cafe-suave">
+                            {mod.grupo}: {mod.nombre}
+                            {mod.cantidad > 1 && ` ×${mod.cantidad}`}
+                            {mod.precio > 0 && ` (${pesos(mod.precio)})`}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {item.notas && (
+                      <p className="mt-0.5 font-cuerpo text-[13px] font-bold text-alerta">
+                        Nota: {item.notas}
+                      </p>
+                    )}
+                  </div>
+                  <span className="shrink-0 font-cuerpo text-[15px] text-cafe">
+                    {pesos(item.subtotal)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+
+            {pedido.notas && (
+              <p className="mt-3 rounded-sm bg-alerta/10 px-3 py-2 font-cuerpo text-[13px] text-cafe">
+                <span className="font-bold">Nota del pedido: </span>
+                {pedido.notas}
+              </p>
             )}
-            {/* El pin que fijó el precio. Es lo que el domiciliario abre para llegar: la
-                dirección escrita es referencia, esto es la coordenada exacta (regla 14). */}
-            {pedido.punto && (
-              <Dato
-                etiqueta="Ubicación"
-                valor={
-                  <a
-                    href={urlMapa(pedido.punto)}
-                    target="_blank"
-                    rel="noopener"
-                    className="font-bold text-naranja-osc underline-offset-2 hover:underline"
-                  >
-                    Abrir en Google Maps
-                  </a>
-                }
-              />
-            )}
-          </>
-        )}
-        {pedido.notas && <Dato etiqueta="Notas" valor={pedido.notas} />}
-      </Seccion>
+          </Seccion>
 
-      <Seccion titulo="Pedido">
-        <ul className="flex flex-col gap-3">
-          {pedido.items.map((item, i) => (
-            <li key={i} className="flex justify-between gap-3">
-              <div>
-                <p className="font-cuerpo text-[15px] font-bold text-cafe">
-                  {item.cantidad}× {item.nombre}
-                </p>
-                {item.modificadores.length > 0 && (
-                  <ul className="mt-0.5">
-                    {item.modificadores.map((mod, j) => (
-                      <li key={j} className="font-cuerpo text-[13px] text-cafe-suave">
-                        {mod.grupo}: {mod.nombre}
-                        {mod.cantidad > 1 && ` ×${mod.cantidad}`}
-                        {mod.precio > 0 && ` (${pesos(mod.precio)})`}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {item.notas && (
-                  <p className="mt-0.5 font-cuerpo text-[13px] font-bold text-alerta">
-                    Nota: {item.notas}
-                  </p>
-                )}
-              </div>
-              <span className="shrink-0 font-cuerpo text-[15px] text-cafe">
-                {pesos(item.subtotal)}
-              </span>
-            </li>
-          ))}
-        </ul>
+          <Seccion titulo="Historial">
+            <ol className="flex flex-col gap-2">
+              {historial.map((evento, i) => (
+                <li key={i} className="flex justify-between gap-3 font-cuerpo text-[13px]">
+                  <span className="font-bold text-cafe">{ETIQUETA_ESTADO[evento.estado]}</span>
+                  <span className="text-cafe-tenue">
+                    {fechaHora(evento.creadoEn)}
+                    {evento.notificadoEn && " · avisado"}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </Seccion>
+        </div>
 
-        <dl className="mt-4 border-t border-crema-oscura pt-3">
-          <Total etiqueta="Subtotal" valor={pesos(pedido.subtotal)} />
-          {pedido.tipo === "domicilio" && (
-            <Total etiqueta="Domicilio" valor={pesos(pedido.costoDomicilio)} />
-          )}
-          {pedido.descuento > 0 && (
-            <Total etiqueta="Descuento" valor={`− ${pesos(pedido.descuento)}`} />
-          )}
-          <Total etiqueta="Total" valor={pesos(pedido.total)} destacado />
-        </dl>
-      </Seccion>
-
-      <Seccion titulo="Pago">
-        <Dato
-          etiqueta="Método"
-          valor={METODO_PAGO_ETIQUETA[pedido.metodoPago] ?? pedido.metodoPago}
-        />
-        {pedido.metodoPago === "nequi" &&
-          (pedido.comprobanteUrl ? (
-            // El bucket es privado: el link solo abre para quien tenga la service key, así
-            // que se sirve por nuestro propio endpoint, ya con la sesión validada.
+        <div className="flex flex-col gap-4">
+          <Seccion titulo={esDomicilio ? "Entrega" : "Recoge"}>
+            {/* Lo primero: es lo que cambia cuándo hay que empezar a freír. */}
             <Dato
-              etiqueta="Comprobante"
+              etiqueta={esDomicilio ? "Entregar" : "Recoge"}
               valor={
-                <a
-                  href={`/api/admin/comprobante/${pedido.numero}`}
-                  target="_blank"
-                  rel="noopener"
-                  className="font-bold text-naranja-osc underline-offset-2 hover:underline"
-                >
-                  Ver comprobante
-                </a>
+                pedido.programadoPara
+                  ? cuandoCorto(pedido.programadoPara)
+                  : "lo más pronto posible"
               }
             />
-          ) : (
-            <p className="font-cuerpo text-[13px] font-bold text-error">
-              Sin comprobante: este pedido no puede aceptarse todavía.
-            </p>
-          ))}
-      </Seccion>
 
-      <Seccion titulo="Historial">
-        <ol className="flex flex-col gap-2">
-          {historial.map((evento, i) => (
-            <li key={i} className="flex justify-between gap-3 font-cuerpo text-[13px]">
-              <span className="font-bold text-cafe">{ETIQUETA_ESTADO[evento.estado]}</span>
-              <span className="text-cafe-tenue">
-                {fechaHora(evento.creadoEn)}
-                {evento.notificadoEn && " · avisado"}
-              </span>
-            </li>
-          ))}
-        </ol>
-      </Seccion>
+            <FichaCliente nombre={pedido.clienteNombre} cliente={cliente} />
+
+            <div className="my-2 flex gap-2">
+              {/* `tel:` para cuando el domiciliario no encuentra la dirección; el WhatsApp
+                  es para escribir. Los avisos con plantilla salen del botón de avisar, que
+                  es quien respeta la idempotencia (regla 11). */}
+              <a
+                href={`tel:${pedido.clienteTelefono}`}
+                className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full border border-crema-oscura font-cuerpo text-sm font-bold text-cafe transition-colors hover:bg-crema"
+              >
+                <Phone className="size-4" />
+                Llamar
+              </a>
+              <a
+                href={`https://wa.me/${telefono}`}
+                target="_blank"
+                rel="noopener"
+                className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full border border-crema-oscura font-cuerpo text-sm font-bold text-cafe transition-colors hover:bg-crema"
+              >
+                <MessageCircle className="size-4" />
+                Escribir
+              </a>
+            </div>
+
+            {pedido.recibeNombre && (
+              <Dato
+                etiqueta="Recibe"
+                valor={`${pedido.recibeNombre} · ${pedido.recibeTelefono ?? ""}`}
+              />
+            )}
+
+            {esDomicilio ? (
+              <>
+                <Dato etiqueta="Dirección" valor={pedido.direccion ?? "—"} />
+                {pedido.barrio && <Dato etiqueta="Barrio" valor={pedido.barrio} />}
+                {pedido.indicaciones && (
+                  <Dato etiqueta="Indicaciones" valor={pedido.indicaciones} />
+                )}
+                {/* La zona va con su nombre real y no disfrazada de barrio: no es una
+                    dirección, es la respuesta a por qué el domicilio costó lo que costó. */}
+                {pedido.zonaNombre && (
+                  <Dato etiqueta="Zona de cobertura" valor={pedido.zonaNombre} />
+                )}
+                {pedido.punto && (
+                  <>
+                    <div className="my-2">
+                      <MapaPedido punto={pedido.punto} />
+                    </div>
+                    {/* El pin que fijó el precio: la dirección escrita es referencia, esto
+                        es la coordenada exacta que el domiciliario abre (regla 14). */}
+                    <a
+                      href={urlMapa(pedido.punto)}
+                      target="_blank"
+                      rel="noopener"
+                      className="flex min-h-11 items-center justify-center gap-2 rounded-full bg-crema font-cuerpo text-sm font-bold text-cafe transition-colors hover:bg-crema-oscura"
+                    >
+                      <MapPin className="size-4" />
+                      Abrir en Google Maps
+                    </a>
+                  </>
+                )}
+              </>
+            ) : (
+              tienda.direccion && <Dato etiqueta="En" valor={tienda.direccion} />
+            )}
+          </Seccion>
+
+          <Seccion titulo="Cobro">
+            <dl>
+              <Total etiqueta="Subtotal" valor={pesos(pedido.subtotal)} />
+              {esDomicilio && (
+                <Total etiqueta="Domicilio" valor={pesos(pedido.costoDomicilio)} />
+              )}
+              {pedido.descuento > 0 && (
+                <Total etiqueta="Descuento" valor={`− ${pesos(pedido.descuento)}`} />
+              )}
+              <Total etiqueta="Total" valor={pesos(pedido.total)} destacado />
+            </dl>
+
+            <div className="mt-3 border-t border-crema-oscura pt-3">
+              <Dato
+                etiqueta="Método"
+                valor={pedido.metodoPago === "nequi" ? "Nequi" : "Efectivo"}
+              />
+              {/* Lo que el domiciliario necesita saber antes de salir. La devuelta se calcula
+                  contra el total real y solo si da positivo: si el cliente escribió menos de
+                  lo que cuesta, se enseña lo que puso y ya, sin inventarle una cuenta. */}
+              {pedido.pagaCon !== null && (
+                <Dato
+                  etiqueta="Paga con"
+                  valor={
+                    <>
+                      {pesos(pedido.pagaCon)}
+                      {pedido.pagaCon > pedido.total && (
+                        <span className="font-bold text-cafe">
+                          {" "}
+                          · devuelta {pesos(pedido.pagaCon - pedido.total)}
+                        </span>
+                      )}
+                    </>
+                  }
+                />
+              )}
+              {pedido.metodoPago === "nequi" &&
+                (pedido.comprobanteUrl ? (
+                  // El bucket es privado: el link solo abre para quien tenga la service key,
+                  // así que se sirve por nuestro endpoint, ya con la sesión validada.
+                  <Dato
+                    etiqueta="Comprobante"
+                    valor={
+                      <a
+                        href={`/api/admin/comprobante/${pedido.numero}`}
+                        target="_blank"
+                        rel="noopener"
+                        className="font-bold text-naranja-osc underline-offset-2 hover:underline"
+                      >
+                        Ver comprobante
+                      </a>
+                    }
+                  />
+                ) : (
+                  <p className="font-cuerpo text-[13px] font-bold text-error">
+                    Sin comprobante: este pedido no puede aceptarse todavía.
+                  </p>
+                ))}
+            </div>
+          </Seccion>
+
+          <AccionesPedido
+            pedidoId={pedido.id}
+            numero={pedido.numero}
+            estado={pedido.estado}
+            siguiente={siguiente}
+            avisoPendiente={avisoPendiente}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Quién es esta persona para el negocio. Un habitual y alguien que prueba por primera vez no
+ * se atienden igual, y hasta ahora el panel no lo decía en ninguna parte.
+ */
+function FichaCliente({
+  nombre,
+  cliente,
+}: {
+  nombre: string;
+  cliente: HistorialCliente | null;
+}) {
+  const esNuevo = !cliente || cliente.totalPedidos <= 1;
+
+  return (
+    <div className="flex flex-col gap-1 rounded-sm bg-crema p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-cuerpo text-[15px] font-bold text-cafe">{nombre}</span>
+        {esNuevo ? (
+          <span className="rounded-full bg-exito/15 px-2 py-0.5 font-cuerpo text-[12px] font-bold text-exito">
+            Nuevo
+          </span>
+        ) : (
+          <span className="rounded-full bg-naranja/12 px-2 py-0.5 font-cuerpo text-[12px] font-bold text-naranja-osc">
+            {ordinal(cliente!.totalPedidos)} pedido
+          </span>
+        )}
+      </div>
+
+      {cliente && !esNuevo && (
+        <>
+          <p className="font-cuerpo text-[13px] text-cafe-suave">
+            {pesos(cliente.totalGastado)} en total
+          </p>
+          {cliente.anteriores.length > 0 && (
+            <ul className="mt-1 flex flex-col gap-0.5">
+              {cliente.anteriores.map((p) => (
+                <li key={p.numero}>
+                  <Link
+                    href={`/admin/pedidos/${p.numero}`}
+                    className="flex justify-between gap-2 font-cuerpo text-[13px] text-cafe-suave underline-offset-2 hover:underline"
+                  >
+                    <span>
+                      #{p.numero} · {fechaCorta(p.creadoEn)}
+                    </span>
+                    <span className={p.estado === "cancelado" ? "line-through" : ""}>
+                      {pesos(p.total)}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -244,7 +399,9 @@ function Total({
   destacado?: boolean;
 }) {
   return (
-    <div className={`flex justify-between font-cuerpo ${destacado ? "mt-1 text-[17px] font-bold text-cafe" : "text-[15px] text-cafe-suave"}`}>
+    <div
+      className={`flex justify-between font-cuerpo ${destacado ? "mt-1 text-[17px] font-bold text-cafe" : "text-[15px] text-cafe-suave"}`}
+    >
       <dt>{etiqueta}</dt>
       <dd>{valor}</dd>
     </div>
