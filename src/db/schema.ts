@@ -22,6 +22,12 @@ export const store = pgTable("store", {
 	ubicacion: geometria("ubicacion", { tipo: "Point" }),
 	aceptaPedidos: boolean("acepta_pedidos").default(true).notNull(),
 	mensajeCerrado: text("mensaje_cerrado"),
+	// El rango que se le promete al cliente en "lo más pronto posible" ("Llega en 30–45 min").
+	// Se edita desde el panel: el día que la cocina va lenta se sube sin desplegar. El máximo
+	// es además la anticipación mínima de una hora programada — nadie programa para dentro de
+	// cinco minutos.
+	minutosEstimadoMin: integer("minutos_estimado_min").default(30).notNull(),
+	minutosEstimadoMax: integer("minutos_estimado_max").default(45).notNull(),
 	nequiTitular: text("nequi_titular"),
 	nequiNumero: text("nequi_numero"),
 	nequiLlave: text("nequi_llave"),
@@ -33,6 +39,10 @@ export const store = pgTable("store", {
 	creadoEn: timestamp("creado_en", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	unique("store_slug_key").on(table.slug),
+	check(
+		"store_estimado_check",
+		sql`minutos_estimado_min > 0 AND minutos_estimado_max >= minutos_estimado_min`,
+	),
 ]);
 
 export const storeHours = pgTable("store_hours", {
@@ -299,6 +309,11 @@ export const order = pgTable("order", {
 	costoDomicilio: integer("costo_domicilio").default(0).notNull(),
 	descuento: integer().default(0).notNull(),
 	total: integer().notNull(),
+	// La hora que el cliente eligió, o NULL si pidió "lo más pronto posible". El nullable ES
+	// el modelo: un booleano al lado admitiría "programado sin hora" y la base no podría
+	// impedirlo. Es un instante absoluto, no un "19:00": la conversión desde la hora de Bogotá
+	// se hace una sola vez, en el servidor (regla 6).
+	programadoPara: timestamp("programado_para", { withTimezone: true, mode: 'string' }),
 	creadoEn: timestamp("creado_en", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	index("idx_order_estado").using("btree", table.storeId.asc().nullsLast().op("timestamptz_ops"), table.estado.asc().nullsLast().op("uuid_ops"), table.creadoEn.desc().nullsFirst().op("enum_ops")),
