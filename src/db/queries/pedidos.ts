@@ -47,6 +47,8 @@ export async function crearPedidoEnDB(
         programadoPara: input.programadoPara ?? null,
         notas: input.notas ?? null,
         metodoPago: input.metodoPago,
+        // Solo tiene sentido en efectivo: en Nequi no hay devuelta que llevar.
+        pagaCon: input.metodoPago === "efectivo" ? (input.pagaCon ?? null) : null,
         comprobanteUrl: input.comprobanteUrl ?? null,
         subtotal: calculo.subtotal,
         costoDomicilio: calculo.costoDomicilio,

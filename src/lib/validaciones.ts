@@ -172,6 +172,21 @@ export const crearPedidoSchema = z
      */
     programadoPara: opcional(z.string().datetime({ offset: true, message: "Hora inválida" })),
     metodoPago: z.enum(["efectivo", "nequi", "transferencia", "datafono"]),
+    /**
+     * Con cuánto piensa pagar, para que el domiciliario lleve la devuelta. Opcional: ausente
+     * significa "no lo dijo".
+     *
+     * **No se compara contra el total** y no es un descuido: el total lo calcula el servidor
+     * desde la base (regla 1) y este esquema no lo conoce ni debe. Si el cliente escribe menos
+     * de lo que cuesta, el panel muestra el número tal cual y no inventa una devuelta negativa.
+     */
+    pagaCon: opcional(
+      z
+        .number()
+        .int("Escribe un valor sin centavos")
+        .positive("Tiene que ser mayor que cero")
+        .max(1_000_000, "Ese billete no existe"),
+    ),
     // Solo se acepta una URL que haya salido de nuestro propio endpoint de subida:
     // el cliente controla este campo y si no, podría apuntar a cualquier dominio.
     comprobanteUrl: opcional(

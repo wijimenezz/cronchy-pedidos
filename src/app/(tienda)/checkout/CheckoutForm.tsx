@@ -91,7 +91,7 @@ const CAMPOS_POR_PASO: Record<Paso, string[]> = {
     "recibeTelefono",
     "programadoPara",
   ],
-  3: ["metodoPago", "comprobanteUrl", "notas", "items", "programadoPara"],
+  3: ["metodoPago", "pagaCon", "comprobanteUrl", "notas", "items", "programadoPara"],
 };
 
 /**
@@ -112,6 +112,7 @@ const ETIQUETA_CAMPO: Record<string, string> = {
   recibeTelefono: "Teléfono de quien recibe",
   programadoPara: "A qué hora lo quieres",
   metodoPago: "Método de pago",
+  pagaCon: "Con cuánto pagas",
   comprobanteUrl: "Comprobante de Nequi",
   notas: "Notas",
   // `items` no está aquí a propósito: no es un campo que el cliente pueda llenar. Si falla,
@@ -179,6 +180,11 @@ export function CheckoutForm({
   const { recibeOtro, recibeNombre, recibeTelefono } = datos;
 
   const [aceptaPolitica, setAceptaPolitica] = useState(false);
+  // Con cuánto va a pagar en efectivo. NO va al carrito persistido, a diferencia del método
+  // de pago: aquel se guarda porque el cliente sale a la app de Nequi y vuelve, y aquí no hay
+  // adónde salir. Un "pago con $50.000" heredado del pedido de la semana pasada sería peor
+  // que un campo vacío.
+  const [pagaCon, setPagaCon] = useState("");
   // Cuándo lo quiere. NO va al carrito persistido, por lo mismo que las notas: una hora
   // elegida hace tres horas ya no vale, y rescatarla de localStorage sería prometer una franja
   // que el servidor va a rechazar.
@@ -280,6 +286,13 @@ export function CheckoutForm({
   const costoDomicilio =
     esDomicilio && cobertura.estado === "cubierto" ? cobertura.precio : 0;
   const sinCobertura = esDomicilio && cobertura.estado === "fuera";
+  // Solo se muestra cuando de verdad hay algo que devolver. Si escribió menos que el total,
+  // no se le corrige con un número negativo: el servidor cobra lo que cobra y el panel le
+  // enseña al domiciliario lo que el cliente dijo.
+  const devuelta =
+    metodoPago === "efectivo" && Number(pagaCon) > total + costoDomicilio
+      ? Number(pagaCon) - total - costoDomicilio
+      : null;
   // Si el negocio no cargó su Nequi, ofrecerlo sería mandar al cliente a un callejón sin salida.
   const nequiDisponible = Boolean(tienda.nequiNumero);
 
@@ -364,6 +377,8 @@ export function CheckoutForm({
       // que él mismo ofrece; aquí solo se transmite cuál eligió el cliente.
       programadoPara: cuando.modo === "programar" ? cuando.franja?.instante : undefined,
       metodoPago,
+      // Solo en efectivo: en Nequi no hay devuelta que llevar.
+      pagaCon: metodoPago === "efectivo" && pagaCon ? Number(pagaCon) : undefined,
       comprobanteUrl: comprobanteUrl ?? undefined,
       notas: notas || undefined,
       items: itemsPedido,
@@ -1051,6 +1066,40 @@ export function CheckoutForm({
                   </label>
                 ))}
             </div>
+
+            {/* Para que el domiciliario salga con la devuelta contada. Opcional: quien no lo
+                sepa todavía sigue de largo, y el pedido se confirma igual. */}
+            {metodoPago === "efectivo" && (
+              <Campo
+                etiqueta="¿Con cuánto pagas?"
+                ayuda={
+                  devuelta !== null
+                    ? `Te llevamos ${pesos(devuelta)} de devuelta.`
+                    : "Opcional. Así llevamos tu devuelta lista."
+                }
+                error={errorDe("pagaCon")}
+              >
+                {(props) => (
+                  <div className="flex gap-2">
+                    <span className="flex min-h-11 shrink-0 items-center rounded-sm border border-crema-oscura bg-crema px-3 font-cuerpo text-[15px] text-cafe-suave">
+                      $
+                    </span>
+                    <input
+                      {...props}
+                      type="text"
+                      inputMode="numeric"
+                      value={pagaCon}
+                      // Solo dígitos: "50.000" y "$50.000" son la misma intención, y hacer
+                      // que el cliente adivine el formato es hacerle perder el pedido.
+                      onChange={(e) => setPagaCon(e.target.value.replace(/\D/g, ""))}
+                      onBlur={() => alSalirDe("pagaCon")}
+                      placeholder="50000"
+                      className={claseControl(errorDe("pagaCon"))}
+                    />
+                  </div>
+                )}
+              </Campo>
+            )}
 
             {metodoPago === "nequi" && (
               <div className="flex flex-col gap-4 rounded-sm bg-crema p-3">

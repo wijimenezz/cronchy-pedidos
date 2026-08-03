@@ -93,7 +93,7 @@ src/
     notificaciones/
       plantillas.ts           TEXTO de los mensajes — fuente única
       transporte.ts           adaptador: whatsapp-link | whatsapp-api | telegram
-    impresion.ts              deep link cronchyprinter://
+    (impresion.ts)            PENDIENTE: no existe. La tabla de permisos lo promete
   components/
 ```
 
@@ -419,6 +419,22 @@ Estados de un producto (independientes entre sí — no colapsarlos en un enum):
 Los toggles del panel son a **un clic, sin confirmación** (operación diaria). Las
 acciones destructivas (eliminar producto) piden confirmación explícita y solo admin.
 Al guardar cualquier cambio de catálogo o zonas se revalida el menú público (ISR).
+
+**El panel se opera en una tablet de 12" y en escritorio**, no en un teléfono. Se diseña para
+≥1024 px; por debajo sigue siendo usable, pero no es el caso principal. Esto **no reabre la
+regla 15**: una tablet también es táctil, así que nada se arrastra.
+
+`/admin/pedidos` es un **tablero de cuatro columnas** —Sin aceptar · En preparación · En camino
+/ Listos · Terminados— y esos cuatro grupos son **los mismos hitos** que ve el cliente en su
+seguimiento (`indiceDeHito`). Es a propósito: si la cocina y el cliente contaran el pedido en
+fases distintas, uno de los dos estaría viendo algo que no está pasando. Lo que cambia son los
+rótulos, porque cambia quién lee. `cancelado` no tiene hito para el cliente pero sí columna
+aquí (Terminados): para la cocina es un pedido que ya no toca.
+
+La consulta trae **lo vivo siempre, más lo terminado de hoy**. Lo vivo no se filtra por fecha
+porque un pedido programado para mañana ya entró; lo terminado sí, o la última columna se
+vuelve un archivo. El corte va en la consulta y no después: con el `limit` y sin filtro, un día
+movido empujaría fuera justo los pedidos vivos.
 
 ---
 
