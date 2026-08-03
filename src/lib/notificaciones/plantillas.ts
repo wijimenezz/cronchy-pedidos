@@ -108,6 +108,52 @@ export function fechaHora(fecha: Date): string {
   return `${p("hour")}:${p("minute")} ${p("dayPeriod")}, ${p("day")} ${mes} ${p("year")}`;
 }
 
+/** -> "7:00 pm". Para donde el día ya se sabe por el contexto, como los chips del selector. */
+export function horaCorta(fecha: Date): string {
+  const partes = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Bogota",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).formatToParts(fecha);
+
+  const p = (tipo: string) => partes.find((x) => x.type === tipo)?.value ?? "";
+
+  return `${p("hour")}:${p("minute")} ${p("dayPeriod").toLowerCase()}`;
+}
+
+/** El día de Bogotá de un instante, "YYYY-MM-DD". Local a este módulo para no arrastrar
+ *  `horario.ts` —y con él toda la capa de base de datos— dentro de las plantillas. */
+function diaEnBogota(fecha: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Bogota",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(fecha);
+}
+
+/**
+ * -> "hoy 7:00 pm" / "mañana 7:00 pm" / "23 julio, 7:00 pm".
+ *
+ * El día NO es opcional en ningún sitio donde se lea fuera del selector: "7:00 pm" a secas, en
+ * un pedido hecho a las once de la noche, se lee como "dentro de un rato", y eso es alguien
+ * friendo churros doce horas antes. La tercera forma no debería salir con el horizonte de dos
+ * días de hoy, pero un pedido viejo en el panel sí la alcanza.
+ */
+export function cuandoCorto(fecha: Date, ahora: Date = new Date()): string {
+  const hoy = diaEnBogota(ahora);
+  const manana = diaEnBogota(new Date(ahora.getTime() + 24 * 60 * 60 * 1000));
+  const dia = diaEnBogota(fecha);
+
+  if (dia === hoy) return `hoy ${horaCorta(fecha)}`;
+  if (dia === manana) return `mañana ${horaCorta(fecha)}`;
+
+  const [, mes, numero] = dia.split("-").map(Number);
+
+  return `${numero} ${MESES[mes - 1]}, ${horaCorta(fecha)}`;
+}
+
 export function mapsUrl(ubicacion: { lat: number; lng: number }): string {
   return `https://maps.google.com/maps?q=${ubicacion.lat},${ubicacion.lng}`;
 }
@@ -176,6 +222,19 @@ function bloqueTotales(pedido: PedidoParaMensaje): string {
   return lineas.join("\n");
 }
 
+/**
+ * Cuándo lo quiere el cliente. Se escribe SIEMPRE, también cuando es para ya: en un mensaje
+ * que se lee de un vistazo, la ausencia de línea se lee como un olvido, no como "para ahora".
+ *
+ * Lleva el día y no solo la hora porque hoy y mañana conviven en la misma bandeja: "7:00 pm"
+ * a secas, en un pedido que entró a las once de la noche, es alguien friendo doce horas antes.
+ */
+function lineaCuando(pedido: PedidoParaMensaje, etiqueta: string): string {
+  return `*${etiqueta}:* ${
+    pedido.horaEntregaEstimada ? cuandoCorto(pedido.horaEntregaEstimada) : "lo antes posible"
+  }`;
+}
+
 function bloqueEntrega(pedido: PedidoParaMensaje): string {
   if (pedido.tipo === "recoger") {
     return "*Tipo:* Recoger en tienda";
@@ -209,11 +268,7 @@ export function confirmacionCliente(
   partes.push(`*Pedido:* #${pedido.numero}`);
   partes.push(bloqueEntrega(pedido));
 
-  if (pedido.horaEntregaEstimada) {
-    const etiqueta =
-      pedido.tipo === "recoger" ? "Listo a las" : "Hora de entrega";
-    partes.push(`*${etiqueta}:* ${fechaHora(pedido.horaEntregaEstimada)}`);
-  }
+  partes.push(lineaCuando(pedido, pedido.tipo === "recoger" ? "Listo" : "Hora de entrega"));
 
   partes.push(SEP);
   partes.push("*Tu pedido:*");
@@ -255,6 +310,9 @@ export function nuevoPedidoNegocio(
 
   partes.push(`🔔 *NUEVO PEDIDO #${pedido.numero}*`);
   partes.push("");
+  // Arriba del todo, antes incluso del tipo y la dirección: es lo primero que hay que saber
+  // para decidir si este pedido se pone al fuego ahora o se deja para las siete.
+  partes.push(lineaCuando(pedido, "Cuándo"));
   partes.push(bloqueEntrega(pedido));
   partes.push(SEP);
   partes.push(`*Cliente:* ${pedido.clienteNombre}`);
@@ -315,9 +373,7 @@ export function cambioEstado(
   const partes = [plantilla(tienda.nombre), ""];
 
   if (estado === "en_camino" && pedido.horaEntregaEstimada) {
-    partes.push(
-      `*Llega aproximadamente:* ${fechaHora(pedido.horaEntregaEstimada)}`,
-    );
+    partes.push(`*Llega aproximadamente:* ${cuandoCorto(pedido.horaEntregaEstimada)}`);
     partes.push("");
   }
 
