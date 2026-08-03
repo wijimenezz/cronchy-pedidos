@@ -301,6 +301,10 @@ export const order = pgTable("order", {
 	// la dirección escrita es referencia para el domiciliario y no participa en el cálculo.
 	punto: geometria("punto", { tipo: "Point" }),
 	direccion: text(),
+	// El barrio que el cliente dejó escrito. NO es `zona_nombre` y confundirlos fue el bug:
+	// la zona parte el mapa para cobrar, el barrio lo lee el domiciliario. Se sugiere desde el
+	// pin (OSM) pero manda lo escrito, porque lo que sirve es el nombre que la gente usa.
+	barrio: text(),
 	indicaciones: text(),
 	notas: text(),
 	metodoPago: metodoPago("metodo_pago").notNull(),
