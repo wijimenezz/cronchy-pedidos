@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Clock } from "lucide-react";
-import type { DiaConFranjas } from "@/lib/pedidos/franjas";
+import type { DiaConFranjas, Franja } from "@/lib/pedidos/franjas";
 
 /**
  * "¿Cuándo lo quieres?" — lo más pronto posible, o una hora elegida.
@@ -16,20 +16,53 @@ import type { DiaConFranjas } from "@/lib/pedidos/franjas";
  * porque es un toque menos y porque la lista es corta: media docena de horas, no un calendario.
  */
 
+/** El `instante` es lo que viaja al servidor; la `etiqueta`, lo que lee el cliente. */
+export type FranjaElegida = { instante: string; etiqueta: string };
+
 /**
  * El modo va en el tipo y no en un booleano interno del componente, porque el formulario
  * necesita distinguir "eligió lo más pronto posible" de "eligió programar y todavía no tocó
  * ninguna hora". La segunda es un pedido incompleto y tiene que frenar el botón de confirmar;
  * si las dos se representaran como `null`, no habría forma de saberlo desde fuera.
  */
-export type Cuando =
-  | { modo: "pronto" }
-  | { modo: "programar"; franja: { instante: string; etiqueta: string } | null };
+export type Cuando = { modo: "pronto" } | { modo: "programar"; franja: FranjaElegida | null };
 
-/** Con la tienda cerrada no hay "para ya" que ofrecer: programar no es una elección, es lo
- *  único que queda, y el selector arranca abierto en esa rama. */
-export function cuandoInicial(pronto: unknown): Cuando {
-  return pronto ? { modo: "pronto" } : { modo: "programar", franja: null };
+/**
+ * La franja tal como la guarda el formulario. Se arma en un solo sitio porque sus dos mitades
+ * van a públicos distintos —el `instante` viaja al servidor, la `etiqueta` la lee el cliente—
+ * y armarlas por separado en cada sitio que las necesita es cómo el chip marcado y el resumen
+ * terminan diciendo cosas distintas.
+ */
+function elegir(dia: DiaConFranjas, franja: Franja): FranjaElegida {
+  return {
+    // ISO y no `toString()`: es lo que viaja en el payload y lo que el servidor compara
+    // contra sus propias franjas.
+    instante: franja.instante.toISOString(),
+    etiqueta: `${dia.dia === "hoy" ? "hoy" : "mañana"} a las ${franja.etiqueta}`,
+  };
+}
+
+/**
+ * Con la tienda cerrada no hay "para ya" que ofrecer: programar no es una elección, es lo
+ * único que queda, y el selector arranca abierto en esa rama **con la primera hora ya
+ * marcada**.
+ *
+ * Arrancar sin hora sería un estado inválido de nacimiento: el formulario no deja confirmar
+ * hasta que se elija una, pero el aviso que lo explica vive dentro de este componente, que
+ * puede estar fuera de la pantalla que el cliente está mirando. Se elige la más temprana, que
+ * es lo más parecido a "lo antes posible" que se puede ofrecer con el local cerrado, y se
+ * cambia con un toque.
+ */
+export function cuandoInicial(
+  pronto: { min: number; max: number } | null,
+  dias: DiaConFranjas[],
+): Cuando {
+  if (pronto) return { modo: "pronto" };
+
+  const dia = dias[0];
+  const primera = dia?.franjas[0];
+
+  return { modo: "programar", franja: dia && primera ? elegir(dia, primera) : null };
 }
 
 export function SelectorCuando({
@@ -126,25 +159,15 @@ export function SelectorCuando({
 
               <div className="flex flex-wrap gap-2">
                 {dia.franjas.map((f) => {
-                  // ISO y no `toString()`: es lo que viaja en el payload y lo que el servidor
-                  // compara contra sus propias franjas.
-                  const iso = f.instante.toISOString();
-                  const activa = elegida?.instante === iso;
+                  const elegible = elegir(dia, f);
+                  const activa = elegida?.instante === elegible.instante;
 
                   return (
                     <button
-                      key={iso}
+                      key={elegible.instante}
                       type="button"
                       aria-pressed={activa}
-                      onClick={() =>
-                        onCambiar({
-                          modo: "programar",
-                          franja: {
-                            instante: iso,
-                            etiqueta: `${dia.dia === "hoy" ? "hoy" : "mañana"} a las ${f.etiqueta}`,
-                          },
-                        })
-                      }
+                      onClick={() => onCambiar({ modo: "programar", franja: elegible })}
                       className={`min-h-11 rounded-full border px-4 font-cuerpo text-sm font-bold transition-colors ${
                         activa
                           ? "border-naranja bg-naranja text-crema"

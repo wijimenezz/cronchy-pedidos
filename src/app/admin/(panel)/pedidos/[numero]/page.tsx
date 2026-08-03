@@ -99,6 +99,11 @@ export default async function DetallePedidoPage({
             <Dato etiqueta="Dirección" valor={pedido.direccion ?? "—"} />
             {pedido.barrio && <Dato etiqueta="Barrio" valor={pedido.barrio} />}
             {pedido.indicaciones && <Dato etiqueta="Indicaciones" valor={pedido.indicaciones} />}
+            {/* La zona va aparte y con su nombre real, no disfrazada de barrio: no es una
+                dirección, es la respuesta a por qué el domicilio costó lo que costó. */}
+            {pedido.zonaNombre && (
+              <Dato etiqueta="Zona de cobertura" valor={pedido.zonaNombre} />
+            )}
             {/* El pin que fijó el precio. Es lo que el domiciliario abre para llegar: la
                 dirección escrita es referencia, esto es la coordenada exacta (regla 14). */}
             {pedido.punto && (

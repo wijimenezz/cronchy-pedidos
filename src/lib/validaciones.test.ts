@@ -100,11 +100,12 @@ describe("crearPedidoSchema", () => {
     expect(r.success).toBe(true);
   });
 
-  it("acepta un pedido a domicilio con dirección, pin y pago nequi con comprobante", () => {
+  it("acepta un pedido a domicilio con dirección, barrio, pin y pago nequi con comprobante", () => {
     const r = crearPedidoSchema.safeParse(
       payloadBase({
         tipo: "domicilio",
         direccion: "Calle 10 # 5-20",
+        barrio: "El Caney",
         punto: PIN,
         metodoPago: "nequi",
         comprobanteUrl: COMPROBANTE_URL,
@@ -130,17 +131,41 @@ describe("crearPedidoSchema", () => {
     }
   });
 
+  // El barrio es referencia para el domiciliario, igual que la dirección, y por eso se exige
+  // igual. No se confunde con la zona de cobertura, que el cliente ni manda ni podría (regla 1).
+  it("rechaza domicilio sin barrio", () => {
+    const r = crearPedidoSchema.safeParse(
+      payloadBase({ tipo: "domicilio", direccion: "Calle 10 # 5-20", punto: PIN }),
+    );
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error.issues.some((i) => i.path.includes("barrio"))).toBe(true);
+    }
+  });
+
+  // Un campo en blanco llega como "" y no como undefined: tiene que contar como ausente, o
+  // un espacio en el input pasaría por barrio.
+  it("un barrio en blanco cuenta como ausente", () => {
+    const r = crearPedidoSchema.safeParse(
+      payloadBase({ tipo: "domicilio", direccion: "Calle 10 # 5-20", punto: PIN, barrio: "   " }),
+    );
+    expect(r.success).toBe(false);
+  });
+
   // Regla 14: sin pin no hay domicilio, porque es el pin el que fija el precio. Antes se
-  // aceptaba un barrio escrito a mano (US11); eso se retiró con el mapa.
+  // aceptaba un barrio escrito a mano *en lugar* del pin (US11); eso se retiró con el mapa, y
+  // el barrio que volvió no cotiza nada: solo dice dónde tocar el timbre.
   it("rechaza domicilio sin pin", () => {
-    const r = crearPedidoSchema.safeParse(payloadBase({ tipo: "domicilio", direccion: "Calle 10 # 5-20" }));
+    const r = crearPedidoSchema.safeParse(
+      payloadBase({ tipo: "domicilio", direccion: "Calle 10 # 5-20", barrio: "El Caney" }),
+    );
     expect(r.success).toBe(false);
     if (!r.success) {
       expect(r.error.issues.some((i) => i.path.includes("punto"))).toBe(true);
     }
   });
 
-  it("recoger no necesita pin", () => {
+  it("recoger no necesita pin ni barrio", () => {
     const r = crearPedidoSchema.safeParse(payloadBase({ tipo: "recoger" }));
     expect(r.success).toBe(true);
   });
@@ -149,10 +174,15 @@ describe("crearPedidoSchema", () => {
     ["latitud fuera de rango", { lat: 91, lng: -74.362 }],
     ["longitud fuera de rango", { lat: 4.337, lng: -181 }],
   ])("rechaza un pin con %s", (_caso, punto) => {
+    // El payload va completo salvo el pin, para que lo que falle sea el pin y no otra cosa:
+    // un `success: false` no dice por qué.
     const r = crearPedidoSchema.safeParse(
-      payloadBase({ tipo: "domicilio", direccion: "Calle 10 # 5-20", punto }),
+      payloadBase({ tipo: "domicilio", direccion: "Calle 10 # 5-20", barrio: "El Caney", punto }),
     );
     expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error.issues.some((i) => i.path.includes("punto"))).toBe(true);
+    }
   });
 
   // Un <input> vacío llega como "", no como undefined: el mensaje debe ser el de

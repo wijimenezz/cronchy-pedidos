@@ -6,6 +6,7 @@ import {
   precioUpsell,
   seleccionSinUpsells,
 } from "./mapeo";
+import { crearPedidoSchema } from "@/lib/validaciones";
 import type { ItemCarrito } from "@/lib/carrito";
 import type { EngancheParaPrecio, ProductoParaPrecio } from "@/lib/precios-calculo";
 
@@ -244,5 +245,67 @@ describe("carritoAItems", () => {
 
   it("un carrito vacío no produce items", () => {
     expect(carritoAItems([])).toEqual({ items: [], lineIdPorIndice: [] });
+  });
+});
+
+/**
+ * La costura entre el carrito y la API, que es por donde se rompió.
+ *
+ * Los dos lados estaban probados y cada uno era coherente consigo mismo —aquí arriba se fija
+ * que las notas ausentes viajan como `null`, y el `payloadBase()` de `validaciones.test.ts`
+ * arma sus items sin la clave `notas`—, pero el payload que de verdad produce
+ * `carritoAItems` no había pasado nunca por el esquema que lo recibe. No pasaba: `null`
+ * contra un `.optional()` tumbaba TODOS los pedidos sin observaciones, o sea casi todos, y
+ * como el route handler valida con el mismo esquema, no había forma de crear un pedido.
+ *
+ * Por eso el test va contra el esquema real y no contra una copia de su forma: una copia
+ * envejece igual que envejeció la otra mitad.
+ */
+describe("carritoAItems contra crearPedidoSchema", () => {
+  // Ids con forma de uuid porque `idSchema` la exige; los del resto del archivo son legibles
+  // ("prod-1") y ahí da igual, porque no llegan a ningún esquema.
+  const PRODUCT_ID = "11111111-1111-4111-8111-111111111111";
+  const GRUPO_ID = "33333333-0000-0000-0000-000000000001";
+  const OPCION_ID = "44444444-0000-0000-0000-000000000001";
+
+  /** El payload tal cual lo arma el checkout, con lo mínimo alrededor de los items. */
+  function pedidoCon(items: ItemCarrito[]) {
+    return {
+      tipo: "recoger" as const,
+      clienteNombre: "Ana",
+      clienteTelefono: "3001234567",
+      metodoPago: "efectivo" as const,
+      items: carritoAItems(items).items,
+    };
+  }
+
+  it("un carrito sin notas produce un pedido que el esquema acepta", () => {
+    const r = crearPedidoSchema.safeParse(pedidoCon([linea({ productoId: PRODUCT_ID })]));
+
+    // Se mira `items` antes que `success` para que, si vuelve a romperse, el fallo diga cuál
+    // es el campo culpable en vez de un "expected true, received false".
+    expect(r.error?.flatten().fieldErrors.items).toBeUndefined();
+    expect(r.success).toBe(true);
+  });
+
+  it("una línea con notas y con selección también", () => {
+    const r = crearPedidoSchema.safeParse(
+      pedidoCon([
+        linea({
+          productoId: PRODUCT_ID,
+          cantidad: 2,
+          notas: "sin canela",
+          seleccion: [
+            {
+              productModifierGroupId: GRUPO_ID,
+              opciones: [{ modifierOptionId: OPCION_ID, cantidad: 1 }],
+            },
+          ],
+        }),
+      ]),
+    );
+
+    expect(r.error?.flatten().fieldErrors.items).toBeUndefined();
+    expect(r.success).toBe(true);
   });
 });
