@@ -87,7 +87,17 @@ const itemSchema = z.object({
   productId: idSchema,
   cantidad: z.number().int().positive().max(20),
   seleccion: z.array(seleccionEngancheSchema).max(20),
-  notas: z.string().trim().max(280).optional(),
+  /**
+   * `.nullish()` y no `.optional()`: **el `null` es el caso normal, no el raro**.
+   * `carritoAItems` normaliza a `null` la línea sin observaciones, y `null` es lo que dice el
+   * tipo del dominio en las tres representaciones que atraviesa —`ItemCarrito`,
+   * `ItemSolicitado` e `ItemCalculado`— y lo que ya acepta `itemSnapshotSchema` aquí abajo.
+   *
+   * Con `.optional()` esto rechazaba toda línea sin nota, o sea casi todas, y como el route
+   * handler valida con este mismo esquema no había forma de crear un pedido por ningún
+   * camino. Si vuelve a "limpiarse" a `.optional()`, el checkout deja de funcionar entero.
+   */
+  notas: z.string().trim().max(280, "Máximo 280 caracteres").nullish(),
 });
 
 /**
@@ -141,6 +151,15 @@ export const crearPedidoSchema = z
       })
       .optional(),
     direccion: textoOpcional(280),
+    /**
+     * El barrio que dejó escrito el cliente. Lo sugiere el pin (OSM) pero se guarda lo que él
+     * confirme: el destinatario de este texto es el domiciliario, y lo que le sirve es el
+     * nombre que la gente usa, no el que tenga mapeado OpenStreetMap.
+     *
+     * No se confunde con `zona_nombre`, que es la zona que cobró el domicilio (regla 13) y no
+     * viaja nunca en el request: el cliente no decide cuánto cuesta su domicilio (regla 1).
+     */
+    barrio: textoOpcional(120),
     indicaciones: textoOpcional(280),
     /**
      * La hora que el cliente eligió, en ISO 8601. Ausente = "lo más pronto posible".
@@ -169,6 +188,16 @@ export const crearPedidoSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["direccion"],
+        message: REQUERIDO,
+      });
+    }
+    // Mismo trato que la dirección, y por la misma razón: los dos son lo que lee el
+    // domiciliario. Un pedido sin barrio es el que termina en una llamada preguntando dónde
+    // queda. En "recoger" no aplica, y por eso la regla vive aquí y no en un NOT NULL.
+    if (data.tipo === "domicilio" && !data.barrio) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["barrio"],
         message: REQUERIDO,
       });
     }
@@ -207,6 +236,9 @@ export type CrearPedidoInput = z.infer<typeof crearPedidoSchema>;
  */
 export const itemSnapshotSchema = z.object({
   nombre: z.string(),
+  // `.nullish()` por lo mismo que `notas`: los pedidos anteriores a esta columna no traen la
+  // clave, y un snapshot que deja de parsear es un pedido que desaparece de su seguimiento.
+  imagen: z.string().nullish(),
   cantidad: z.number().int().positive(),
   subtotal: z.number().int(),
   modificadores: z

@@ -356,6 +356,9 @@ describe("calcularItem", () => {
         {
           productId: "prod-agua",
           nombreProducto: "Agua Pequeña",
+          // Sin foto: aquí solo se conoce la opción, no el producto al que apunta. La bebida
+          // que el cliente agrega de verdad llega al checkout como línea propia y sí la trae.
+          imagen: null,
           cantidad: 1,
           precioUnitario: 1500,
           subtotal: 1500,

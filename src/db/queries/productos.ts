@@ -7,6 +7,7 @@ function mapProducto(p: {
   id: string;
   nombre: string;
   precioBase: number;
+  imagenes: string[];
   activo: boolean;
   disponible: boolean;
   disponibleDelivery: boolean;
@@ -42,6 +43,9 @@ function mapProducto(p: {
     disponible: p.disponible,
     disponibleDelivery: p.disponibleDelivery,
     disponiblePickup: p.disponiblePickup,
+    // La portada, igual que en `mapProductoUpsellRef`. Se congela en el snapshot del pedido,
+    // que es lo que pinta el seguimiento del cliente.
+    imagen: p.imagenes[0] || null,
     engancles: p.productModifierGroups.map((pmg) => ({
       id: pmg.id,
       modo: pmg.modo,

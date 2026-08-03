@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Loader2, MapPin, Phone, Store } from "lucide-react";
@@ -33,14 +33,90 @@ function conEspacios(numero: string): string {
 }
 
 /**
+ * Qué dice el servidor del pin: si hay cobertura y, de paso, qué barrio hay ahí.
+ *
+ * No toca estado a propósito: sus dos usos lo tratan distinto —el mapa avisa que está
+ * calculando, el remontaje no— y ambos tienen que descartar la respuesta si ya llegó otra
+ * más nueva.
+ *
+ * El barrio sale aparte de `Cobertura` y no dentro: la cobertura es si llegamos y cuánto
+ * cuesta, y el barrio es un texto para el domiciliario que ni siquiera depende de que
+ * estemos cubriendo ese punto.
+ */
+async function consultarCobertura(
+  punto: Punto,
+): Promise<{ cobertura: Cobertura; barrio: string | null }> {
+  try {
+    const respuesta = await fetch("/api/zonas/cotizar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(punto),
+    });
+    if (!respuesta.ok) return { cobertura: { estado: "error" }, barrio: null };
+
+    const datos = (await respuesta.json()) as {
+      cubierto: boolean;
+      zona?: string;
+      precio?: number;
+      barrio?: string | null;
+    };
+
+    return {
+      cobertura: datos.cubierto
+        ? { estado: "cubierto", zona: datos.zona!, precio: datos.precio! }
+        : { estado: "fuera" },
+      barrio: datos.barrio ?? null,
+    };
+  } catch {
+    return { cobertura: { estado: "error" }, barrio: null };
+  }
+}
+
+/**
  * Qué campos del esquema se revisan antes de dejar pasar al siguiente paso. El envío
  * final valida el payload completo igual que hoy; esto solo decide dónde se detiene
  * al cliente, para que no descubra en el paso 3 que le faltó el teléfono.
  */
 const CAMPOS_POR_PASO: Record<Paso, string[]> = {
   1: ["clienteNombre", "clienteTelefono", "clienteEmail", "clienteCumple"],
-  2: ["punto", "direccion", "indicaciones", "recibeNombre", "recibeTelefono"],
+  // `programadoPara` está en los dos pasos a propósito, y no hace falta ningún condicional:
+  // en domicilio el selector se pinta en el 2 y lo valida "Continuar"; en recoger el paso 2
+  // ni existe (`pasos` es [1, 3]), así que lo resuelve el 3, que es donde se pinta ahí.
+  2: [
+    "punto",
+    "direccion",
+    "barrio",
+    "indicaciones",
+    "recibeNombre",
+    "recibeTelefono",
+    "programadoPara",
+  ],
   3: ["metodoPago", "comprobanteUrl", "notas", "items", "programadoPara"],
+};
+
+/**
+ * Cómo se llama cada campo para quien lo está llenando. El error general los nombra: en un
+ * formulario por pasos, "revisa los datos marcados" es un callejón sin salida cuando lo que
+ * falta quedó marcado en un paso que no está en pantalla.
+ */
+const ETIQUETA_CAMPO: Record<string, string> = {
+  clienteNombre: "Nombre y apellido",
+  clienteTelefono: "Teléfono",
+  clienteEmail: "Correo",
+  clienteCumple: "Fecha de cumpleaños",
+  punto: "Ubicación en el mapa",
+  direccion: "Dirección",
+  barrio: "Barrio",
+  indicaciones: "Indicaciones",
+  recibeNombre: "Nombre de quien recibe",
+  recibeTelefono: "Teléfono de quien recibe",
+  programadoPara: "A qué hora lo quieres",
+  metodoPago: "Método de pago",
+  comprobanteUrl: "Comprobante de Nequi",
+  notas: "Notas",
+  // `items` no está aquí a propósito: no es un campo que el cliente pueda llenar. Si falla,
+  // el payload lo armamos mal nosotros, y decirle "falta tu carrito" mientras ve sus
+  // productos en pantalla lo manda a arreglar lo que no está roto. Ver `señalar`.
 };
 
 export function CheckoutForm({
@@ -99,17 +175,92 @@ export function CheckoutForm({
   // copie: aparecen solos en cuanto termina la hidratación.
   const datos = useDatosCliente();
   const setDatos = useDatosCliente((s) => s.set);
-  const { nombre, telefono, email, cumple, punto, direccion, indicaciones } = datos;
+  const { nombre, telefono, email, cumple, punto, direccion, barrio, indicaciones } = datos;
   const { recibeOtro, recibeNombre, recibeTelefono } = datos;
 
   const [aceptaPolitica, setAceptaPolitica] = useState(false);
   // Cuándo lo quiere. NO va al carrito persistido, por lo mismo que las notas: una hora
   // elegida hace tres horas ya no vale, y rescatarla de localStorage sería prometer una franja
   // que el servidor va a rechazar.
-  const [cuando, setCuando] = useState<Cuando>(() => cuandoInicial(entrega.pronto));
+  const [cuando, setCuando] = useState<Cuando>(() =>
+    cuandoInicial(entrega.pronto, entrega.dias),
+  );
   // Qué dijo el servidor del pin actual. Es lo que pinta el costo en vivo y lo que bloquea
   // el envío si el cliente quedó fuera de cobertura (regla 14).
   const [cobertura, setCobertura] = useState<Cobertura>({ estado: "sin_pin" });
+
+  // Para descartar respuestas de cotizaciones viejas: si el cliente mueve el pin dos veces
+  // seguidas, la primera puede llegar después y pintar el precio equivocado. El turno vive
+  // aquí, con el estado, porque hay dos formas de pedir una cotización —mover el pin y volver
+  // a montar el formulario— y un guardia que solo conoce una de las dos no guarda nada.
+  const ultimaCotizacion = useRef(0);
+
+  /**
+   * La última sugerencia de barrio que escribimos nosotros.
+   *
+   * Es lo que distingue "el campo trae lo que puso el mapa" de "el campo trae lo que tecleó
+   * una persona". Sin esta memoria no habría forma de actualizar el barrio al mover el pin
+   * sin arriesgarse a borrar lo que el cliente escribió a mano.
+   */
+  const barrioSugerido = useRef<string | null>(null);
+
+  /**
+   * Escribe la sugerencia solo si no pisa a nadie: si el campo está vacío, o si sigue tal
+   * como lo dejamos la vez anterior. En cuanto el cliente lo corrige, deja de tocarse — el
+   * texto que lee el domiciliario lo confirma un humano, y el mapa solo ahorra teclear.
+   *
+   * Se lee del store y no del render: esto corre dentro de una promesa y el valor cerrado en
+   * la clausura puede ser de hace tres pulsaciones.
+   */
+  const aplicarBarrio = useCallback((sugerido: string | null) => {
+    if (!sugerido) return;
+
+    const actual = useDatosCliente.getState().barrio;
+    if (actual === "" || actual === barrioSugerido.current) {
+      setDatos({ barrio: sugerido });
+      barrioSugerido.current = sugerido;
+    }
+  }, [setDatos]);
+
+  // Mover el pin es una acción del cliente, así que se le contesta de inmediato con el
+  // "calculando…" antes de salir a la red.
+  const cotizar = useCallback(
+    (punto: Punto) => {
+      const turno = ++ultimaCotizacion.current;
+      setCobertura({ estado: "consultando" });
+
+      void consultarCobertura(punto).then(({ cobertura, barrio }) => {
+        if (turno !== ultimaCotizacion.current) return;
+        setCobertura(cobertura);
+        aplicarBarrio(barrio);
+      });
+    },
+    [aplicarBarrio],
+  );
+
+  // El pin sobrevive en localStorage; su cobertura no, porque es estado de este componente.
+  // Sin esto, quien recarga estando en el paso 3 —el paso también se guarda— ve el domicilio
+  // en $0: el mapa que lo recotizaba está en el paso 2 y no se está renderizando. Y un
+  // domicilio en $0 no es solo un número feo, es lo que el cliente transfiere por Nequi.
+  //
+  // Aquí no se pinta el "calculando…": nadie tocó nada, y el resultado llega antes de que el
+  // cliente termine de leer la pantalla.
+  useEffect(() => {
+    if (!hidratado) return;
+    if (tipoPedido !== "domicilio" || !datos.punto || cobertura.estado !== "sin_pin") return;
+
+    const turno = ++ultimaCotizacion.current;
+    void consultarCobertura(datos.punto).then(({ cobertura, barrio }) => {
+      if (turno !== ultimaCotizacion.current) return;
+      setCobertura(cobertura);
+      // Al volver con el pin guardado, quien ya tiene barrio escrito lo conserva: `aplicarBarrio`
+      // solo llena el hueco.
+      aplicarBarrio(barrio);
+    });
+    // Solo al terminar la hidratación, que es cuando aparece el pin guardado. De ahí en
+    // adelante manda el mapa.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hidratado]);
 
   const [errores, setErrores] = useState<Errores>({});
   // Un campo "tocado" ya se validó al menos una vez (al salir de él o al intentar
@@ -206,6 +357,8 @@ export function CheckoutForm({
       // al recibirlo (regla 1).
       punto: esDomicilio && punto ? punto : undefined,
       direccion: esDomicilio ? direccion : undefined,
+      // Referencia para el domiciliario, igual que la dirección: en "recoger" no significa nada.
+      barrio: esDomicilio ? barrio : undefined,
       indicaciones: indicaciones || undefined,
       // Ausente = lo más pronto posible. El servidor comprueba que esta hora sea una de las
       // que él mismo ofrece; aquí solo se transmite cuál eligió el cliente.
@@ -275,13 +428,41 @@ export function CheckoutForm({
     setTocados((t) => ({ ...t, [campo]: true }));
   }
 
+  /**
+   * Marca lo que falta, **lleva al cliente hasta ello** y lo nombra.
+   *
+   * Los campos de un paso solo existen en el DOM mientras ese paso está en pantalla, así que
+   * pintar de rojo el teléfono no sirve de nada si quien lo dejó vacío está mirando el paso 3:
+   * hay que devolverlo al 1. Y el mensaje dice qué falta, porque "revisa los datos marcados"
+   * obliga a recorrer el formulario entero buscando el rojo.
+   */
+  function señalar(campos: string[]) {
+    setTocados((t) => ({ ...t, ...Object.fromEntries(campos.map((c) => [c, true])) }));
+
+    const destino = pasos.find((p) => CAMPOS_POR_PASO[p].some((c) => campos.includes(c)));
+    if (destino && destino !== paso) setPaso(destino);
+
+    // Con líneas en el carrito, un fallo en `items` es un pedido que armamos mal nosotros:
+    // no hay campo que llenar y pedirle que revise sería mandarlo a dar vueltas.
+    if (campos.includes("items") && items.length > 0) {
+      setErrorGeneral("No pudimos preparar tu pedido. Vuelve a armar el carrito o escríbenos.");
+      return;
+    }
+
+    const nombres = campos.map((c) => ETIQUETA_CAMPO[c]).filter(Boolean);
+    setErrorGeneral(
+      nombres.length > 0 ? `Falta: ${nombres.join(", ")}` : "Revisa los datos marcados.",
+    );
+  }
+
   function avanzar() {
     const delPaso = CAMPOS_POR_PASO[paso];
     // Tocar "Continuar" revela de una vez todo lo que falta en el paso.
     setTocados((t) => ({ ...t, ...Object.fromEntries(delPaso.map((c) => [c, true])) }));
 
-    if (delPaso.some(hayFallo)) {
-      setErrorGeneral("Revisa los datos marcados.");
+    const fallando = delPaso.filter(hayFallo);
+    if (fallando.length > 0) {
+      señalar(fallando);
       return;
     }
 
@@ -337,23 +518,20 @@ export function CheckoutForm({
     setErrorGeneral(null);
     setLineasConProblema([]);
 
-    // `fallosUI` no lo ve el esquema. Sin esta guardia, quien tocó "Programar" y no eligió
-    // hora mandaría un pedido "lo antes posible" sin enterarse: el payload es válido, solo
-    // que dice algo distinto de lo que él quiso.
-    const pendientes = Object.keys(fallosUI);
-    if (pendientes.length > 0) {
-      setTocados((t) => ({ ...t, ...Object.fromEntries(pendientes.map((c) => [c, true])) }));
-      setErrorGeneral("Revisa los datos marcados.");
-      return;
-    }
+    // Dos fuentes para lo mismo: `parsed` sale del MISMO esquema que usa el servidor —los
+    // mensajes coinciden y no hay dos verdades—, y `fallosUI` cubre lo que el esquema no
+    // puede ver. Sin lo segundo, quien tocó "Programar" y no eligió hora mandaría un pedido
+    // "lo antes posible" sin enterarse: el payload es válido, solo que dice algo distinto de
+    // lo que él quiso.
+    const conFallo = [
+      ...new Set([
+        ...Object.keys(fallosUI),
+        ...Object.keys(fallos).filter((c) => fallos[c]?.length),
+      ]),
+    ];
 
-    // `parsed` ya salió del mismo esquema que usa el servidor: los mensajes coinciden
-    // y no hay dos verdades.
-    if (!parsed.success) {
-      setTocados(
-        Object.fromEntries(Object.values(CAMPOS_POR_PASO).flat().map((c) => [c, true])),
-      );
-      setErrorGeneral("Revisa los datos marcados.");
+    if (conFallo.length > 0 || !parsed.success) {
+      señalar(conFallo);
       return;
     }
 
@@ -437,7 +615,9 @@ export function CheckoutForm({
     );
   }
 
-  const barrioEntrega = cobertura.estado === "cubierto" ? cobertura.zona : undefined;
+  // El barrio del cliente, no el nombre de la zona: al repasar su pedido tiene que reconocer
+  // su dirección. Que caiga en "zona 2" es cosa nuestra para cobrar el domicilio (regla 13).
+  const barrioEntrega = barrio.trim() || undefined;
 
   /**
    * El WhatsApp de "cotízame el domicilio" (regla 14). El pedido no existe todavía —no hay
@@ -466,6 +646,25 @@ export function CheckoutForm({
     const numero = tienda.telefono.replace(/\D/g, "").replace(/^(?!57)/, "57");
     return `https://wa.me/${numero}?text=${encodeURIComponent(texto)}`;
   }
+
+  /**
+   * El "¿cuándo?" va con el resto de decisiones de la entrega: en domicilio, debajo de quién
+   * recibe. En recoger no existe ese paso —son el 1 y el 3—, así que ahí se queda antes del
+   * resumen, que es lo más cerca que hay de lo mismo.
+   */
+  const bloqueCuando = (
+    <section className="flex flex-col gap-2 rounded-md bg-tarjeta p-4 shadow-tarjeta">
+      <SelectorCuando
+        pronto={entrega.pronto}
+        dias={entrega.dias}
+        mensajeCerrado={entrega.mensajeCerrado}
+        esDomicilio={esDomicilio}
+        valor={cuando}
+        onCambiar={setCuando}
+        error={errorDe("programadoPara")}
+      />
+    </section>
+  );
 
   return (
     <form onSubmit={enviar} className="flex flex-col gap-4" noValidate>
@@ -586,7 +785,7 @@ export function CheckoutForm({
                 alSalirDe("punto");
               }}
               cobertura={cobertura}
-              onCobertura={setCobertura}
+              onCotizar={cotizar}
             />
 
             {sinCobertura && linkFueraDeCobertura() && (
@@ -616,6 +815,28 @@ export function CheckoutForm({
                   onBlur={() => alSalirDe("direccion")}
                   placeholder="Calle 10 # 5-20, apto 301"
                   className={claseControl(errorDe("direccion"))}
+                />
+              )}
+            </Campo>
+
+            {/* El mapa ya sabe en qué barrio cayó el pin, así que no se le pide teclearlo:
+                se le pide confirmarlo. Quien manda es lo escrito, porque el domiciliario
+                busca por el nombre que usa la gente y no por el que tenga mapeado OSM. */}
+            <Campo
+              etiqueta="Barrio"
+              requerido
+              error={errorDe("barrio")}
+              ayuda="Lo tomamos del mapa; cámbialo si no es."
+            >
+              {(props) => (
+                <input
+                  {...props}
+                  type="text"
+                  value={barrio}
+                  onChange={(e) => setDatos({ barrio: e.target.value })}
+                  onBlur={() => alSalirDe("barrio")}
+                  placeholder="El Caney"
+                  className={claseControl(errorDe("barrio"))}
                 />
               )}
             </Campo>
@@ -695,6 +916,8 @@ export function CheckoutForm({
               </>
             )}
           </section>
+
+          {bloqueCuando}
         </>
       )}
 
@@ -738,6 +961,14 @@ export function CheckoutForm({
                 <p className="font-cuerpo text-[13px] text-cafe-suave">
                   Entregar a {recibeOtro && recibeNombre ? recibeNombre : nombre}
                 </p>
+                {/* La hora se eligió en el paso anterior y esta es la pantalla donde se
+                    repasa todo antes de pagar: sin esta línea sería lo único del pedido que
+                    no se puede confirmar de un vistazo. */}
+                <p className="font-cuerpo text-[13px] text-cafe-suave">
+                  {cuando.modo === "programar" && cuando.franja
+                    ? `Llega ${cuando.franja.etiqueta}`
+                    : "Llega lo antes posible"}
+                </p>
               </>
             ) : (
               <p className="font-cuerpo text-sm text-cafe-suave">
@@ -746,17 +977,7 @@ export function CheckoutForm({
             )}
           </section>
 
-          <section className="flex flex-col gap-2 rounded-md bg-tarjeta p-4 shadow-tarjeta">
-            <SelectorCuando
-              pronto={entrega.pronto}
-              dias={entrega.dias}
-              mensajeCerrado={entrega.mensajeCerrado}
-              esDomicilio={esDomicilio}
-              valor={cuando}
-              onCambiar={setCuando}
-              error={errorDe("programadoPara")}
-            />
-          </section>
+          {!esDomicilio && bloqueCuando}
 
           <section className="flex flex-col gap-3 rounded-md bg-tarjeta p-4 shadow-tarjeta">
             <h3 className="font-titulo text-base font-semibold text-cafe">Resumen de tu pedido</h3>

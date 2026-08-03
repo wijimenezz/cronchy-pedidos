@@ -1,17 +1,36 @@
+import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import {
+  Bike,
+  CookingPot,
+  Flag,
+  Home,
+  MapPin,
+  MessageCircle,
+  Phone,
+  ReceiptText,
+  ShoppingBag,
+  UtensilsCrossed,
+  User,
+  Wallet,
+} from "lucide-react";
 import { getStore } from "@/db/queries/store";
-import { obtenerPedidoPorToken } from "@/db/queries/pedidos";
-import { avisoNuevoPedido } from "@/lib/notificaciones/avisos";
-import { cuandoCorto, fechaHora, pesos } from "@/lib/notificaciones/plantillas";
+import { obtenerPedidoPorToken, type PedidoPublico } from "@/db/queries/pedidos";
+import { linkContactoWhatsapp, normalizarTelefono } from "@/lib/notificaciones/transporte";
+import { cuandoCorto, horaCorta, pesos } from "@/lib/notificaciones/plantillas";
 import {
   DETALLE_ESTADO,
   ETIQUETA_ESTADO,
+  hitosDelPedido,
+  indiceDeHito,
   METODO_PAGO_ETIQUETA,
-  pasosDelPedido,
   toneDeEstado,
+  type Hito,
 } from "@/lib/pedidos/estados";
+import { SeguirEstado } from "@/components/pedido/SeguirEstado";
+import { MapaPedido } from "@/components/pedido/MapaPedido";
 
 // Los datos salen de Drizzle, no de `fetch`, así que Next no detecta que la página es
 // dinámica: sin esto la prerenderizaría en build y mostraría siempre el mismo estado.
@@ -26,6 +45,37 @@ export const metadata: Metadata = {
 /** El token lo genera Postgres con encode(gen_random_bytes(16),'hex'). */
 const FORMA_TOKEN = /^[0-9a-f]{32}$/;
 
+const ICONO_HITO: Record<Hito, typeof ReceiptText> = {
+  recibido: ReceiptText,
+  preparando: CookingPot,
+  saliendo: Bike,
+  entregado: Flag,
+};
+
+/** "Wilson Jiménez" -> "Wilson". El saludo es de vecindario, no de banco. */
+function primerNombre(nombre: string): string {
+  return nombre.trim().split(/\s+/)[0] ?? nombre;
+}
+
+/**
+ * Cuándo llega, en una línea.
+ *
+ * Si el cliente eligió hora, esa manda. Si pidió "lo antes posible", se arma el rango con el
+ * estimado de la tienda **desde que se hizo el pedido** y no desde ahora: lo que se prometió
+ * al confirmar no puede irse corriendo solo porque la página se recargue.
+ */
+function rangoDeEntrega(
+  pedido: Pick<PedidoPublico, "programadoPara" | "creadoEn">,
+  tienda: { minutosEstimadoMin: number; minutosEstimadoMax: number },
+): string {
+  if (pedido.programadoPara) return cuandoCorto(pedido.programadoPara);
+
+  const desde = new Date(pedido.creadoEn.getTime() + tienda.minutosEstimadoMin * 60_000);
+  const hasta = new Date(pedido.creadoEn.getTime() + tienda.minutosEstimadoMax * 60_000);
+
+  return `${horaCorta(desde)} – ${horaCorta(hasta)}`;
+}
+
 export default async function SeguimientoPedido({
   params,
 }: {
@@ -39,130 +89,193 @@ export default async function SeguimientoPedido({
   // Un token que no existe y uno de otra tienda dan lo mismo: 404, sin pistas.
   if (!pedido) notFound();
 
-  const tone = toneDeEstado(pedido.estado);
-  const pasos = pasosDelPedido(pedido.tipo);
-  const indiceActual = pasos.indexOf(pedido.estado);
+  const esDomicilio = pedido.tipo === "domicilio";
+  const hitos = hitosDelPedido(pedido.tipo);
+  const actual = indiceDeHito(pedido.estado, pedido.tipo);
+  const cancelado = pedido.estado === "cancelado";
 
-  // Mientras no exista el panel (Fase C), el negocio se entera porque el cliente toca
-  // este botón. Es null si la tienda no tiene teléfono cargado.
-  const aviso = await avisoNuevoPedido(pedido, tienda);
+  const whatsapp = linkContactoWhatsapp(
+    tienda,
+    `Hola, escribo por mi pedido #${pedido.numero}.`,
+  );
 
   return (
     <main className="mx-auto flex w-full max-w-[520px] flex-col gap-4 px-4 py-6">
-      <header className="flex flex-col items-center gap-1 text-center">
-        <p className="font-cuerpo text-sm text-cafe-suave">Pedido #{pedido.numero}</p>
+      {/* Sin esto la pantalla solo cuenta la verdad del instante en que se cargó. */}
+      <SeguirEstado token={pedido.tokenPublico} estado={pedido.estado} />
+
+      <header className="flex flex-col gap-1">
         <h1 className="font-titulo text-2xl font-semibold text-cafe">
-          {pedido.estado === "nuevo" ? "¡Recibimos tu pedido!" : ETIQUETA_ESTADO[pedido.estado]}
+          {pedido.estado === "nuevo"
+            ? `¡Recibimos tu pedido, ${primerNombre(pedido.clienteNombre)}!`
+            : ETIQUETA_ESTADO[pedido.estado]}
         </h1>
         <p className="font-cuerpo text-sm text-cafe-suave">{DETALLE_ESTADO[pedido.estado]}</p>
-        {/* Debajo del estado y no enterrado en la lista de datos: quien programó su pedido
-            abre esta pantalla precisamente para confirmar que la hora quedó bien. */}
-        {pedido.programadoPara && pedido.estado !== "cancelado" && (
-          <p className="font-cuerpo text-sm font-bold text-cafe">
-            {pedido.tipo === "domicilio" ? "Llega" : "Lo recoges"}{" "}
-            {cuandoCorto(pedido.programadoPara)}
+        {!cancelado && (
+          <p className="font-cuerpo text-sm text-cafe-suave">
+            {esDomicilio ? "Tu rango de entrega:" : "Listo para recoger:"}{" "}
+            <span className="font-bold text-cafe">{rangoDeEntrega(pedido, tienda)}</span>
           </p>
         )}
       </header>
 
-      <section className="rounded-md bg-tarjeta p-4 shadow-tarjeta">
-        <div className="flex items-center justify-between">
-          <span
-            className={`rounded-sm px-3 py-1 font-cuerpo text-sm font-bold ${
-              tone === "cancelado"
-                ? "bg-error/12 text-error"
-                : tone === "exito"
-                  ? "bg-exito/12 text-exito"
-                  : "bg-naranja/12 text-naranja-osc"
-            }`}
-          >
-            {ETIQUETA_ESTADO[pedido.estado]}
-          </span>
-          <span className="font-cuerpo text-[13px] text-cafe-tenue">
-            {fechaHora(pedido.creadoEn)}
-          </span>
-        </div>
+      {/* La barra. Un pedido cancelado no está "a medio camino": no hay recorrido que pintar. */}
+      {!cancelado && (
+        <section
+          className="rounded-md bg-tarjeta p-4 shadow-tarjeta"
+          aria-label={`Estado: ${ETIQUETA_ESTADO[pedido.estado]}`}
+        >
+          <ol className="flex items-start">
+            {hitos.map((h, i) => {
+              const Icono = ICONO_HITO[h.hito];
+              const alcanzado = i <= actual;
 
-        {pedido.estado !== "cancelado" && (
-          <ol className="mt-4 flex flex-col gap-2">
-            {pasos.map((paso, i) => {
-              const alcanzado = i <= indiceActual;
               return (
-                <li key={paso} className="flex items-center gap-3">
+                <li key={h.hito} className="flex flex-1 flex-col items-center gap-1.5">
+                  <div className="flex w-full items-center">
+                    {/* Los tramos de línea van dentro de cada hito, medio a cada lado, para
+                        que queden centrados en los iconos sin medir nada en JS. */}
+                    <span
+                      aria-hidden
+                      className={`h-0.5 flex-1 ${i === 0 ? "bg-transparent" : alcanzado ? "bg-naranja" : "bg-crema-oscura"}`}
+                    />
+                    <span
+                      className={`flex size-9 shrink-0 items-center justify-center rounded-full ${
+                        alcanzado ? "bg-naranja text-crema" : "bg-crema-oscura text-cafe-tenue"
+                      }`}
+                    >
+                      <Icono className="size-[18px]" />
+                    </span>
+                    <span
+                      aria-hidden
+                      className={`h-0.5 flex-1 ${
+                        i === hitos.length - 1
+                          ? "bg-transparent"
+                          : i < actual
+                            ? "bg-naranja"
+                            : "bg-crema-oscura"
+                      }`}
+                    />
+                  </div>
                   <span
-                    aria-hidden
-                    className={`size-2.5 shrink-0 rounded-full ${
-                      alcanzado ? "bg-naranja" : "bg-crema-oscura"
-                    }`}
-                  />
-                  <span
-                    className={`font-cuerpo text-sm ${
-                      i === indiceActual
-                        ? "font-bold text-cafe"
-                        : alcanzado
-                          ? "text-cafe-suave"
-                          : "text-cafe-tenue"
+                    className={`text-center font-cuerpo text-[11px] leading-tight ${
+                      i === actual ? "font-bold text-cafe" : "text-cafe-tenue"
                     }`}
                   >
-                    {ETIQUETA_ESTADO[paso]}
+                    {h.etiqueta}
                   </span>
                 </li>
               );
             })}
           </ol>
-        )}
-      </section>
-
-      {aviso?.modo === "link" && pedido.estado === "nuevo" && (
-        <div className="flex flex-col gap-1">
-          <a
-            href={aviso.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex min-h-11 items-center justify-center rounded-full bg-naranja px-6 py-3 text-center font-cuerpo text-base font-bold text-crema"
-          >
-            Avisar al negocio por WhatsApp
-          </a>
-          <p className="text-center font-cuerpo text-[13px] text-cafe-tenue">
-            Un toque y les llega el detalle de tu pedido.
-          </p>
-        </div>
+        </section>
       )}
 
+      <section className="flex flex-col gap-3 rounded-md bg-tarjeta p-4 shadow-tarjeta">
+        <h2 className="font-titulo text-base font-semibold text-cafe">
+          {esDomicilio ? "Datos de entrega" : "Recoges en tienda"}
+        </h2>
+
+        {esDomicilio && pedido.punto && <MapaPedido punto={pedido.punto} />}
+
+        <dl className="flex flex-col gap-2.5">
+          {esDomicilio ? (
+            <>
+              <Dato icono={MapPin} etiqueta="Dirección">
+                {pedido.direccion ?? "—"}
+                {pedido.barrio && `, ${pedido.barrio}`}
+              </Dato>
+              {pedido.indicaciones && (
+                <Dato icono={Home} etiqueta="Indicaciones">
+                  {pedido.indicaciones}
+                </Dato>
+              )}
+            </>
+          ) : (
+            tienda.direccion && (
+              <Dato icono={MapPin} etiqueta="Dirección de la tienda">
+                {tienda.direccion}
+              </Dato>
+            )
+          )}
+
+          <Dato icono={User} etiqueta="A nombre de">
+            {pedido.clienteNombre} · +{normalizarTelefono(pedido.clienteTelefono)}
+          </Dato>
+
+          <Dato icono={Wallet} etiqueta="Pago">
+            <span className="font-bold text-cafe">{pesos(pedido.total)}</span>
+            <span className="ml-2 rounded-full bg-naranja/12 px-2 py-0.5 text-[12px] font-bold text-naranja-osc">
+              {METODO_PAGO_ETIQUETA[pedido.metodoPago] ?? pedido.metodoPago}
+            </span>
+            {pedido.metodoPago === "nequi" && pedido.tieneComprobante && (
+              <span className="ml-2 text-[12px] text-cafe-tenue">comprobante recibido</span>
+            )}
+          </Dato>
+        </dl>
+      </section>
+
+      {/* Los tres atajos del diseño. "Chat" abre una conversación normal con el negocio, no
+          un mensaje con el pedido dentro: el pedido ya está en el panel y el cliente lo que
+          quiere es preguntar algo. */}
+      <nav className="grid grid-cols-3 gap-2">
+        <Atajo href="/" icono={UtensilsCrossed} etiqueta="Ver menú" />
+        {whatsapp && <Atajo href={whatsapp} icono={MessageCircle} etiqueta="Chat" externo />}
+        {tienda.telefono && (
+          <Atajo href={`tel:${tienda.telefono}`} icono={Phone} etiqueta="Llamar" />
+        )}
+      </nav>
+
       <section className="rounded-md bg-tarjeta p-4 shadow-tarjeta">
-        <h2 className="font-titulo text-lg font-semibold text-cafe">Tu pedido</h2>
-        <div className="mt-3 flex flex-col gap-3">
+        <h2 className="font-titulo text-base font-semibold text-cafe">Tu pedido</h2>
+        <ul className="mt-3 flex flex-col gap-3">
           {pedido.items.map((item, i) => (
-            <div key={i} className="flex justify-between gap-3">
-              <div className="flex flex-col">
+            <li key={i} className="flex gap-3">
+              {/* Los pedidos anteriores a que la foto se congelara en el snapshot no la
+                  tienen, y no se va a buscar al producto actual: reconstruir un pedido viejo
+                  contra el catálogo de hoy es justo lo que prohíbe la regla 2. */}
+              <div className="relative size-14 shrink-0 overflow-hidden rounded-sm bg-crema-oscura">
+                {item.imagen ? (
+                  <Image src={item.imagen} alt="" fill sizes="56px" className="object-cover" />
+                ) : (
+                  <span className="flex h-full items-center justify-center text-cafe-tenue">
+                    <ShoppingBag className="size-5" />
+                  </span>
+                )}
+              </div>
+
+              <div className="flex min-w-0 flex-1 flex-col">
                 <span className="font-cuerpo text-sm font-bold text-cafe">
                   {item.cantidad > 1 && `${item.cantidad}x `}
                   {item.nombre}
                 </span>
                 {item.modificadores.length > 0 && (
-                  <span className="text-[12px] text-cafe-suave">
+                  <span className="font-cuerpo text-[12px] text-cafe-suave">
                     {item.modificadores
                       .map((m) => (m.cantidad > 1 ? `${m.cantidad}x ${m.nombre}` : m.nombre))
                       .join(", ")}
                   </span>
                 )}
                 {item.notas && (
-                  <span className="text-[12px] italic text-cafe-tenue">{item.notas}</span>
+                  <span className="font-cuerpo text-[12px] italic text-cafe-tenue">
+                    {item.notas}
+                  </span>
                 )}
               </div>
+
               <span className="shrink-0 font-cuerpo text-sm font-bold text-cafe">
                 {pesos(item.subtotal)}
               </span>
-            </div>
+            </li>
           ))}
-        </div>
+        </ul>
 
         <dl className="mt-4 flex flex-col gap-1 border-t border-crema-oscura pt-3 font-cuerpo text-sm text-cafe-suave">
           <div className="flex justify-between">
             <dt>Subtotal</dt>
             <dd>{pesos(pedido.subtotal)}</dd>
           </div>
-          {pedido.tipo === "domicilio" && (
+          {esDomicilio && (
             <div className="flex justify-between">
               <dt>Domicilio</dt>
               <dd>{pesos(pedido.costoDomicilio)}</dd>
@@ -179,67 +292,74 @@ export default async function SeguimientoPedido({
             <dd>{pesos(pedido.total)}</dd>
           </div>
         </dl>
+
+        {pedido.notas && (
+          <p className="mt-3 rounded-sm bg-crema px-3 py-2 font-cuerpo text-[13px] text-cafe-suave">
+            <span className="font-bold text-cafe">Nota: </span>
+            {pedido.notas}
+          </p>
+        )}
       </section>
 
-      <section className="rounded-md bg-tarjeta p-4 font-cuerpo text-sm shadow-tarjeta">
-        <h2 className="font-titulo text-lg font-semibold text-cafe">
-          {pedido.tipo === "domicilio" ? "Entrega" : "Recoges en tienda"}
-        </h2>
-        <dl className="mt-2 flex flex-col gap-1 text-cafe-suave">
-          <div>
-            <dt className="inline font-bold text-cafe">A nombre de: </dt>
-            <dd className="inline">{pedido.clienteNombre}</dd>
-          </div>
-          {pedido.tipo === "domicilio" && (
-            <>
-              {pedido.direccion && (
-                <div>
-                  <dt className="inline font-bold text-cafe">Dirección: </dt>
-                  <dd className="inline">{pedido.direccion}</dd>
-                </div>
-              )}
-              {pedido.barrio && (
-                <div>
-                  <dt className="inline font-bold text-cafe">Barrio: </dt>
-                  <dd className="inline">{pedido.barrio}</dd>
-                </div>
-              )}
-              {pedido.indicaciones && (
-                <div>
-                  <dt className="inline font-bold text-cafe">Indicaciones: </dt>
-                  <dd className="inline">{pedido.indicaciones}</dd>
-                </div>
-              )}
-            </>
-          )}
-          {pedido.tipo === "recoger" && tienda.direccion && (
-            <div>
-              <dt className="inline font-bold text-cafe">Dirección: </dt>
-              <dd className="inline">{tienda.direccion}</dd>
-            </div>
-          )}
-          <div>
-            <dt className="inline font-bold text-cafe">Pago: </dt>
-            <dd className="inline">
-              {METODO_PAGO_ETIQUETA[pedido.metodoPago] ?? pedido.metodoPago}
-              {pedido.metodoPago === "nequi" && pedido.tieneComprobante && " · comprobante recibido"}
-            </dd>
-          </div>
-          {pedido.notas && (
-            <div>
-              <dt className="inline font-bold text-cafe">Notas: </dt>
-              <dd className="inline">{pedido.notas}</dd>
-            </div>
-          )}
-        </dl>
-      </section>
-
-      <Link
-        href="/"
-        className="mx-auto font-cuerpo text-sm font-bold text-naranja underline underline-offset-4"
-      >
-        Volver al menú
-      </Link>
+      <p className="text-center font-cuerpo text-[13px] text-cafe-tenue">
+        Pedido #{pedido.numero} · {tone(pedido.estado)}
+      </p>
     </main>
+  );
+}
+
+/** El estado en letra pequeña al pie, para quien baje hasta abajo buscando confirmación. */
+function tone(estado: PedidoPublico["estado"]): string {
+  return toneDeEstado(estado) === "cancelado" ? "cancelado" : ETIQUETA_ESTADO[estado];
+}
+
+function Dato({
+  icono: Icono,
+  etiqueta,
+  children,
+}: {
+  icono: typeof MapPin;
+  etiqueta: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <Icono className="mt-0.5 size-4 shrink-0 text-cafe-tenue" aria-hidden />
+      <div className="min-w-0 flex-1 font-cuerpo text-sm text-cafe-suave">
+        <dt className="sr-only">{etiqueta}</dt>
+        <dd>{children}</dd>
+      </div>
+    </div>
+  );
+}
+
+function Atajo({
+  href,
+  icono: Icono,
+  etiqueta,
+  externo,
+}: {
+  href: string;
+  icono: typeof MapPin;
+  etiqueta: string;
+  externo?: boolean;
+}) {
+  const clases =
+    "flex min-h-11 flex-col items-center justify-center gap-1 rounded-md bg-tarjeta py-3 font-cuerpo text-[13px] font-bold text-cafe shadow-tarjeta transition-colors hover:bg-crema";
+
+  if (externo) {
+    return (
+      <a href={href} target="_blank" rel="noopener noreferrer" className={clases}>
+        <Icono className="size-5 text-naranja" />
+        {etiqueta}
+      </a>
+    );
+  }
+
+  return (
+    <Link href={href} className={clases}>
+      <Icono className="size-5 text-naranja" />
+      {etiqueta}
+    </Link>
   );
 }

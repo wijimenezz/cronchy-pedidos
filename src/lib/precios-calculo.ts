@@ -60,6 +60,11 @@ export type ProductoParaPrecio = {
   disponible: boolean;
   disponibleDelivery: boolean;
   disponiblePickup: boolean;
+  /**
+   * La portada, para congelarla en el snapshot del pedido. No influye en ningún precio;
+   * viaja con el producto porque es aquí donde se sabe cuál se compró.
+   */
+  imagen?: string | null;
   engancles: EngancheParaPrecio[];
 };
 
@@ -122,6 +127,8 @@ export type AvisoIncompleto = {
 export type ItemCalculado = {
   productId: string;
   nombreProducto: string;
+  /** La portada del producto en el momento de la compra. Va al snapshot (regla 2). */
+  imagen?: string | null;
   cantidad: number;
   precioUnitario: number; // precioBase + modificadores, por unidad
   subtotal: number; // precioUnitario * cantidad
@@ -139,6 +146,9 @@ export type ResultadoItemCalculado = {
 export function itemCalculadoASnapshot(item: ItemCalculado): ItemSnapshot {
   return {
     nombre: item.nombreProducto,
+    // Congelada como el nombre y el precio (regla 2): si mañana le cambian la foto al
+    // producto, este pedido tiene que seguir mostrando la que el cliente compró.
+    imagen: item.imagen ?? null,
     cantidad: item.cantidad,
     subtotal: item.subtotal,
     modificadores: item.modificadores.map((m) => ({
@@ -314,6 +324,10 @@ export function calcularItem(
         upsells.push({
           productId: opcion.productoRef,
           nombreProducto: opcion.nombre,
+          // Aquí solo hay la opción, no el producto al que apunta, así que no hay foto que
+          // congelar. En la práctica no se nota: la bebida que se agrega desde una ficha
+          // llega al checkout como línea propia (regla 8) y pasa por la rama de arriba.
+          imagen: null,
           cantidad: sel.cantidad,
           precioUnitario: precioUnitarioOpcion,
           subtotal: precioUnitarioOpcion * sel.cantidad,
@@ -342,6 +356,7 @@ export function calcularItem(
       base: {
         productId: producto.id,
         nombreProducto: producto.nombre,
+        imagen: producto.imagen ?? null,
         cantidad: item.cantidad,
         precioUnitario,
         subtotal: precioUnitario * item.cantidad,

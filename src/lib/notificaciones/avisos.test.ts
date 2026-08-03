@@ -15,12 +15,15 @@ function pedidoPublico(overrides: Partial<PedidoPublico> = {}): PedidoPublico {
     tipo: "domicilio",
     estado: "nuevo",
     creadoEn: new Date("2026-07-27T20:00:00Z"),
+    programadoPara: null,
     clienteNombre: "Ana",
     clienteTelefono: "3001234567",
     direccion: "Calle 10 # 5-20",
     indicaciones: "Casa de reja verde",
-    barrio: "Centro",
-    domicilioPorConfirmar: false,
+    // El barrio que escribió el cliente. Ojo: NO es el nombre de la zona de cobertura, que
+    // ni siquiera llega hasta aquí — el mensaje lo lee el domiciliario.
+    barrio: "El Caney",
+    punto: { lat: 4.3372, lng: -74.3653 },
     metodoPago: "efectivo",
     tieneComprobante: false,
     notas: null,
@@ -63,17 +66,21 @@ describe("pedidoParaMensaje", () => {
   it("traslada los datos del pedido al formato de las plantillas", () => {
     const m = pedidoParaMensaje(pedidoPublico());
     expect(m.numero).toBe(7);
-    expect(m.barrio).toBe("Centro");
+    expect(m.barrio).toBe("El Caney");
     expect(m.total).toBe(13000);
     expect(m.items).toHaveLength(1);
   });
 
-  it("usa el barrio escrito a mano cuando no hubo zona (US11)", () => {
-    const m = pedidoParaMensaje(
-      pedidoPublico({ barrio: "Vereda La Aguadita", domicilioPorConfirmar: true, costoDomicilio: 0 }),
-    );
+  // El barrio viaja tal como lo dejó el cliente, aunque no se parezca a ninguna zona de
+  // cobertura. Son cosas distintas: la zona parte el mapa para cobrar (regla 13) y el barrio
+  // es lo que el domiciliario va a leer para encontrar la casa.
+  it("respeta el barrio escrito aunque no coincida con ninguna zona", () => {
+    const m = pedidoParaMensaje(pedidoPublico({ barrio: "Vereda La Aguadita" }));
     expect(m.barrio).toBe("Vereda La Aguadita");
-    expect(m.costoDomicilio).toBe(0);
+  });
+
+  it("un pedido sin barrio no inventa ninguno", () => {
+    expect(pedidoParaMensaje(pedidoPublico({ barrio: null })).barrio).toBeNull();
   });
 });
 

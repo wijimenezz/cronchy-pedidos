@@ -1,5 +1,6 @@
 import {
   cambioEstado,
+  llevaAviso,
   nuevoPedidoNegocio,
   type EstadoPedido,
   type PedidoParaMensaje,
@@ -72,14 +73,17 @@ export function pedidoParaMensaje(pedido: PedidoParaAviso): PedidoParaMensaje {
 /**
  * Aviso de pedido nuevo dirigido al NEGOCIO (US23).
  *
- * Ojo con la dirección del link: `wa.me/<numero>` abre un chat *con* ese número y deja el
- * texto listo para que lo envíe quien lo abre. Aquí el número es el del negocio y quien
- * abre es el cliente, desde su pantalla de seguimiento. Es decir: el cliente hace de
- * mensajero, el destinatario sigue siendo el negocio.
+ * **Hoy no lo llama nadie, y es a propósito.** Vivía en la pantalla de seguimiento como un
+ * botón que el cliente pulsaba para avisar que había pedido — un apaño de cuando no existía
+ * el panel. El panel ya existe y refresca cada 5 s, así que el negocio se entera solo y el
+ * cliente dejó de hacer de mensajero.
  *
- * Esto no contradice "los pedidos NO se reciben por WhatsApp": el pedido ya está en la
- * base con su número y su token; esto es solo el aviso de que llegó, mientras no exista
- * el panel (Fase C).
+ * Se conserva porque es el único texto que arma un pedido completo para WhatsApp, y el día
+ * que haga falta —un aviso nocturno, reenviarle el pedido a un domiciliario— está listo. Si
+ * pasa un año y sigue sin llamarlo nadie, bórrese con su test.
+ *
+ * Ojo con la dirección del link: `wa.me/<numero>` abre un chat *con* ese número y deja el
+ * texto listo para que lo envíe quien lo abre, no se lo manda a nadie.
  *
  * Devuelve null si la tienda no tiene teléfono cargado, para que la UI oculte el botón
  * en vez de ofrecer un link roto.
@@ -102,11 +106,11 @@ export async function avisoNuevoPedido(
  * (regla 11) ANTES de enviar nada, y para eso necesita saber de antemano si hay algo
  * que enviar.
  *
- * Usa un pedido de mentira porque `cambioEstado` solo mira el estado para decidirlo.
+ * Se limita a reexportar la respuesta de `plantillas.ts`, que es quien sabe qué estados
+ * tienen texto.
  */
 export function puedeAvisarse(estado: EstadoPedido): boolean {
-  const cualquiera = { tokenPublico: "x", horaEntregaEstimada: null } as PedidoParaMensaje;
-  return cambioEstado(estado, cualquiera, { nombre: "x", baseUrl: "https://x" }) !== null;
+  return llevaAviso(estado);
 }
 
 /**

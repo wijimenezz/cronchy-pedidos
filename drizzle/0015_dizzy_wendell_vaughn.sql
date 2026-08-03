@@ -1,0 +1,13 @@
+-- El barrio que escribe el cliente, que NO es `zona_nombre`. Confundirlos era el bug: el panel
+-- y el WhatsApp del domiciliario venían mostrando "zona 2" bajo la etiqueta "Barrio", y una
+-- zona de cobertura es una herramienta interna para partir el mapa y cobrar el domicilio
+-- (regla 13), no una dirección. Nadie encuentra una casa en "zona 2".
+--
+-- Las dos columnas conviven porque son dos cosas distintas: `zona_nombre` es el snapshot de lo
+-- que cobró (regla 2) y lo lee el admin al cuadrar plata; `barrio` es referencia para quien
+-- entrega, igual que `direccion` e `indicaciones` (regla 14), y no participa en ningún cálculo.
+--
+-- Nullable porque los pedidos que ya existen no lo tienen y porque en "recoger" no aplica. Que
+-- sea obligatorio al pedir a domicilio lo exige Zod, donde ya vive la misma regla de
+-- `direccion`: un NOT NULL aquí no distinguiría los dos tipos de pedido.
+ALTER TABLE "order" ADD COLUMN "barrio" text;

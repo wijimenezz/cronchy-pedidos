@@ -21,6 +21,8 @@ export type DatosCliente = {
    */
   punto: { lat: number; lng: number } | null;
   direccion: string;
+  /** El barrio que confirmó. Se guarda igual que la dirección: es la misma casa de siempre. */
+  barrio: string;
   indicaciones: string;
   recibeOtro: boolean;
   recibeNombre: string;
@@ -34,6 +36,7 @@ const VACIO: DatosCliente = {
   cumple: "",
   punto: null,
   direccion: "",
+  barrio: "",
   indicaciones: "",
   recibeOtro: false,
   recibeNombre: "",
@@ -59,7 +62,11 @@ export const useDatosCliente = create<EstadoDatosCliente>()(
       // pin (regla 14). Se descartan esos dos y se conserva todo lo demás: el nombre y el
       // teléfono siguen siendo válidos, y hacer que el cliente los reescriba por un cambio
       // interno sería cobrarle a él nuestra refactorización.
-      version: 2,
+      //
+      // v3: vuelve el barrio, ahora sí como lo que siempre debió ser —referencia para el
+      // domiciliario, no insumo del precio—. Entra vacío: el `barrioTexto` de la v1 se
+      // descartó hace dos versiones y no hay de dónde recuperarlo. Lo rellena el pin.
+      version: 3,
       migrate: (estado) => {
         const viejo = (estado ?? {}) as Partial<DatosCliente>;
         return {
@@ -68,7 +75,11 @@ export const useDatosCliente = create<EstadoDatosCliente>()(
           telefono: viejo.telefono ?? "",
           email: viejo.email ?? "",
           cumple: viejo.cumple ?? "",
+          // El pin sí se conserva desde la v2, y es de donde sale la sugerencia de barrio en
+          // cuanto el cliente vuelva al checkout.
+          punto: viejo.punto ?? null,
           direccion: viejo.direccion ?? "",
+          barrio: viejo.barrio ?? "",
           indicaciones: viejo.indicaciones ?? "",
           recibeOtro: viejo.recibeOtro ?? false,
           recibeNombre: viejo.recibeNombre ?? "",

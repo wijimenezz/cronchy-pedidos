@@ -30,7 +30,14 @@ export type PedidoPanel = {
   recibeTelefono: string | null;
   direccion: string | null;
   indicaciones: string | null;
+  /** El barrio que escribió el cliente. Es lo que se le dice al domiciliario. */
   barrio: string | null;
+  /**
+   * La zona de cobertura que cobró el domicilio, congelada (reglas 2 y 13). Solo para el
+   * detalle: explica **por qué** costó lo que costó y no se muestra como si fuera una
+   * dirección — confundirla con el barrio era el bug que trajo la columna `barrio`.
+   */
+  zonaNombre: string | null;
   /** El pin que confirmó el cliente. Es lo que abre el domiciliario en Maps (regla 14). */
   punto: { lat: number; lng: number } | null;
   metodoPago: string;
@@ -122,7 +129,7 @@ export async function listarPedidos(
       programadoPara: fila.programadoPara ? new Date(fila.programadoPara) : null,
       clienteNombre: fila.clienteNombre,
       clienteTelefono: fila.clienteTelefono,
-      barrio: fila.zonaNombre,
+      barrio: fila.barrio,
       metodoPago: fila.metodoPago,
       total: fila.total,
       tieneComprobante: Boolean(fila.comprobanteUrl),
@@ -166,7 +173,8 @@ export async function obtenerPedidoPorNumero(
       recibeTelefono: fila.recibeTelefono,
       direccion: fila.direccion,
       indicaciones: fila.indicaciones,
-      barrio: fila.zonaNombre,
+      barrio: fila.barrio,
+      zonaNombre: fila.zonaNombre,
       punto: puntoDesdeGeoJSON(fila.puntoGeo),
       metodoPago: fila.metodoPago,
       comprobanteUrl: fila.comprobanteUrl,

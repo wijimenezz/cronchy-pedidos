@@ -40,6 +40,12 @@ export type ItemSnapshot = {
   subtotal: number;
   modificadores: ModificadorSnapshot[];
   notas?: string | null;
+  /**
+   * La portada del producto tal como estaba al comprar. Los mensajes de WhatsApp son texto
+   * plano y la ignoran; existe para el seguimiento del cliente. Opcional porque los pedidos
+   * anteriores a esta columna no la tienen.
+   */
+  imagen?: string | null;
 };
 
 export type PedidoParaMensaje = {
@@ -348,6 +354,10 @@ export function nuevoPedidoNegocio(
 // ------------------------------------------------------------
 
 const TEXTO_ESTADO: Partial<Record<EstadoPedido, (t: string) => string>> = {
+  // `nuevo` sí lleva mensaje, y decir "pendiente de confirmar" no es un detalle: el pedido
+  // entró a la base, pero nadie en el local lo ha mirado todavía. Prometer que está aceptado
+  // sería mentir justo antes de tener que cancelarlo por un producto agotado.
+  nuevo: (t) => `¡Recibimos tu pedido en *${t}*! Está pendiente de confirmar.`,
   aceptado: (t) => `¡Tu pedido en *${t}* ya fue aceptado!`,
   preparando: (t) => `¡Tu pedido en *${t}* ya está en preparación!`,
   en_camino: (t) => `¡Tu pedido en *${t}* ya va en camino!`,
@@ -359,8 +369,25 @@ const TEXTO_ESTADO: Partial<Record<EstadoPedido, (t: string) => string>> = {
 };
 
 /**
- * Devuelve null para los estados que NO se notifican (ej. 'nuevo', porque
- * ya se envió la confirmación). Quien llama debe respetar el null.
+ * Si un estado lleva mensaje al cliente. Se pregunta sin armar el texto porque quien avisa
+ * tiene que cerrar el candado de idempotencia ANTES de enviar nada (regla 11), y para eso
+ * necesita saberlo de antemano.
+ *
+ * Antes se resolvía llamando a `cambioEstado` con un pedido de mentira y mirando si devolvía
+ * null. Eso funcionaba mientras ninguna plantilla leyera un campo del pedido; en cuanto la de
+ * `nuevo` empezó a escribir el total, el pedido de mentira reventaba.
+ */
+export function llevaAviso(estado: EstadoPedido): boolean {
+  return Boolean(TEXTO_ESTADO[estado]);
+}
+
+/**
+ * Devuelve null para los estados que NO llevan mensaje. Quien llama debe respetar el null.
+ *
+ * `nuevo` sí lo lleva, y antes no: el comentario de aquí decía "porque ya se envió la
+ * confirmación", y era falso — al cliente no le avisaba nadie. El mensaje se manda desde el
+ * panel a un toque, porque enviarlo solo exigiría la Cloud API con un número dedicado y el
+ * del negocio se usa con proveedores (regla 10).
  */
 export function cambioEstado(
   estado: EstadoPedido,
@@ -371,6 +398,15 @@ export function cambioEstado(
   if (!plantilla) return null;
 
   const partes = [plantilla(tienda.nombre), ""];
+
+  // Al confirmar es cuando el cliente quiere ver la cifra: acaba de decidir gastarla y, si
+  // paga en efectivo, es lo que tiene que tener listo cuando toquen el timbre.
+  if (estado === "nuevo") {
+    partes.push(`*Pedido:* #${pedido.numero}`);
+    partes.push(`*Total:* ${pesos(pedido.total)}`);
+    partes.push(lineaCuando(pedido, pedido.tipo === "recoger" ? "Listo" : "Llega"));
+    partes.push("");
+  }
 
   if (estado === "en_camino" && pedido.horaEntregaEstimada) {
     partes.push(`*Llega aproximadamente:* ${cuandoCorto(pedido.horaEntregaEstimada)}`);

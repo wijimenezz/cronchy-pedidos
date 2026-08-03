@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getStore } from "@/db/queries/store";
 import { resolverZona } from "@/lib/zonas";
+import { barrioDelPunto } from "@/lib/barrio";
 
 export const dynamic = "force-dynamic";
 
@@ -30,11 +31,24 @@ export async function POST(request: Request) {
   }
 
   const tienda = await getStore();
-  const zona = await resolverZona(tienda.id, parsed.data);
 
+  // El barrio viaja de gorra en esta respuesta y no en un endpoint propio: el pin ya dispara
+  // esta llamada cada vez que se mueve, así que el navegador no gasta ni un viaje extra.
+  //
+  // En paralelo y no encadenado: son dos preguntas independientes, y `barrioDelPunto` sale a
+  // un servicio ajeno. Encadenarlas le sumaría su latencia al precio del domicilio, que es lo
+  // que el cliente está esperando ver. Nunca lanza —devuelve null si falla—, así que la
+  // cotización no puede caerse por culpa de la sugerencia.
+  const [zona, barrio] = await Promise.all([
+    resolverZona(tienda.id, parsed.data),
+    barrioDelPunto(parsed.data),
+  ]);
+
+  // Fuera de cobertura igual se devuelve el barrio: el checkout ofrece cotizar por WhatsApp
+  // (regla 14) y saber el barrio ayuda a que ese mensaje diga algo.
   if (!zona) {
-    return NextResponse.json({ cubierto: false });
+    return NextResponse.json({ cubierto: false, barrio });
   }
 
-  return NextResponse.json({ cubierto: true, zona: zona.nombre, precio: zona.precio });
+  return NextResponse.json({ cubierto: true, zona: zona.nombre, precio: zona.precio, barrio });
 }

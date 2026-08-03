@@ -38,6 +38,9 @@ export async function crearPedidoEnDB(
             ? sql`ST_SetSRID(ST_MakePoint(${input.punto.lng}, ${input.punto.lat}), 4326)`
             : null,
         direccion: input.direccion ?? null,
+        // Lo que escribió el cliente, no `zonaNombre`: la zona cobra, el barrio lo lee quien
+        // entrega. Van en columnas distintas porque son cosas distintas.
+        barrio: input.barrio ?? null,
         indicaciones: input.indicaciones ?? null,
         // NULL = "lo más pronto posible". El route handler ya comprobó que esta hora es una de
         // las que la tienda ofrece; aquí solo se guarda.
@@ -84,7 +87,7 @@ export type PedidoPublico = {
   clienteTelefono: string;
   direccion: string | null;
   indicaciones: string | null;
-  /** Nombre congelado de la zona que cobró el domicilio. */
+  /** El barrio que escribió el cliente. Es referencia para el domiciliario, no la zona. */
   barrio: string | null;
   /** El pin del cliente. Es lo que convierte el aviso al negocio en un link de Maps. */
   punto: { lat: number; lng: number } | null;
@@ -104,9 +107,9 @@ export type PedidoPublico = {
  * tienda no debe resolver aquí.
  *
  * Todo sale de datos congelados, sin un solo JOIN contra `product`, `modifier_option` ni
- * `delivery_zone` (regla 2): los items desde `order_item.snapshot` y el barrio desde
- * `order.zona_nombre`. Si mañana sube el churro o se renombra una zona, este pedido debe
- * seguir mostrando lo que el cliente pagó.
+ * `delivery_zone` (regla 2): los items desde `order_item.snapshot` y la dirección desde las
+ * columnas del propio pedido. Si mañana sube el churro o se renombra una zona, este pedido
+ * debe seguir mostrando lo que el cliente pagó.
  */
 export async function obtenerPedidoPorToken(
   storeId: string,
@@ -140,7 +143,7 @@ export async function obtenerPedidoPorToken(
     clienteTelefono: fila.clienteTelefono,
     direccion: fila.direccion,
     indicaciones: fila.indicaciones,
-    barrio: fila.zonaNombre,
+    barrio: fila.barrio,
     punto: puntoDesdeGeoJSON(fila.puntoGeo),
     metodoPago: fila.metodoPago,
     tieneComprobante: Boolean(fila.comprobanteUrl),
