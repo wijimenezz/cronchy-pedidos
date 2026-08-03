@@ -19,15 +19,27 @@ export function tiendaParaMensaje(store: { nombre: string }): Tienda {
 }
 
 /**
+ * Lo que necesita cualquier aviso para armarse. Se declara una vez porque estaba escrito
+ * literal en dos firmas, y añadir `programadoPara` a una y no a la otra rompió el build: los
+ * campos que cambian de nombre al cruzar a las plantillas no los descubre la intersección.
+ */
+export type PedidoParaAviso = Pick<
+  PedidoPublico,
+  (keyof PedidoParaMensaje & keyof PedidoPublico) | "punto" | "programadoPara"
+>;
+
+/**
  * Del pedido guardado al pedido que entienden las plantillas — todo desde el snapshot.
  *
  * Toma la forma y no el tipo `PedidoPublico` cerrado, para que el panel pueda pasar su
  * propio `PedidoPanel` sin convertirlo: los dos salen de la misma fila, solo cambia
  * cuánto exponen.
+ *
+ * Los campos que se llaman igual en los dos tipos entran solos por la intersección; los que
+ * cambian de nombre al cruzar a las plantillas hay que nombrarlos: `punto` → `ubicacion` y
+ * `programadoPara` → `horaEntregaEstimada`.
  */
-export function pedidoParaMensaje(
-  pedido: Pick<PedidoPublico, (keyof PedidoParaMensaje & keyof PedidoPublico) | "punto">,
-): PedidoParaMensaje {
+export function pedidoParaMensaje(pedido: PedidoParaAviso): PedidoParaMensaje {
   return {
     numero: pedido.numero,
     tokenPublico: pedido.tokenPublico,
@@ -40,6 +52,14 @@ export function pedidoParaMensaje(
     // El pin del cliente. Es lo que convierte la línea de Google Maps del aviso al negocio
     // en algo que el domiciliario puede abrir (regla 14).
     ubicacion: pedido.punto,
+    // La hora que eligió el cliente, o `null` si quiso su pedido lo antes posible.
+    //
+    // El campo de las plantillas se llama `horaEntregaEstimada` porque nació para US22 —lo
+    // que el NEGOCIO estima al aceptar el pedido—, que sigue pendiente. No son lo mismo: uno
+    // es una promesa del local y el otro una petición del cliente. Se alimenta con lo segundo
+    // porque es lo que hoy hay que decirle; si algún día llega US22, ese valor manda sobre
+    // este y el campo pasa a significar lo que su nombre dice.
+    horaEntregaEstimada: pedido.programadoPara,
     items: pedido.items,
     subtotal: pedido.subtotal,
     costoDomicilio: pedido.costoDomicilio,
@@ -98,7 +118,7 @@ export function puedeAvisarse(estado: EstadoPedido): boolean {
  */
 export async function avisoCambioEstado(
   estado: EstadoPedido,
-  pedido: Pick<PedidoPublico, (keyof PedidoParaMensaje & keyof PedidoPublico) | "punto">,
+  pedido: PedidoParaAviso,
   store: { nombre: string },
 ): Promise<ResultadoEnvio | null> {
   const texto = cambioEstado(estado, pedidoParaMensaje(pedido), tiendaParaMensaje(store));

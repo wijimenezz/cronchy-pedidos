@@ -1,10 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { ahoraEnBogota, calcularDisponibilidad, type ContextoHorario } from "./horario";
+import {
+  ahoraEnBogota,
+  calcularDisponibilidad,
+  instanteEnBogota,
+  type ContextoHorario,
+} from "./horario";
 
-/** Construye un instante UTC que corresponde a la hora dada en Bogotá (UTC-5, sin DST) el 2026-01-01. */
+/**
+ * Un instante UTC para una hora de Bogotá del 2026-01-01 (jueves).
+ *
+ * Antes esto se construía a mano aquí; ahora lo hace `instanteEnBogota`, que es código de
+ * producción porque un pedido programado tiene que guardar exactamente esa conversión. El
+ * helper se queda como azúcar para no repetir la fecha en cada test.
+ */
 function horaBogota(hhmm: string): Date {
   const [h, m] = hhmm.split(":").map(Number);
-  return new Date(Date.UTC(2026, 0, 1, h + 5, m, 0));
+  return instanteEnBogota("2026-01-01", h * 60 + m);
 }
 
 const base: ContextoHorario = {

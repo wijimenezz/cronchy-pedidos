@@ -74,7 +74,7 @@ src/
   lib/
     precios.ts                CÁLCULO DE PRECIOS — fuente única de verdad
     zonas.ts                  CÁLCULO DE DOMICILIO — fuente única de verdad
-    horario.ts                ¿está abierta la tienda ahora?
+    horario.ts                ¿está abierta la tienda en tal instante?
     validaciones.ts           esquemas Zod
     autorizacion.ts           exigirRol() — permisos del panel
     texto.ts                  slugify() + slugLibre()
@@ -87,6 +87,8 @@ src/
       password.ts             bcrypt (jamás desde el proxy)
     pedidos/
       estados.ts              etiquetas + máquina de transiciones
+      franjas.ts              HORAS PROGRAMABLES (regla 16) — puro, testeado
+      entrega.ts              compone tienda + horario: qué se puede ofrecer hoy
     notificaciones/
       plantillas.ts           TEXTO de los mensajes — fuente única
       transporte.ts           adaptador: whatsapp-link | whatsapp-api | telegram
@@ -170,6 +172,12 @@ del servidor. La lógica vive en `src/lib/horario.ts` y considera, en este orden
 1. `store.acepta_pedidos` (interruptor manual, gana sobre todo)
 2. `store_closure` para la fecha de hoy
 3. `store_hours` del día de la semana
+
+`calcularDisponibilidad` y `ahoraEnBogota` reciben el instante como parámetro, así que sirven
+igual para "¿está abierta ahora?" que para "¿lo estará a las 7?" — que es lo que necesita el
+pedido programado (regla 16). La vuelta, de hora local de Bogotá a instante absoluto, es
+`instanteEnBogota()`: **la única conversión del proyecto**, y ahí es donde se asume que
+Colombia es UTC-5 sin horario de verano.
 
 ### 7. Dinero en enteros
 
@@ -331,13 +339,45 @@ reordenando la lista, no editando números. **Se reordena con botones ↑/↓ y 
 arrastrando**: el drag nativo de HTML5 no funciona en táctil y el panel se opera desde el
 teléfono; traer una librería de drag-and-drop solo para esto no se justificaba.
 
+### 16. El pedido programado se valida contra las franjas que genera el servidor
+
+El cliente elige entre "lo más pronto posible" y una hora. `order.programado_para` es un
+`timestamptz` **nullable, y ese nullable es el modelo**: `NULL` significa "lo antes posible".
+No hay columna `modo` al lado, porque un booleano junto a una fecha admite la fila imposible
+"programado sin hora" y ningún CHECK razonable lo impide.
+
+`opcionesDeEntrega()` (`src/lib/pedidos/entrega.ts`) es la **única** fuente de qué se puede
+ofrecer, y la usan tanto el checkout como `POST /api/pedidos`. El servidor genera la lista de
+franjas y al confirmar **solo acepta una de las suyas** (`esFranjaOfrecida`): es la regla 1
+aplicada al tiempo — el navegador manda *cuál* eligió, nunca *si* vale. De paso resuelve
+gratis la franja que caduca mientras el cliente llena el formulario. Nunca revalides una hora
+a mano ni escribas rangos horarios en Zod: sería una segunda fuente de verdad que envejece
+sola en cuanto cambie el horario.
+
+Reglas de las franjas (`src/lib/pedidos/franjas.ts`, puro y testeado como `precios.ts`):
+
+- Cada **30 minutos**, dentro de `[abre, cierra)` — el cierre nunca es una franja válida.
+- El horizonte es **hoy y mañana**, sin calendario. La UI son dos pestañas y una rejilla.
+- La primera franja de hoy es `ahora + store.minutos_estimado_max`, redondeado hacia arriba.
+  Mañana no arrastra esa holgura: empieza en la hora de apertura.
+- Un día sin horario —cierre excepcional o sin `store_hours`— no aparece.
+
+**Programar funciona con la tienda cerrada**, que es su razón de ser: quien arma el pedido de
+noche lo deja listo para el día siguiente. Pero `store.acepta_pedidos` sigue apagándolo todo
+(regla 6): es el botón de pánico, y uno que deja pasar pedidos no es un botón de pánico. Esa
+comprobación vive en `opcionesDeEntrega` y no en el módulo puro, precisamente para que no se
+pueda saltar generando franjas por otro camino.
+
+`store.minutos_estimado_min` / `_max` son el "llega en 30–45 min", editables desde
+`/admin/pedidos` porque es donde se está cuando se nota que la cocina va lenta.
+
 ---
 
 ## Panel admin — pantallas y permisos
 
 | Pantalla          | colaborador                                                  | admin                                                             |
 | ----------------- | ------------------------------------------------------------ | ----------------------------------------------------------------- |
-| `admin/pedidos`   | ver, aceptar, cambiar estado, imprimir, avisos, domiciliario | todo                                                              |
+| `admin/pedidos`   | ver, aceptar, cambiar estado, imprimir, avisos, domiciliario | todo, más el rango de entrega estimada                            |
 | `admin/catalogo`  | switches `disponible` / `agotado` de productos y opciones    | igual                                                             |
 | `admin/productos` | solo Visible↔Agotado (ni ocultar ni reactivar)               | CRUD completo, precios, fotos, categorías, enganches              |
 | `admin/opciones`  | solo switch `disponible` (sabores de la semana)              | crear/renombrar/ordenar opciones, precio propio, archivar listas  |
@@ -419,9 +459,11 @@ Al guardar cualquier cambio de catálogo o zonas se revalida el menú público (
 - Validación con Zod en el borde de cada route handler, antes de tocar la base.
 - Los estados del pedido se registran en `order_status_event`, no solo actualizando
   `order.estado`.
-- Tests con Vitest para `precios.ts`, `horario.ts` y `zonas.ts` como mínimo — es
-  donde un bug cuesta plata real. Para `zonas.ts`: punto dentro, fuera, en el borde,
-  en solapamiento (gana prioridad) y con todas las zonas apagadas.
+- Tests con Vitest para `precios.ts`, `horario.ts`, `zonas.ts` y `pedidos/franjas.ts` como
+  mínimo — es donde un bug cuesta plata real. Para `zonas.ts`: punto dentro, fuera, en el
+  borde, en solapamiento (gana prioridad) y con todas las zonas apagadas. Para `franjas.ts`:
+  la anticipación de hoy, que mañana no la arrastre, el turno partido, el límite del cierre
+  y que el instante guardado sea el de Bogotá y no el de UTC.
 
 ## Qué NO hacer
 

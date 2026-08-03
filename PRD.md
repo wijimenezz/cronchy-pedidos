@@ -45,7 +45,13 @@ No-objetivos de la v1 (explícitos, para acotar a Claude Code):
 
 - No es multi-tienda.
 - No hay pasarela de pago en línea (solo efectivo y comprobante Nequi).
-- No hay pedidos programados ni franjas horarias.
+- ~~No hay pedidos programados ni franjas horarias.~~ **RETIRADO.** El checkout ofrece "lo
+  más pronto posible" —con el rango estimado de la tienda— y "programar", con franjas de 30
+  minutos. El horizonte es **hoy y mañana**, sin calendario: dos pestañas y una rejilla de
+  horas. Programar funciona con la tienda cerrada, que es su razón de ser: quien arma el
+  pedido de noche lo deja listo para el día siguiente. El interruptor `acepta_pedidos` sigue
+  apagándolo todo (regla 6), porque un botón de pánico que deja pasar pedidos no es un botón
+  de pánico. La hora se guarda en `order.programado_para`; `NULL` significa "lo antes posible".
 - No hay pedido mínimo.
 - No hay integración con la Cloud API de WhatsApp.
 - No hay app móvil nativa (es web / PWA).
