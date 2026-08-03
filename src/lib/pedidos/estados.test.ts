@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  COLUMNAS_TABLERO,
+  columnaDeTablero,
   hitosDelPedido,
   indiceDeHito,
   pasosDelPedido,
@@ -170,5 +172,48 @@ describe("hitos del seguimiento", () => {
     const indices = pasosDelPedido(tipo).map((e) => indiceDeHito(e, tipo));
 
     expect(indices).toEqual([...indices].sort((a, b) => a - b));
+  });
+});
+
+describe("columnas del tablero", () => {
+  it("son las mismas cuatro fases que ve el cliente, con otras palabras", () => {
+    expect(COLUMNAS_TABLERO).toHaveLength(hitosDelPedido("domicilio").length);
+    expect(COLUMNAS_TABLERO.map((c) => c.titulo)).toEqual([
+      "Sin aceptar",
+      "En preparación",
+      "En camino / Listos",
+      "Terminados",
+    ]);
+  });
+
+  it("un pedido sin aceptar abre el tablero y uno aceptado pasa a preparación", () => {
+    expect(columnaDeTablero("nuevo", "domicilio")).toBe(0);
+    expect(columnaDeTablero("aceptado", "domicilio")).toBe(1);
+    expect(columnaDeTablero("preparando", "domicilio")).toBe(1);
+  });
+
+  it("en camino y listo son la misma columna, cada uno en su tipo", () => {
+    expect(columnaDeTablero("en_camino", "domicilio")).toBe(2);
+    expect(columnaDeTablero("listo", "recoger")).toBe(2);
+  });
+
+  // La única diferencia con `indiceDeHito`: para el cliente cancelar es salirse del recorrido
+  // y no pinta barra; para la cocina es un pedido que ya no toca, o sea Terminados.
+  it("cancelado va a Terminados y no se queda sin columna", () => {
+    expect(indiceDeHito("cancelado", "domicilio")).toBe(-1);
+    expect(columnaDeTablero("cancelado", "domicilio")).toBe(3);
+    expect(columnaDeTablero("entregado", "domicilio")).toBe(3);
+  });
+
+  // En el tablero no puede haber pedidos sin sitio: uno que no cayera en ninguna columna
+  // desaparecería de la pantalla con la que se opera el local.
+  it.each(["domicilio", "recoger"] as const)("ningún estado de %s se queda fuera", (tipo) => {
+    const estados = [...pasosDelPedido(tipo), "cancelado"] as const;
+
+    for (const estado of estados) {
+      const columna = columnaDeTablero(estado, tipo);
+      expect(columna).toBeGreaterThanOrEqual(0);
+      expect(columna).toBeLessThan(COLUMNAS_TABLERO.length);
+    }
   });
 });
