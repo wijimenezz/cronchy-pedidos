@@ -1,12 +1,30 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Bell, BellOff } from "lucide-react";
 import type { PedidoEnLista } from "@/db/queries/panel";
 import { COLUMNAS_TABLERO, columnaDeTablero } from "@/lib/pedidos/estados";
 import { TarjetaPedido } from "./TarjetaPedido";
+import { idsNuevos } from "./alerta";
+import {
+  desbloquearSonido,
+  guardarPreferencia,
+  prefiereSonido,
+  reanudarAlPrimerToque,
+  sonarAviso,
+} from "./sonido";
 
 const CADA_MS = 5000;
+
+/**
+ * Cada cuánto vuelve a sonar mientras quede algo sin aceptar. Un solo pitido se pierde entre
+ * el ruido de una cocina; que insista significa que el silencio es información: alguien lo
+ * tiene.
+ */
+const INSISTIR_MS = 30_000;
+
+const TITULO_BASE = "Pedidos — Cronchy";
 
 /**
  * El tablero de operación. Se refresca solo cada 5 s (CLAUDE.md: polling, nada de
@@ -27,6 +45,12 @@ export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
   const [sinConexion, setSinConexion] = useState(false);
   /** Solo manda en pantalla estrecha, donde las columnas son pestañas. */
   const [columnaVisible, setColumnaVisible] = useState(0);
+  /**
+   * Si el aviso puede sonar. Arranca en `false` **siempre**, también para quien ya lo tenía
+   * activado: el navegador no deja sonar nada hasta que alguien toque la página, así que
+   * decir lo contrario en el botón sería mentir. Lo reactiva el primer toque.
+   */
+  const [sonido, setSonido] = useState(false);
 
   const refrescar = useCallback(async () => {
     try {
@@ -50,10 +74,73 @@ export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
     }
   }, [router]);
 
+  // **Este intervalo no se pausa con la pestaña oculta, y es a propósito**: ya no solo pinta
+  // el tablero, es lo que detecta el pedido para avisar. Pausarlo apagaría la alarma justo
+  // cuando el empleado está en otra cosa, que es cuando más falta hace.
   useEffect(() => {
     const id = setInterval(() => void refrescar(), CADA_MS);
     return () => clearInterval(id);
   }, [refrescar]);
+
+  const sinAceptar = pedidos.filter((p) => p.estado === "nuevo");
+
+  /**
+   * Los pedidos sin aceptar que ya conocíamos. **Se siembra con los `iniciales`**: si no, cada
+   * recarga sonaría como si todo fuera nuevo y el aviso dejaría de significar "entró uno".
+   */
+  const vistos = useRef<string[]>(iniciales.filter((p) => p.estado === "nuevo").map((p) => p.id));
+  // El contador para el temporizador que insiste. Va en un ref y no en las dependencias del
+  // efecto: la lista se reemplaza cada 5 s con el polling, así que un efecto que dependiera
+  // de ella recrearía el temporizador de 30 s antes de que llegue a disparar. Nunca sonaría.
+  const pendientes = useRef(0);
+
+  // Suena en cuanto aparece uno que no estaba, y de paso deja los dos refs al día. Va en un
+  // efecto y no en el render porque escribir un ref mientras se pinta es justo lo que React
+  // prohíbe: el render tiene que poder repetirse sin dejar rastro.
+  useEffect(() => {
+    const sinAceptarAhora = pedidos.filter((p) => p.estado === "nuevo").map((p) => p.id);
+    const nuevos = idsNuevos(vistos.current, sinAceptarAhora);
+
+    vistos.current = sinAceptarAhora;
+    pendientes.current = sinAceptarAhora.length;
+
+    if (nuevos.length > 0) sonarAviso();
+  }, [pedidos]);
+
+  // Y sigue insistiendo mientras nadie lo acepte.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (pendientes.current > 0) sonarAviso();
+    }, INSISTIR_MS);
+
+    return () => clearInterval(id);
+  }, []);
+
+  // El título es la única señal que se ve **desde otra pestaña**, y sale gratis.
+  useEffect(() => {
+    document.title = sinAceptar.length > 0 ? `(${sinAceptar.length}) ${TITULO_BASE}` : TITULO_BASE;
+
+    return () => {
+      document.title = TITULO_BASE;
+    };
+  }, [sinAceptar.length]);
+
+  // Devuelve el sonido al recargar sin obligar a tocar el botón cada mañana: el navegador
+  // exige un gesto, pero cualquiera sirve y el empleado va a tocar algo igualmente.
+  useEffect(() => {
+    if (!prefiereSonido()) return;
+    return reanudarAlPrimerToque(() => setSonido(true));
+  }, []);
+
+  function alternarSonido() {
+    const activar = !sonido;
+    setSonido(activar);
+    guardarPreferencia(activar);
+
+    // Este clic **es** el gesto que desbloquea el audio. Suena una vez para que quien lo
+    // active oiga qué va a oír cuando entre un pedido.
+    if (activar) void desbloquearSonido().then(sonarAviso);
+  }
 
   /**
    * Cada pedido en su columna, y dentro de cada una los programados **al final y por su
@@ -87,15 +174,47 @@ export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
           )}
         </h1>
 
-        {sinConexion && (
-          <p
-            role="status"
-            className="rounded-sm bg-alerta/15 px-3 py-1.5 font-cuerpo text-[13px] font-semibold text-cafe"
+        <div className="flex items-center gap-3">
+          {sinConexion && (
+            <p
+              role="status"
+              className="rounded-sm bg-alerta/15 px-3 py-1.5 font-cuerpo text-[13px] font-semibold text-cafe"
+            >
+              Sin conexión. Reintentando…
+            </p>
+          )}
+
+          {/* Se pinta llamativo cuando está apagado y hay pedidos esperando: un panel mudo sin
+              que nadie lo sepa es peor que uno que no avisa. */}
+          <button
+            type="button"
+            onClick={alternarSonido}
+            aria-pressed={sonido}
+            className={`flex min-h-11 items-center gap-2 rounded-full border px-4 font-cuerpo text-sm font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-naranja ${
+              sonido
+                ? "border-crema-oscura text-cafe-suave hover:bg-crema"
+                : sinAceptar.length > 0
+                  ? "border-naranja bg-naranja text-crema"
+                  : "border-naranja text-naranja-osc hover:bg-naranja/10"
+            }`}
           >
-            Sin conexión. Reintentando…
-          </p>
-        )}
+            {sonido ? <Bell className="size-4" /> : <BellOff className="size-4" />}
+            {sonido ? "Sonido activo" : "Activar sonido"}
+          </button>
+        </div>
       </div>
+
+      {/* El aviso que se ve. Acompaña al sonido y lo sustituye cuando está apagado. */}
+      {sinAceptar.length > 0 && (
+        <p
+          role="status"
+          className="rounded-md bg-naranja/12 px-4 py-2 font-cuerpo text-sm font-bold text-naranja-osc"
+        >
+          {sinAceptar.length === 1
+            ? "1 pedido nuevo sin aceptar"
+            : `${sinAceptar.length} pedidos nuevos sin aceptar`}
+        </p>
+      )}
 
       {/* Las pestañas solo existen en pantalla estrecha; a partir de `lg` mandan las columnas
           y estos botones sobran. */}

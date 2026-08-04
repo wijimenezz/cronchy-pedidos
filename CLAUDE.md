@@ -436,6 +436,19 @@ porque un pedido programado para mañana ya entró; lo terminado sí, o la últi
 vuelve un archivo. El corte va en la consulta y no después: con el `limit` y sin filtro, un día
 movido empujaría fuera justo los pedidos vivos.
 
+**El polling del panel NO se pausa con la pestaña oculta.** Parece la optimización obvia —son
+~260.000 peticiones al mes por pestaña abierta— y es justo la que no se puede hacer: desde que
+el tablero avisa con sonido, ese intervalo dejó de ser "pintar la pantalla" y es **lo que
+detecta el pedido**. Pausarlo apaga la alarma cuando el empleado está en otra cosa, que es
+cuando hace falta. (El navegador ya frena por su cuenta los temporizadores de fondo a ~1 por
+minuto; una pestaña que suena queda exenta de ese freno.)
+
+El aviso son dos disparadores: suena al aparecer un id que no estaba, y **insiste cada 30 s**
+mientras quede algo sin aceptar, así que el silencio significa que alguien lo tiene. No suena al
+abrir el panel por lo que ya estaba —la lista de vistos se siembra con lo que llega del
+servidor— y el audio necesita **un gesto del usuario** antes de poder sonar: de ahí el botón de
+"Activar sonido", que no es un adorno sino el requisito del navegador.
+
 ---
 
 ## Convenciones

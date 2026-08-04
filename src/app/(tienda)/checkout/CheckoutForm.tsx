@@ -1,13 +1,26 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Loader2, MapPin, Phone, Store } from "lucide-react";
 import { useCarrito } from "@/lib/carrito";
-import { useTipoPedido, elegirTipoPedido, type TipoPedido } from "@/lib/tienda/tipo-pedido";
+import {
+  useTipoPedido,
+  elegirTipoPedido,
+  type TipoPedido,
+} from "@/lib/tienda/tipo-pedido";
 import { carritoAItems } from "@/lib/checkout/mapeo";
-import { useDatosCliente, useDatosClienteHidratados } from "@/lib/checkout/datos-cliente";
+import {
+  useDatosCliente,
+  useDatosClienteHidratados,
+} from "@/lib/checkout/datos-cliente";
 import { crearPedidoSchema, REQUERIDO } from "@/lib/validaciones";
 import { fueraDeCobertura, pesos } from "@/lib/notificaciones/plantillas";
 import { decidirBarrio, type MotivoConsulta } from "@/lib/barrio";
@@ -15,7 +28,10 @@ import { Campo, claseControl } from "@/components/checkout/Campo";
 import { DatoCopiable } from "@/components/checkout/DatoCopiable";
 import { SelectorFecha } from "@/components/checkout/SelectorFecha";
 import { SubidaComprobante } from "@/components/checkout/SubidaComprobante";
-import { SelectorUbicacion, type Cobertura } from "@/components/checkout/SelectorUbicacion";
+import {
+  SelectorUbicacion,
+  type Cobertura,
+} from "@/components/checkout/SelectorUbicacion";
 import {
   SelectorCuando,
   cuandoInicial,
@@ -92,7 +108,14 @@ const CAMPOS_POR_PASO: Record<Paso, string[]> = {
     "recibeTelefono",
     "programadoPara",
   ],
-  3: ["metodoPago", "pagaCon", "comprobanteUrl", "notas", "items", "programadoPara"],
+  3: [
+    "metodoPago",
+    "pagaCon",
+    "comprobanteUrl",
+    "notas",
+    "items",
+    "programadoPara",
+  ],
 };
 
 /**
@@ -177,7 +200,16 @@ export function CheckoutForm({
   // copie: aparecen solos en cuanto termina la hidratación.
   const datos = useDatosCliente();
   const setDatos = useDatosCliente((s) => s.set);
-  const { nombre, telefono, email, cumple, punto, direccion, barrio, indicaciones } = datos;
+  const {
+    nombre,
+    telefono,
+    email,
+    cumple,
+    punto,
+    direccion,
+    barrio,
+    indicaciones,
+  } = datos;
   const { recibeOtro, recibeNombre, recibeTelefono } = datos;
 
   const [aceptaPolitica, setAceptaPolitica] = useState(false);
@@ -263,7 +295,12 @@ export function CheckoutForm({
   // cliente termine de leer la pantalla.
   useEffect(() => {
     if (!hidratado) return;
-    if (tipoPedido !== "domicilio" || !datos.punto || cobertura.estado !== "sin_pin") return;
+    if (
+      tipoPedido !== "domicilio" ||
+      !datos.punto ||
+      cobertura.estado !== "sin_pin"
+    )
+      return;
 
     const turno = ++ultimaCotizacion.current;
     void consultarCobertura(datos.punto).then(({ cobertura, barrio }) => {
@@ -289,7 +326,10 @@ export function CheckoutForm({
   const [enviando, setEnviando] = useState(false);
   const enVuelo = useRef(false);
 
-  const total = items.reduce((t, i) => t + i.precioUnitarioEstimado * i.cantidad, 0);
+  const total = items.reduce(
+    (t, i) => t + i.precioUnitarioEstimado * i.cantidad,
+    0,
+  );
   const esDomicilio = tipoPedido === "domicilio";
   // Lo que se muestra mientras el cliente arrastra el pin. El precio que se cobra lo
   // recalcula el servidor al confirmar (regla 1); esto es solo información.
@@ -324,8 +364,12 @@ export function CheckoutForm({
   if (items.length === 0) {
     return (
       <div className="flex flex-col items-center gap-3 rounded-md bg-tarjeta p-6 text-center shadow-tarjeta">
-        <h2 className="font-titulo text-lg font-semibold text-cafe">Tu carrito está vacío</h2>
-        <p className="font-cuerpo text-sm text-cafe-suave">Agrega algo rico antes de confirmar.</p>
+        <h2 className="font-titulo text-lg font-semibold text-cafe">
+          Tu carrito está vacío
+        </h2>
+        <p className="font-cuerpo text-sm text-cafe-suave">
+          Agrega algo rico antes de confirmar.
+        </p>
         <Link
           href="/"
           className="mt-1 rounded-full bg-naranja px-6 py-3 font-cuerpo text-sm font-bold text-crema"
@@ -341,7 +385,9 @@ export function CheckoutForm({
   if (!tipoPedido) {
     return (
       <div className="flex flex-col gap-3 rounded-md bg-tarjeta p-6 text-center shadow-tarjeta">
-        <h2 className="font-titulo text-lg font-semibold text-cafe">¿Cómo quieres tu pedido?</h2>
+        <h2 className="font-titulo text-lg font-semibold text-cafe">
+          ¿Cómo quieres tu pedido?
+        </h2>
         <div className="flex gap-3">
           {(["domicilio", "recoger"] as TipoPedido[]).map((t) => (
             <button
@@ -385,10 +431,12 @@ export function CheckoutForm({
       indicaciones: indicaciones || undefined,
       // Ausente = lo más pronto posible. El servidor comprueba que esta hora sea una de las
       // que él mismo ofrece; aquí solo se transmite cuál eligió el cliente.
-      programadoPara: cuando.modo === "programar" ? cuando.franja?.instante : undefined,
+      programadoPara:
+        cuando.modo === "programar" ? cuando.franja?.instante : undefined,
       metodoPago,
       // Solo en efectivo: en Nequi no hay devuelta que llevar.
-      pagaCon: metodoPago === "efectivo" && pagaCon ? Number(pagaCon) : undefined,
+      pagaCon:
+        metodoPago === "efectivo" && pagaCon ? Number(pagaCon) : undefined,
       comprobanteUrl: comprobanteUrl ?? undefined,
       notas: notas || undefined,
       items: itemsPedido,
@@ -462,28 +510,40 @@ export function CheckoutForm({
    * obliga a recorrer el formulario entero buscando el rojo.
    */
   function señalar(campos: string[]) {
-    setTocados((t) => ({ ...t, ...Object.fromEntries(campos.map((c) => [c, true])) }));
+    setTocados((t) => ({
+      ...t,
+      ...Object.fromEntries(campos.map((c) => [c, true])),
+    }));
 
-    const destino = pasos.find((p) => CAMPOS_POR_PASO[p].some((c) => campos.includes(c)));
+    const destino = pasos.find((p) =>
+      CAMPOS_POR_PASO[p].some((c) => campos.includes(c)),
+    );
     if (destino && destino !== paso) setPaso(destino);
 
     // Con líneas en el carrito, un fallo en `items` es un pedido que armamos mal nosotros:
     // no hay campo que llenar y pedirle que revise sería mandarlo a dar vueltas.
     if (campos.includes("items") && items.length > 0) {
-      setErrorGeneral("No pudimos preparar tu pedido. Vuelve a armar el carrito o escríbenos.");
+      setErrorGeneral(
+        "No pudimos preparar tu pedido. Vuelve a armar el carrito o escríbenos.",
+      );
       return;
     }
 
     const nombres = campos.map((c) => ETIQUETA_CAMPO[c]).filter(Boolean);
     setErrorGeneral(
-      nombres.length > 0 ? `Falta: ${nombres.join(", ")}` : "Revisa los datos marcados.",
+      nombres.length > 0
+        ? `Falta: ${nombres.join(", ")}`
+        : "Revisa los datos marcados.",
     );
   }
 
   function avanzar() {
     const delPaso = CAMPOS_POR_PASO[paso];
     // Tocar "Continuar" revela de una vez todo lo que falta en el paso.
-    setTocados((t) => ({ ...t, ...Object.fromEntries(delPaso.map((c) => [c, true])) }));
+    setTocados((t) => ({
+      ...t,
+      ...Object.fromEntries(delPaso.map((c) => [c, true])),
+    }));
 
     const fallando = delPaso.filter(hayFallo);
     if (fallando.length > 0) {
@@ -504,7 +564,9 @@ export function CheckoutForm({
   function mensajeDe422(detalle: { tipo: string; itemIndex?: number }): string {
     const { lineIdPorIndice } = carritoAItems(items);
     const linea =
-      detalle.itemIndex !== undefined ? items[detalle.itemIndex]?.nombre : undefined;
+      detalle.itemIndex !== undefined
+        ? items[detalle.itemIndex]?.nombre
+        : undefined;
 
     if (detalle.itemIndex !== undefined && lineIdPorIndice[detalle.itemIndex]) {
       setLineasConProblema([lineIdPorIndice[detalle.itemIndex]]);
@@ -527,7 +589,10 @@ export function CheckoutForm({
         setPaso(2);
         return "Ya no llegamos hasta esa dirección. Mueve el pin o escríbenos.";
       case "punto_requerido":
-        setErrores((e) => ({ ...e, punto: "Confirma tu ubicación en el mapa." }));
+        setErrores((e) => ({
+          ...e,
+          punto: "Confirma tu ubicación en el mapa.",
+        }));
         setPaso(2);
         return "Falta confirmar tu ubicación.";
       default:
@@ -584,7 +649,9 @@ export function CheckoutForm({
         if (json?.motivo === "franja_caducada") {
           setCuando({ modo: "programar", franja: null });
           setTocados((t) => ({ ...t, programadoPara: true }));
-          setErrorGeneral(json?.error ?? "Esa hora ya no está disponible. Elige otra.");
+          setErrorGeneral(
+            json?.error ?? "Esa hora ya no está disponible. Elige otra.",
+          );
           // La página es `force-dynamic`: esto vuelve a pedir las franjas ya sin la caducada.
           router.refresh();
           return;
@@ -596,7 +663,10 @@ export function CheckoutForm({
       }
 
       if (r.status === 400 && json?.detalles?.fieldErrors) {
-        const fieldErrors = json.detalles.fieldErrors as Record<string, string[]>;
+        const fieldErrors = json.detalles.fieldErrors as Record<
+          string,
+          string[]
+        >;
         setErrores(
           Object.fromEntries(
             Object.entries(fieldErrors)
@@ -615,7 +685,9 @@ export function CheckoutForm({
 
       setErrorGeneral("No pudimos enviar tu pedido. Intenta de nuevo.");
     } catch {
-      setErrorGeneral("No pudimos enviar tu pedido. Revisa tu conexión e intenta de nuevo.");
+      setErrorGeneral(
+        "No pudimos enviar tu pedido. Revisa tu conexión e intenta de nuevo.",
+      );
     } finally {
       enVuelo.current = false;
       setEnviando(false);
@@ -625,7 +697,9 @@ export function CheckoutForm({
   if (cerrado) {
     return (
       <div className="flex flex-col items-center gap-3 rounded-md bg-tarjeta p-6 text-center shadow-tarjeta">
-        <h2 className="font-titulo text-lg font-semibold text-cafe">Estamos cerrados</h2>
+        <h2 className="font-titulo text-lg font-semibold text-cafe">
+          Estamos cerrados
+        </h2>
         <p className="font-cuerpo text-sm text-cafe-suave">{cerrado}</p>
         <p className="font-cuerpo text-[13px] text-cafe-tenue">
           Tu carrito quedó guardado: vuelve cuando abramos.
@@ -714,14 +788,20 @@ export function CheckoutForm({
             </span>
             <button
               type="button"
-              onClick={() => elegirTipoPedido(esDomicilio ? "recoger" : "domicilio")}
+              onClick={() =>
+                elegirTipoPedido(esDomicilio ? "recoger" : "domicilio")
+              }
               className="font-cuerpo text-[13px] font-bold text-naranja underline underline-offset-2"
             >
               Cambiar
             </button>
           </div>
 
-          <Campo etiqueta="Nombre y apellido" requerido error={errorDe("clienteNombre")}>
+          <Campo
+            etiqueta="Nombre y apellido"
+            requerido
+            error={errorDe("clienteNombre")}
+          >
             {(props) => (
               <input
                 {...props}
@@ -763,7 +843,11 @@ export function CheckoutForm({
             )}
           </Campo>
 
-          <Campo etiqueta="Correo" ayuda="Opcional." error={errorDe("clienteEmail")}>
+          <Campo
+            etiqueta="Correo"
+            ayuda="Opcional."
+            error={errorDe("clienteEmail")}
+          >
             {(props) => (
               <input
                 {...props}
@@ -799,7 +883,9 @@ export function CheckoutForm({
       {paso === 2 && (
         <>
           <section className="flex flex-col gap-3 rounded-md bg-tarjeta p-4 shadow-tarjeta">
-            <h2 className="font-titulo text-base font-semibold text-cafe">¿Dónde te lo llevamos?</h2>
+            <h2 className="font-titulo text-base font-semibold text-cafe">
+              ¿Dónde te lo llevamos?
+            </h2>
 
             {/* El pin manda (regla 14): de aquí sale el costo, no de la dirección escrita. */}
             <SelectorUbicacion
@@ -866,7 +952,11 @@ export function CheckoutForm({
               )}
             </Campo>
 
-            <Campo etiqueta="Indicaciones" error={errorDe("indicaciones")} ayuda="Opcional.">
+            <Campo
+              etiqueta="Indicaciones"
+              error={errorDe("indicaciones")}
+              ayuda="Opcional."
+            >
               {(props) => (
                 <textarea
                   {...props}
@@ -882,7 +972,9 @@ export function CheckoutForm({
           </section>
 
           <section className="flex flex-col gap-3 rounded-md bg-tarjeta p-4 shadow-tarjeta">
-            <h2 className="font-titulo text-base font-semibold text-cafe">¿Quién recibe?</h2>
+            <h2 className="font-titulo text-base font-semibold text-cafe">
+              ¿Quién recibe?
+            </h2>
             <div className="flex gap-2">
               {[false, true].map((otro) => (
                 <button
@@ -902,13 +994,19 @@ export function CheckoutForm({
 
             {recibeOtro && (
               <>
-                <Campo etiqueta="Nombre de quien recibe" requerido error={errorDe("recibeNombre")}>
+                <Campo
+                  etiqueta="Nombre de quien recibe"
+                  requerido
+                  error={errorDe("recibeNombre")}
+                >
                   {(props) => (
                     <input
                       {...props}
                       type="text"
                       value={recibeNombre}
-                      onChange={(e) => setDatos({ recibeNombre: e.target.value })}
+                      onChange={(e) =>
+                        setDatos({ recibeNombre: e.target.value })
+                      }
                       onBlur={() => alSalirDe("recibeNombre")}
                       placeholder="Carlos Gómez"
                       className={claseControl(errorDe("recibeNombre"))}
@@ -930,7 +1028,9 @@ export function CheckoutForm({
                         type="tel"
                         inputMode="numeric"
                         value={recibeTelefono}
-                        onChange={(e) => setDatos({ recibeTelefono: e.target.value })}
+                        onChange={(e) =>
+                          setDatos({ recibeTelefono: e.target.value })
+                        }
                         onBlur={() => alSalirDe("recibeTelefono")}
                         placeholder="311 643 5036"
                         className={claseControl(errorDe("recibeTelefono"))}
@@ -948,10 +1048,14 @@ export function CheckoutForm({
 
       {paso === 3 && (
         <>
-          <h2 className="font-titulo text-xl font-semibold text-cafe">Terminar y pagar</h2>
+          <h2 className="font-titulo text-xl font-semibold text-cafe">
+            Terminar y pagar
+          </h2>
 
           <section className="flex flex-col gap-2 rounded-md bg-tarjeta p-4 shadow-tarjeta">
-            <h3 className="font-titulo text-base font-semibold text-cafe">Información de la sede</h3>
+            <h3 className="font-titulo text-base font-semibold text-cafe">
+              Información de la sede
+            </h3>
             <p className="flex items-center gap-2 font-cuerpo text-sm text-cafe">
               <Store className="size-4 shrink-0 text-cafe-suave" />
               {tienda.nombre}
@@ -981,10 +1085,13 @@ export function CheckoutForm({
                   {barrioEntrega && `, ${barrioEntrega}`}
                 </p>
                 {indicaciones && (
-                  <p className="font-cuerpo text-[13px] text-cafe-suave">{indicaciones}</p>
+                  <p className="font-cuerpo text-[13px] text-cafe-suave">
+                    {indicaciones}
+                  </p>
                 )}
                 <p className="font-cuerpo text-[13px] text-cafe-suave">
-                  Entregar a {recibeOtro && recibeNombre ? recibeNombre : nombre}
+                  Entregar a{" "}
+                  {recibeOtro && recibeNombre ? recibeNombre : nombre}
                 </p>
                 {/* La hora se eligió en el paso anterior y esta es la pantalla donde se
                     repasa todo antes de pagar: sin esta línea sería lo único del pedido que
@@ -1005,7 +1112,9 @@ export function CheckoutForm({
           {!esDomicilio && bloqueCuando}
 
           <section className="flex flex-col gap-3 rounded-md bg-tarjeta p-4 shadow-tarjeta">
-            <h3 className="font-titulo text-base font-semibold text-cafe">Resumen de tu pedido</h3>
+            <h3 className="font-titulo text-base font-semibold text-cafe">
+              Resumen de tu pedido
+            </h3>
             <ul className="flex flex-col gap-2">
               {items.map((item) => (
                 <li
@@ -1053,7 +1162,9 @@ export function CheckoutForm({
           </section>
 
           <section className="flex flex-col gap-3 rounded-md bg-tarjeta p-4 shadow-tarjeta">
-            <h3 className="font-titulo text-base font-semibold text-cafe">Métodos de pago</h3>
+            <h3 className="font-titulo text-base font-semibold text-cafe">
+              Métodos de pago
+            </h3>
             <div className="flex flex-col gap-2">
               {(["efectivo", "nequi"] as const)
                 .filter((m) => m === "efectivo" || nequiDisponible)
@@ -1061,7 +1172,9 @@ export function CheckoutForm({
                   <label
                     key={m}
                     className={`flex min-h-11 cursor-pointer items-center gap-3 rounded-sm border px-3 py-2 font-cuerpo text-[15px] ${
-                      metodoPago === m ? "border-naranja bg-naranja/8 text-cafe" : "border-crema-oscura text-cafe-suave"
+                      metodoPago === m
+                        ? "border-naranja bg-naranja/8 text-cafe"
+                        : "border-crema-oscura text-cafe-suave"
                     }`}
                   >
                     <input
@@ -1072,7 +1185,9 @@ export function CheckoutForm({
                       onChange={() => setPago({ metodoPago: m })}
                       className="size-4 accent-[var(--naranja)]"
                     />
-                    <span className="font-semibold">{m === "efectivo" ? "Efectivo" : "Nequi"}</span>
+                    <span className="font-semibold">
+                      {m === "efectivo" ? "Efectivo" : "Nequi"}
+                    </span>
                   </label>
                 ))}
             </div>
@@ -1084,8 +1199,8 @@ export function CheckoutForm({
                 etiqueta="¿Con cuánto pagas?"
                 ayuda={
                   devuelta !== null
-                    ? `Te llevamos ${pesos(devuelta)} de devuelta.`
-                    : "Opcional. Así llevamos tu devuelta lista."
+                    ? `Te llevamos ${pesos(devuelta)} de cambio.`
+                    : "Opcional. Así llevamos tu cambio listo."
                 }
                 error={errorDe("pagaCon")}
               >
@@ -1101,7 +1216,9 @@ export function CheckoutForm({
                       value={pagaCon}
                       // Solo dígitos: "50.000" y "$50.000" son la misma intención, y hacer
                       // que el cliente adivine el formato es hacerle perder el pedido.
-                      onChange={(e) => setPagaCon(e.target.value.replace(/\D/g, ""))}
+                      onChange={(e) =>
+                        setPagaCon(e.target.value.replace(/\D/g, ""))
+                      }
                       onBlur={() => alSalirDe("pagaCon")}
                       placeholder="50000"
                       className={claseControl(errorDe("pagaCon"))}
@@ -1140,8 +1257,8 @@ export function CheckoutForm({
                 {/* Se dice el recorrido completo ANTES de que se vaya a Nequi: si no,
                     paga y cierra la pestaña sin saber que faltaba volver a adjuntar. */}
                 <p className="font-cuerpo text-[13px] text-cafe-suave">
-                  Paga desde tu app de Nequi, toma la captura del comprobante y vuelve aquí para
-                  adjuntarla.
+                  Paga desde tu app bancaria, toma la captura del comprobante y
+                  vuelve aquí para adjuntarla.
                 </p>
 
                 {!pagoConfirmado ? (
@@ -1188,14 +1305,18 @@ export function CheckoutForm({
               className="mt-0.5 size-4 shrink-0 accent-[var(--naranja)]"
             />
             <span>
-              Al continuar, aceptas nuestra política de tratamiento de datos personales.
+              Al continuar, aceptas nuestra política de tratamiento de datos
+              personales.
             </span>
           </label>
         </>
       )}
 
       {errorGeneral && (
-        <p role="alert" className="rounded-sm bg-error/10 px-3 py-2 font-cuerpo text-sm font-semibold text-error">
+        <p
+          role="alert"
+          className="rounded-sm bg-error/10 px-3 py-2 font-cuerpo text-sm font-semibold text-error"
+        >
           {errorGeneral}
         </p>
       )}
