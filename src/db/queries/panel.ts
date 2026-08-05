@@ -1,10 +1,11 @@
-import { and, asc, desc, eq, gte, isNull, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { order, orderItem, orderStatusEvent } from "@/db/schema";
 import { itemSnapshotSchema } from "@/lib/validaciones";
 import { siguienteEstado, validarCambioEstado, type MotivoBloqueo } from "@/lib/pedidos/estados";
 import { puedeAvisarse } from "@/lib/notificaciones/avisos";
 import { ahoraEnBogota, instanteEnBogota } from "@/lib/horario";
+import { rangoDelDia } from "@/lib/pedidos/dias";
 import { puntoDesdeGeoJSON } from "@/lib/zonas";
 import type { EstadoPedido, ItemSnapshot, TipoPedido } from "@/lib/notificaciones/plantillas";
 
@@ -121,6 +122,55 @@ function inicioDeHoy(ahora = new Date()): Date {
   return instanteEnBogota(ahoraEnBogota(ahora).fecha, 0);
 }
 
+/** Las columnas que las dos consultas de lista necesitan cargar del pedido. */
+const RELACIONES_DE_LISTA = {
+  orderItems: { columns: { cantidad: true, snapshot: true } },
+  orderStatusEvents: { columns: { estado: true, notificadoEn: true } },
+} as const;
+
+type FilaDeLista = {
+  id: string;
+  numero: number;
+  tipo: TipoPedido;
+  estado: EstadoPedido;
+  creadoEn: string;
+  programadoPara: string | null;
+  clienteNombre: string;
+  clienteTelefono: string;
+  barrio: string | null;
+  metodoPago: string;
+  total: number;
+  comprobanteUrl: string | null;
+  orderItems: { cantidad: number; snapshot: unknown }[];
+  orderStatusEvents: { estado: EstadoPedido; notificadoEn: string | null }[];
+};
+
+/** Fila cruda -> lo que pinta la pantalla. Compartido por las dos consultas de lista. */
+function aPedidoEnLista(fila: FilaDeLista): PedidoEnLista {
+  const yaAvisados = fila.orderStatusEvents
+    .filter((e) => e.notificadoEn !== null)
+    .map((e) => e.estado);
+
+  return {
+    id: fila.id,
+    numero: fila.numero,
+    tipo: fila.tipo,
+    estado: fila.estado,
+    creadoEn: new Date(fila.creadoEn),
+    programadoPara: fila.programadoPara ? new Date(fila.programadoPara) : null,
+    clienteNombre: fila.clienteNombre,
+    clienteTelefono: fila.clienteTelefono,
+    barrio: fila.barrio,
+    metodoPago: fila.metodoPago,
+    total: fila.total,
+    tieneComprobante: Boolean(fila.comprobanteUrl),
+    cantidadItems: fila.orderItems.reduce((n, i) => n + i.cantidad, 0),
+    resumenItems: resumirItems(aItems(fila.orderItems)),
+    avisoPendiente: puedeAvisarse(fila.estado) && !yaAvisados.includes(fila.estado),
+    siguiente: siguienteEstado(fila.estado, fila.tipo),
+  };
+}
+
 /**
  * Lo que el tablero necesita ver: **todo lo vivo, más lo que terminó hoy**.
  *
@@ -147,36 +197,50 @@ export async function listarPedidos(
     ),
     orderBy: desc(order.creadoEn),
     limit: 100,
-    with: {
-      orderItems: { columns: { cantidad: true, snapshot: true } },
-      orderStatusEvents: { columns: { estado: true, notificadoEn: true } },
-    },
+    with: RELACIONES_DE_LISTA,
   });
 
-  return filas.map((fila) => {
-    const yaAvisados = fila.orderStatusEvents
-      .filter((e) => e.notificadoEn !== null)
-      .map((e) => e.estado);
+  return filas.map(aPedidoEnLista);
+}
 
-    return {
-      id: fila.id,
-      numero: fila.numero,
-      tipo: fila.tipo,
-      estado: fila.estado,
-      creadoEn: new Date(fila.creadoEn),
-      programadoPara: fila.programadoPara ? new Date(fila.programadoPara) : null,
-      clienteNombre: fila.clienteNombre,
-      clienteTelefono: fila.clienteTelefono,
-      barrio: fila.barrio,
-      metodoPago: fila.metodoPago,
-      total: fila.total,
-      tieneComprobante: Boolean(fila.comprobanteUrl),
-      cantidadItems: fila.orderItems.reduce((n, i) => n + i.cantidad, 0),
-      resumenItems: resumirItems(aItems(fila.orderItems)),
-      avisoPendiente: puedeAvisarse(fila.estado) && !yaAvisados.includes(fila.estado),
-      siguiente: siguienteEstado(fila.estado, fila.tipo),
-    };
+/**
+ * Tope de la consulta de un día. Alto a propósito y distinto del `limit` del tablero.
+ *
+ * Con 100 y orden descendente, un día movido cortaría **los primeros pedidos del día** —los de
+ * la tarde temprano— sin que nadie lo note: la lista se vería completa y la suma del día saldría
+ * corta. En el tablero ese mismo corte es inofensivo porque lo vivo va primero por construcción.
+ */
+const TOPE_DIA = 300;
+
+/**
+ * Los pedidos que **entraron** ese día en Bogotá, todos, sin importar cómo terminaron.
+ *
+ * Es otra pregunta que la del tablero, y por eso es otra función y no una bandera: aquí no entra
+ * la rama de "lo vivo", que arrastraría a esta vista los pedidos abiertos de hoy. Un día pasado
+ * es un día cerrado, y lo que se consulta es qué pasó en él.
+ *
+ * El criterio es `creadoEn` y no `programadoPara`: la pregunta es qué se pidió ese día. Un pedido
+ * tomado el lunes para el martes cuenta como del lunes, que es cuando entró la plata al turno.
+ */
+export async function listarPedidosDelDia(
+  storeId: string,
+  dia: string,
+): Promise<PedidoEnLista[]> {
+  const { desde, hasta } = rangoDelDia(dia);
+
+  const filas = await db.query.order.findMany({
+    where: and(
+      eq(order.storeId, storeId),
+      gte(order.creadoEn, desde.toISOString()),
+      // Estrictamente menor: `hasta` es la medianoche del día siguiente y ya pertenece a él.
+      lt(order.creadoEn, hasta.toISOString()),
+    ),
+    orderBy: desc(order.creadoEn),
+    limit: TOPE_DIA,
+    with: RELACIONES_DE_LISTA,
   });
+
+  return filas.map(aPedidoEnLista);
 }
 
 /** Se busca por `numero` y no por `id`: es lo que el negocio dice en voz alta. */
