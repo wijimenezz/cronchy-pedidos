@@ -25,7 +25,12 @@ Responde en español.
 | Validación    | Zod (compartida cliente/servidor)                         |
 | Auth (panel)  | Sesión propia: cookie firmada contra `app_user`            |
 | Tests         | Vitest                                                    |
-| Deploy        | Vercel                                                    |
+| Deploy        | Vercel — **plan Pro**, ver abajo                          |
+
+**Por qué Pro y no el gratuito:** el plan Hobby de Vercel es para proyectos **no comerciales**, y
+esto vende churros. No es un límite técnico que se pueda optimizar —se puede bajar el polling
+todo lo que se quiera y seguiría fuera de los términos—, es una condición del negocio. Se anota
+aquí para que no se redescubra el día del lanzamiento.
 
 ---
 
@@ -436,12 +441,27 @@ porque un pedido programado para mañana ya entró; lo terminado sí, o la últi
 vuelve un archivo. El corte va en la consulta y no después: con el `limit` y sin filtro, un día
 movido empujaría fuera justo los pedidos vivos.
 
-**El polling del panel NO se pausa con la pestaña oculta.** Parece la optimización obvia —son
-~260.000 peticiones al mes por pestaña abierta— y es justo la que no se puede hacer: desde que
-el tablero avisa con sonido, ese intervalo dejó de ser "pintar la pantalla" y es **lo que
-detecta el pedido**. Pausarlo apaga la alarma cuando el empleado está en otra cosa, que es
-cuando hace falta. (El navegador ya frena por su cuenta los temporizadores de fondo a ~1 por
-minuto; una pestaña que suena queda exenta de ese freno.)
+**El polling del panel NO se pausa con la pestaña oculta.** Parece la optimización obvia y es
+justo la que no se puede hacer: desde que el tablero avisa con sonido, ese intervalo dejó de ser
+"pintar la pantalla" y es **lo que detecta el pedido**. Pausarlo apaga la alarma cuando el
+empleado está en otra cosa, que es cuando hace falta. (El navegador ya frena por su cuenta los
+temporizadores de fondo a ~1 por minuto; una pestaña que suena queda exenta de ese freno.)
+
+**El intervalo es de 15 s, y antes eran 5 puestos a ojo.** Nadie acepta un pedido en menos de
+quince, así que el ritmo rápido no compraba nada aprovechable y sí costaba: con el panel abierto
+de 12 a 8 pm son ~58.000 invocaciones al mes por pestaña, contra ~173.000 a 5 s. Lo que hace que
+no se noten es que **volver a la pestaña y recuperar la conexión disparan una consulta
+inmediata** —con un tope de 3 s entre ellas—, y que el aviso de "sin conexión" sale con el
+evento `offline` y no esperando a que falle una petición.
+
+**Supabase Realtime está evaluado y descartado, por ahora.** Para un SaaS multi-tienda es la
+arquitectura correcta; aquí cuesta más de lo que rinde. Realtime autoriza con RLS, RLS evalúa un
+JWT de Supabase, y este panel se autentica con la cookie propia firmada por HMAC (regla 12): no
+existe tal JWT. Adoptarlo obliga a activar RLS sobre `order` —nombre, teléfono, dirección y pin
+del cliente—, publicar la llave `anon` (que hoy no sale al navegador, ver Convenciones) y migrar
+la auth o firmar JWTs propios. **Reconsiderarlo cuando haya multi-tienda**, sobre unos 10
+paneles abiertos a la vez. La migración será barata: la alarma reacciona a *una lista nueva de
+pedidos*, no a cómo llegó, así que solo cambia quién llama a `setPedidos`.
 
 El aviso son dos disparadores: suena al aparecer un id que no estaba, y **insiste cada 30 s**
 mientras quede algo sin aceptar, así que el silencio significa que alguien lo tiene. No suena al
@@ -528,7 +548,7 @@ servidor— y el audio necesita **un gesto del usuario** antes de poder sonar: d
 
 ## Qué NO hacer
 
-- No introducir microservicios, colas ni WebSockets. El panel usa polling cada 5s.
+- No introducir microservicios, colas ni WebSockets. El panel usa polling cada 15s.
 - No agregar una pasarela de pago. El flujo es efectivo o comprobante de Nequi.
 - No usar la API de WhatsApp con el número actual del negocio: ese número se usa para
   hablar con proveedores y la Cloud API lo dejaría inutilizable en la app. Los avisos
