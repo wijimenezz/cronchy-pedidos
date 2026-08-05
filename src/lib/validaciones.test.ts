@@ -288,3 +288,36 @@ describe("crearPedidoSchema", () => {
     expect(r.success).toBe(false);
   });
 });
+
+/**
+ * Con cuánto paga. No lo valida contra el total a propósito: el total lo calcula el servidor
+ * desde la base (regla 1) y este esquema no lo conoce. Lo que sí comprueba es la forma.
+ */
+describe("pagaCon", () => {
+  it("es opcional: un pedido sin el dato es válido", () => {
+    expect(crearPedidoSchema.safeParse(payloadBase()).success).toBe(true);
+  });
+
+  it("acepta un billete normal", () => {
+    const r = crearPedidoSchema.safeParse(payloadBase({ pagaCon: 50000 }));
+    expect(r.success).toBe(true);
+  });
+
+  it.each([
+    ["cero", 0],
+    ["negativo", -1000],
+    ["con centavos", 50000.5],
+    ["un billete que no existe", 2_000_000],
+  ])("rechaza %s", (_caso, valor) => {
+    const r = crearPedidoSchema.safeParse(payloadBase({ pagaCon: valor }));
+    expect(r.success).toBe(false);
+  });
+
+  // El caso que NO se rechaza, y va escrito para que nadie lo "arregle": si el cliente
+  // escribe menos de lo que cuesta, el pedido entra igual y el panel muestra el número tal
+  // cual. Comparar contra el total aquí sería una segunda fuente de verdad del precio.
+  it("acepta un valor menor que el pedido: el total no se decide aquí", () => {
+    const r = crearPedidoSchema.safeParse(payloadBase({ pagaCon: 1000 }));
+    expect(r.success).toBe(true);
+  });
+});

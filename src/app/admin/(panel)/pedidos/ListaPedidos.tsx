@@ -1,30 +1,63 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Bell, BellOff } from "lucide-react";
 import type { PedidoEnLista } from "@/db/queries/panel";
+import { COLUMNAS_TABLERO, columnaDeTablero } from "@/lib/pedidos/estados";
 import { TarjetaPedido } from "./TarjetaPedido";
+import { idsNuevos } from "./alerta";
+import {
+  desbloquearSonido,
+  guardarPreferencia,
+  prefiereSonido,
+  reanudarAlPrimerToque,
+  sonarAviso,
+} from "./sonido";
 
 const CADA_MS = 5000;
 
 /**
- * La pantalla de operación. Se refresca sola cada 5 s (CLAUDE.md: polling, nada de
- * WebSockets) porque el negocio la deja abierta en el mostrador y un pedido nuevo tiene
+ * Cada cuánto vuelve a sonar mientras quede algo sin aceptar. Un solo pitido se pierde entre
+ * el ruido de una cocina; que insista significa que el silencio es información: alguien lo
+ * tiene.
+ */
+const INSISTIR_MS = 30_000;
+
+const TITULO_BASE = "Pedidos — Cronchy";
+
+/**
+ * El tablero de operación. Se refresca solo cada 5 s (CLAUDE.md: polling, nada de
+ * WebSockets) porque el negocio lo deja abierto en el mostrador y un pedido nuevo tiene
  * que aparecer sin que nadie recargue.
+ *
+ * Cuatro columnas y no una lista: en una lista plana, los cuatro pedidos sin aceptar y los
+ * tres que ya van en camino se ven igual. Lo que se opera aquí es un flujo, y verlo por fases
+ * es la diferencia entre saber cómo va la cocina y tener que leer pedido por pedido.
+ *
+ * Se pensó para la tablet de 12" del mostrador y para escritorio: a partir de 1024 px caben
+ * las cuatro columnas (~239 px cada una en vertical, ~324 en horizontal). Por debajo —un
+ * teléfono de urgencia— pasan a pestañas, porque cuatro columnas ahí no se leen.
  */
 export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
   const router = useRouter();
   const [pedidos, setPedidos] = useState(iniciales);
-  const [terminados, setTerminados] = useState(false);
   const [sinConexion, setSinConexion] = useState(false);
+  /** Solo manda en pantalla estrecha, donde las columnas son pestañas. */
+  const [columnaVisible, setColumnaVisible] = useState(0);
+  /**
+   * Si el aviso puede sonar. Arranca en `false` **siempre**, también para quien ya lo tenía
+   * activado: el navegador no deja sonar nada hasta que alguien toque la página, así que
+   * decir lo contrario en el botón sería mentir. Lo reactiva el primer toque.
+   */
+  const [sonido, setSonido] = useState(false);
 
-  const refrescar = useCallback(async (incluirTerminados: boolean) => {
+  const refrescar = useCallback(async () => {
     try {
-      const url = `/api/admin/pedidos${incluirTerminados ? "?terminados=1" : ""}`;
-      const respuesta = await fetch(url, { cache: "no-store" });
+      const respuesta = await fetch("/api/admin/pedidos", { cache: "no-store" });
 
-      // La sesión se venció mientras la pantalla estaba abierta: al login, no a una lista
-      // congelada que aparenta estar viva.
+      // La sesión se venció mientras la pantalla estaba abierta: al login, no a un tablero
+      // congelado que aparenta estar vivo.
       if (respuesta.status === 401) {
         router.replace("/admin/login");
         return;
@@ -36,31 +69,98 @@ export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
       setSinConexion(false);
     } catch {
       // Se avisa pero no se borra lo que ya está en pantalla: en el local el wifi se cae
-      // y una lista vieja sirve más que una vacía.
+      // y un tablero viejo sirve más que uno vacío.
       setSinConexion(true);
     }
   }, [router]);
 
+  // **Este intervalo no se pausa con la pestaña oculta, y es a propósito**: ya no solo pinta
+  // el tablero, es lo que detecta el pedido para avisar. Pausarlo apagaría la alarma justo
+  // cuando el empleado está en otra cosa, que es cuando más falta hace.
   useEffect(() => {
-    const id = setInterval(() => void refrescar(terminados), CADA_MS);
+    const id = setInterval(() => void refrescar(), CADA_MS);
     return () => clearInterval(id);
-  }, [refrescar, terminados]);
+  }, [refrescar]);
 
-  // El filtro se refresca desde el propio checkbox y no desde un efecto: pedirlo aquí
-  // encadenaría un render extra en cada cambio de estado del componente.
-  function cambiarFiltro(valor: boolean) {
-    setTerminados(valor);
-    void refrescar(valor);
+  const sinAceptar = pedidos.filter((p) => p.estado === "nuevo");
+
+  /**
+   * Los pedidos sin aceptar que ya conocíamos. **Se siembra con los `iniciales`**: si no, cada
+   * recarga sonaría como si todo fuera nuevo y el aviso dejaría de significar "entró uno".
+   */
+  const vistos = useRef<string[]>(iniciales.filter((p) => p.estado === "nuevo").map((p) => p.id));
+  // El contador para el temporizador que insiste. Va en un ref y no en las dependencias del
+  // efecto: la lista se reemplaza cada 5 s con el polling, así que un efecto que dependiera
+  // de ella recrearía el temporizador de 30 s antes de que llegue a disparar. Nunca sonaría.
+  const pendientes = useRef(0);
+
+  // Suena en cuanto aparece uno que no estaba, y de paso deja los dos refs al día. Va en un
+  // efecto y no en el render porque escribir un ref mientras se pinta es justo lo que React
+  // prohíbe: el render tiene que poder repetirse sin dejar rastro.
+  useEffect(() => {
+    const sinAceptarAhora = pedidos.filter((p) => p.estado === "nuevo").map((p) => p.id);
+    const nuevos = idsNuevos(vistos.current, sinAceptarAhora);
+
+    vistos.current = sinAceptarAhora;
+    pendientes.current = sinAceptarAhora.length;
+
+    if (nuevos.length > 0) sonarAviso();
+  }, [pedidos]);
+
+  // Y sigue insistiendo mientras nadie lo acepte.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (pendientes.current > 0) sonarAviso();
+    }, INSISTIR_MS);
+
+    return () => clearInterval(id);
+  }, []);
+
+  // El título es la única señal que se ve **desde otra pestaña**, y sale gratis.
+  useEffect(() => {
+    document.title = sinAceptar.length > 0 ? `(${sinAceptar.length}) ${TITULO_BASE}` : TITULO_BASE;
+
+    return () => {
+      document.title = TITULO_BASE;
+    };
+  }, [sinAceptar.length]);
+
+  // Devuelve el sonido al recargar sin obligar a tocar el botón cada mañana: el navegador
+  // exige un gesto, pero cualquiera sirve y el empleado va a tocar algo igualmente.
+  useEffect(() => {
+    if (!prefiereSonido()) return;
+    return reanudarAlPrimerToque(() => setSonido(true));
+  }, []);
+
+  function alternarSonido() {
+    const activar = !sonido;
+    setSonido(activar);
+    guardarPreferencia(activar);
+
+    // Este clic **es** el gesto que desbloquea el audio. Suena una vez para que quien lo
+    // active oiga qué va a oír cuando entre un pedido.
+    if (activar) void desbloquearSonido().then(sonarAviso);
   }
 
-  // Los programados van aparte y ordenados por su hora, no por cuándo entraron. La consulta
-  // sigue devolviendo lo más reciente primero, que es lo correcto para lo inmediato; pero un
-  // pedido para las 9 de la noche encabezando la lista a las 3 de la tarde es una distracción
-  // en plena operación. Se separa aquí, en el cliente, sin tocar la query ni sus índices.
-  const paraAhora = pedidos.filter((p) => !p.programadoPara);
-  const programados = pedidos
-    .filter((p) => p.programadoPara)
-    .sort((a, b) => +new Date(a.programadoPara!) - +new Date(b.programadoPara!));
+  /**
+   * Cada pedido en su columna, y dentro de cada una los programados **al final y por su
+   * hora**: uno para las nueve de la noche encabezando la columna a las tres de la tarde es
+   * una distracción. Lo inmediato manda, y entre lo inmediato manda lo más reciente, que es
+   * como llega de la consulta.
+   */
+  const porColumna = COLUMNAS_TABLERO.map((_, i) =>
+    pedidos
+      .filter((p) => columnaDeTablero(p.estado, p.tipo) === i)
+      .sort((a, b) => {
+        if (Boolean(a.programadoPara) !== Boolean(b.programadoPara)) {
+          return a.programadoPara ? 1 : -1;
+        }
+        if (a.programadoPara && b.programadoPara) {
+          return +new Date(a.programadoPara) - +new Date(b.programadoPara);
+        }
+        return 0;
+      }),
+  );
 
   return (
     <div className="flex flex-col gap-3">
@@ -74,74 +174,122 @@ export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
           )}
         </h1>
 
-        <label className="flex min-h-11 items-center gap-2 font-cuerpo text-sm text-cafe-suave">
-          <input
-            type="checkbox"
-            checked={terminados}
-            onChange={(e) => cambiarFiltro(e.target.checked)}
-            className="size-4 accent-naranja"
-          />
-          Ver terminados
-        </label>
+        <div className="flex items-center gap-3">
+          {sinConexion && (
+            <p
+              role="status"
+              className="rounded-sm bg-alerta/15 px-3 py-1.5 font-cuerpo text-[13px] font-semibold text-cafe"
+            >
+              Sin conexión. Reintentando…
+            </p>
+          )}
+
+          {/* Se pinta llamativo cuando está apagado y hay pedidos esperando: un panel mudo sin
+              que nadie lo sepa es peor que uno que no avisa. */}
+          <button
+            type="button"
+            onClick={alternarSonido}
+            aria-pressed={sonido}
+            className={`flex min-h-11 items-center gap-2 rounded-full border px-4 font-cuerpo text-sm font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-naranja ${
+              sonido
+                ? "border-crema-oscura text-cafe-suave hover:bg-crema"
+                : sinAceptar.length > 0
+                  ? "border-naranja bg-naranja text-crema"
+                  : "border-naranja text-naranja-osc hover:bg-naranja/10"
+            }`}
+          >
+            {sonido ? <Bell className="size-4" /> : <BellOff className="size-4" />}
+            {sonido ? "Sonido activo" : "Activar sonido"}
+          </button>
+        </div>
       </div>
 
-      {sinConexion && (
-        <p role="status" className="rounded-sm bg-alerta/15 px-3 py-2 font-cuerpo text-[13px] font-semibold text-cafe">
-          Sin conexión. Reintentando…
+      {/* El aviso que se ve. Acompaña al sonido y lo sustituye cuando está apagado. */}
+      {sinAceptar.length > 0 && (
+        <p
+          role="status"
+          className="rounded-md bg-naranja/12 px-4 py-2 font-cuerpo text-sm font-bold text-naranja-osc"
+        >
+          {sinAceptar.length === 1
+            ? "1 pedido nuevo sin aceptar"
+            : `${sinAceptar.length} pedidos nuevos sin aceptar`}
         </p>
       )}
 
-      {pedidos.length === 0 ? (
-        <p className="rounded-md border border-crema-oscura bg-tarjeta px-4 py-8 text-center font-cuerpo text-[15px] text-cafe-suave">
-          {terminados ? "No hay pedidos." : "No hay pedidos pendientes."}
-        </p>
-      ) : (
-        <>
-          <Grupo
-            pedidos={paraAhora}
-            alCambiar={() => refrescar(terminados)}
-            titulo={programados.length > 0 ? "Para ahora" : null}
+      {/* Las pestañas solo existen en pantalla estrecha; a partir de `lg` mandan las columnas
+          y estos botones sobran. */}
+      <div className="flex gap-2 overflow-x-auto lg:hidden" role="tablist">
+        {COLUMNAS_TABLERO.map((columna, i) => (
+          <button
+            key={columna.titulo}
+            type="button"
+            role="tab"
+            aria-selected={i === columnaVisible}
+            onClick={() => setColumnaVisible(i)}
+            className={`min-h-11 shrink-0 rounded-full border px-4 font-cuerpo text-sm font-bold transition-colors ${
+              i === columnaVisible
+                ? "border-naranja bg-naranja text-crema"
+                : "border-crema-oscura text-cafe-suave hover:bg-crema"
+            }`}
+          >
+            {columna.titulo}
+            <span className="ml-1.5 font-normal opacity-75">{porColumna[i].length}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-4 lg:items-start">
+        {COLUMNAS_TABLERO.map((columna, i) => (
+          <Columna
+            key={columna.titulo}
+            titulo={columna.titulo}
+            vacio={columna.vacio}
+            pedidos={porColumna[i]}
+            alCambiar={refrescar}
+            oculta={i !== columnaVisible}
           />
-          <Grupo
-            pedidos={programados}
-            alCambiar={() => refrescar(terminados)}
-            titulo="Programados"
-          />
-        </>
-      )}
+        ))}
+      </div>
     </div>
   );
 }
 
-function Grupo({
-  pedidos,
+function Columna({
   titulo,
+  vacio,
+  pedidos,
   alCambiar,
+  oculta,
 }: {
+  titulo: string;
+  vacio: string;
   pedidos: PedidoEnLista[];
-  /** `null` cuando no hay con qué contrastar y el encabezado sobraría. */
-  titulo: string | null;
   alCambiar: () => void;
+  /** En pantalla estrecha solo se ve la pestaña elegida; en `lg` se ven todas. */
+  oculta: boolean;
 }) {
-  if (pedidos.length === 0) return null;
-
   return (
-    <section className="flex flex-col gap-2">
-      {titulo && (
-        <h2 className="font-titulo text-base font-bold text-cafe-suave">
-          {titulo}
-          <span className="ml-2 font-cuerpo text-sm font-normal text-cafe-tenue">
-            {pedidos.length}
-          </span>
-        </h2>
+    <section className={`${oculta ? "hidden lg:flex" : "flex"} flex-col gap-2`}>
+      {/* El encabezado se queda arriba al bajar por una columna larga: sin esto, a mitad de
+          scroll ya no se sabe qué columna se está leyendo. */}
+      <h2 className="sticky top-0 z-10 flex items-baseline gap-2 rounded-sm bg-crema/95 py-1.5 backdrop-blur">
+        <span className="font-titulo text-base font-bold text-cafe">{titulo}</span>
+        <span className="font-cuerpo text-sm text-cafe-tenue">{pedidos.length}</span>
+      </h2>
+
+      {pedidos.length === 0 ? (
+        <p className="rounded-md border border-dashed border-crema-oscura px-3 py-6 text-center font-cuerpo text-[13px] text-cafe-tenue">
+          {vacio}
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {pedidos.map((pedido) => (
+            <li key={pedido.id}>
+              <TarjetaPedido pedido={pedido} alCambiar={alCambiar} />
+            </li>
+          ))}
+        </ul>
       )}
-      <ul className="flex flex-col gap-3">
-        {pedidos.map((pedido) => (
-          <li key={pedido.id}>
-            <TarjetaPedido pedido={pedido} alCambiar={alCambiar} />
-          </li>
-        ))}
-      </ul>
     </section>
   );
 }

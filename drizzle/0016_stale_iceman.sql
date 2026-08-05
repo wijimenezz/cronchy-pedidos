@@ -1,0 +1,12 @@
+-- Con cuánto va a pagar el cliente, para que el domiciliario salga con la devuelta contada.
+-- Sin esto, un pedido en efectivo de $44.000 que se paga con $100.000 es una llamada para
+-- preguntarlo, o un viaje de vuelta por el cambio.
+--
+-- Solo aplica a efectivo, y es opcional a propósito: NULL significa "no lo dijo", que no es lo
+-- mismo que "paga justo". Obligarlo sería un campo más entre el cliente y el botón de
+-- confirmar por un dato que muchas veces da igual.
+--
+-- La devuelta NO se guarda: se calcula contra el total cuando el panel la pinta. Guardarla
+-- sería un segundo número que puede contradecir al primero, y los cálculos de plata salen del
+-- servidor y de un solo sitio (regla 1).
+ALTER TABLE "order" ADD COLUMN "paga_con" integer;

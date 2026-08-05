@@ -1,9 +1,10 @@
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, notInArray, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { order, orderItem, orderStatusEvent } from "@/db/schema";
 import { itemSnapshotSchema } from "@/lib/validaciones";
 import { siguienteEstado, validarCambioEstado, type MotivoBloqueo } from "@/lib/pedidos/estados";
 import { puedeAvisarse } from "@/lib/notificaciones/avisos";
+import { ahoraEnBogota, instanteEnBogota } from "@/lib/horario";
 import { puntoDesdeGeoJSON } from "@/lib/zonas";
 import type { EstadoPedido, ItemSnapshot, TipoPedido } from "@/lib/notificaciones/plantillas";
 
@@ -26,6 +27,8 @@ export type PedidoPanel = {
   programadoPara: Date | null;
   clienteNombre: string;
   clienteTelefono: string;
+  /** Con qué ficha de cliente quedó enlazado, para poder mirar su historial. */
+  customerId: string | null;
   recibeNombre: string | null;
   recibeTelefono: string | null;
   direccion: string | null;
@@ -41,6 +44,8 @@ export type PedidoPanel = {
   /** El pin que confirmó el cliente. Es lo que abre el domiciliario en Maps (regla 14). */
   punto: { lat: number; lng: number } | null;
   metodoPago: string;
+  /** Con cuánto paga, si lo dijo. La devuelta se calcula, no se guarda. */
+  pagaCon: number | null;
   comprobanteUrl: string | null;
   notas: string | null;
   items: ItemSnapshot[];
@@ -74,6 +79,14 @@ export type PedidoEnLista = Pick<
   tieneComprobante: boolean;
   cantidadItems: number;
   /**
+   * Qué hay que preparar, en una línea: "1× Cronchy Familiar · 1× Agua 600ml".
+   *
+   * Va en la tarjeta del tablero porque "1 producto" no le dice a nadie qué freír, y abrir
+   * cada pedido para averiguarlo es lo que hace lenta una cocina. Sale del snapshot, que la
+   * consulta ya carga para contar las unidades.
+   */
+  resumenItems: string;
+  /**
    * Si queda un aviso por mandarle al cliente en el estado actual (regla 11). Lo decide
    * el servidor y no la tarjeta: saber qué estados llevan mensaje es cosa de
    * `plantillas.ts`, y arrastrar ese módulo —y el transporte con él— hasta el navegador
@@ -93,29 +106,54 @@ function aItems(filas: { snapshot: unknown }[]): ItemSnapshot[] {
 }
 
 /**
- * Lista para la pantalla de operación. Los terminados se excluyen por defecto: lo que
- * importa en la cocina es lo que sigue vivo, y a fin de turno la lista quedaría enterrada
- * bajo los entregados del día.
+ * "1× Cronchy Familiar · 2× Agua 600ml". Sin modificadores: en la tarjeta caben dos líneas y
+ * lo que se busca es reconocer el pedido de un vistazo, no armarlo — para eso está el detalle.
+ */
+function resumirItems(items: ItemSnapshot[]): string {
+  return items.map((i) => `${i.cantidad}× ${i.nombre}`).join(" · ");
+}
+
+const TERMINALES: EstadoPedido[] = ["entregado", "cancelado"];
+
+/** Medianoche de hoy en Bogotá, como instante absoluto. La conversión es la única del
+ *  proyecto (regla 6) y vive en `horario.ts`; aquí solo se usa. */
+function inicioDeHoy(ahora = new Date()): Date {
+  return instanteEnBogota(ahoraEnBogota(ahora).fecha, 0);
+}
+
+/**
+ * Lo que el tablero necesita ver: **todo lo vivo, más lo que terminó hoy**.
+ *
+ * Las dos mitades tienen razones distintas. Lo vivo no se filtra por fecha porque un pedido
+ * programado para mañana ya entró y hay que verlo. Lo terminado sí, porque la columna
+ * "Terminados" con los entregados de toda la semana deja de informar y se vuelve un archivo.
+ *
+ * El corte va en la consulta y no después: con `limit` y sin filtro, un día movido empujaría
+ * fuera de las 100 filas justo los pedidos vivos, que son los que no pueden faltar.
  */
 export async function listarPedidos(
   storeId: string,
-  opciones: { incluirTerminados?: boolean } = {},
+  opciones: { desde?: Date } = {},
 ): Promise<PedidoEnLista[]> {
+  const desde = opciones.desde ?? inicioDeHoy();
+
   const filas = await db.query.order.findMany({
-    where: eq(order.storeId, storeId),
+    where: and(
+      eq(order.storeId, storeId),
+      or(
+        notInArray(order.estado, TERMINALES),
+        gte(order.creadoEn, desde.toISOString()),
+      ),
+    ),
     orderBy: desc(order.creadoEn),
     limit: 100,
     with: {
-      orderItems: { columns: { cantidad: true } },
+      orderItems: { columns: { cantidad: true, snapshot: true } },
       orderStatusEvents: { columns: { estado: true, notificadoEn: true } },
     },
   });
 
-  const vivos = opciones.incluirTerminados
-    ? filas
-    : filas.filter((f) => f.estado !== "entregado" && f.estado !== "cancelado");
-
-  return vivos.map((fila) => {
+  return filas.map((fila) => {
     const yaAvisados = fila.orderStatusEvents
       .filter((e) => e.notificadoEn !== null)
       .map((e) => e.estado);
@@ -134,6 +172,7 @@ export async function listarPedidos(
       total: fila.total,
       tieneComprobante: Boolean(fila.comprobanteUrl),
       cantidadItems: fila.orderItems.reduce((n, i) => n + i.cantidad, 0),
+      resumenItems: resumirItems(aItems(fila.orderItems)),
       avisoPendiente: puedeAvisarse(fila.estado) && !yaAvisados.includes(fila.estado),
       siguiente: siguienteEstado(fila.estado, fila.tipo),
     };
@@ -169,6 +208,7 @@ export async function obtenerPedidoPorNumero(
       programadoPara: fila.programadoPara ? new Date(fila.programadoPara) : null,
       clienteNombre: fila.clienteNombre,
       clienteTelefono: fila.clienteTelefono,
+      customerId: fila.customerId,
       recibeNombre: fila.recibeNombre,
       recibeTelefono: fila.recibeTelefono,
       direccion: fila.direccion,
@@ -177,6 +217,7 @@ export async function obtenerPedidoPorNumero(
       zonaNombre: fila.zonaNombre,
       punto: puntoDesdeGeoJSON(fila.puntoGeo),
       metodoPago: fila.metodoPago,
+      pagaCon: fila.pagaCon,
       comprobanteUrl: fila.comprobanteUrl,
       notas: fila.notas,
       items: aItems(fila.orderItems),

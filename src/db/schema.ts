@@ -308,6 +308,9 @@ export const order = pgTable("order", {
 	indicaciones: text(),
 	notas: text(),
 	metodoPago: metodoPago("metodo_pago").notNull(),
+	// Con cuánto billete va a pagar, para que el domiciliario lleve la devuelta. Solo aplica
+	// a efectivo y es opcional: NULL significa "no lo dijo", no "paga justo".
+	pagaCon: integer("paga_con"),
 	comprobanteUrl: text("comprobante_url"),
 	subtotal: integer().notNull(),
 	costoDomicilio: integer("costo_domicilio").default(0).notNull(),

@@ -84,6 +84,41 @@ export function indiceDeHito(estado: EstadoPedido, tipo: TipoPedido): number {
   return hitosDelPedido(tipo).findIndex((h) => h.hito === hito);
 }
 
+// ------------------------------------------------------------
+// Columnas del tablero del panel
+// ------------------------------------------------------------
+
+/**
+ * Las cuatro columnas del tablero de pedidos. Son **los mismos cuatro grupos** que los hitos
+ * del seguimiento, y eso no es casualidad: si la cocina y el cliente contaran el pedido en
+ * fases distintas, uno de los dos estaría viendo algo que no está pasando.
+ *
+ * Lo que cambia son las palabras, porque cambia quién lee: el cliente ve "Recibido" y quien
+ * fríe ve "Sin aceptar", que es lo que le pide una acción. Por eso la agrupación se comparte
+ * (`indiceDeHito`) y los rótulos no.
+ */
+export const COLUMNAS_TABLERO = [
+  { titulo: "Sin aceptar", vacio: "Nada pendiente por aceptar." },
+  { titulo: "En preparación", vacio: "Nada en el fuego." },
+  { titulo: "En camino / Listos", vacio: "Nada saliendo." },
+  { titulo: "Terminados", vacio: "Todavía nada terminado hoy." },
+] as const;
+
+/**
+ * En qué columna del tablero va un pedido. Siempre devuelve una: aquí no hay pedidos sin
+ * sitio, a diferencia del seguimiento del cliente, donde un pedido cancelado simplemente no
+ * pinta barra.
+ *
+ * `cancelado` cae en "Terminados" y esa es la única diferencia con `indiceDeHito`: para el
+ * cliente cancelar es salirse del recorrido, pero para la cocina es un pedido que ya no toca,
+ * que es justo lo que significa esa columna.
+ */
+export function columnaDeTablero(estado: EstadoPedido, tipo: TipoPedido): number {
+  if (estado === "cancelado") return COLUMNAS_TABLERO.length - 1;
+
+  return indiceDeHito(estado, tipo);
+}
+
 export type ToneEstado = "activo" | "exito" | "cancelado";
 
 export function toneDeEstado(estado: EstadoPedido): ToneEstado {

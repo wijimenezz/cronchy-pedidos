@@ -13,6 +13,13 @@ import type { Punto } from "@/lib/zonas";
  * teclee lo que el mapa ya sabe.
  *
  * Es OSM y no Google, igual que los mapas y el cálculo de cobertura.
+ *
+ * **El archivo tiene dos mitades y corren en sitios distintos:**
+ *
+ * - `barrioDelPunto` sale a Nominatim y es **solo de servidor** (ver su propia nota).
+ * - `decidirBarrio` es puro y lo importa el checkout, que es un componente de cliente. No
+ *   arrastra nada al navegador: no hay driver de base de datos aquí, y el `Punto` de
+ *   `zonas.ts` entra como `import type`, que se borra al compilar.
  */
 
 /** Se identifica la app, como exige la política de uso de Nominatim. */
@@ -62,6 +69,60 @@ export function barrioDeRespuesta(datos: unknown): string | null {
   // Un nombre absurdamente largo no lo escribió un vecino: no cabe en el campo y no le sirve
   // a nadie. Mejor vacío, que se ve y se corrige, que un texto que hay que borrar entero.
   return limpio.length > 0 && limpio.length <= 120 ? limpio : null;
+}
+
+/**
+ * Por qué se está consultando el barrio. **La decisión de escribirlo o no depende de esto**,
+ * y no de quién escribió lo que ya hay.
+ *
+ * Montar la página con el pin guardado no es cambiar de dirección: es el mismo sitio de
+ * siempre, así que lo que el cliente dejó escrito manda. Mover el pin **sí** es cambiar de
+ * dirección, y ahí el barrio tiene que seguir al pin.
+ */
+export type MotivoConsulta = "montaje" | "pin-movido";
+
+export type DecisionBarrio = {
+  /** Lo que hay ahora mismo en el campo. */
+  actual: string;
+  /** Lo que dice el mapa de este punto, o `null` si no supo. */
+  sugerido: string | null;
+  /** La última sugerencia recibida en esta sesión, escrita o no. */
+  ultimaSugerencia: string | null;
+  motivo: MotivoConsulta;
+};
+
+/**
+ * Qué escribir en el campo del barrio, o `null` para no tocarlo.
+ *
+ * Existe como función pura, y no dentro del componente, porque el bug que vino a arreglar no
+ * se ve leyendo el código: se ve simulando una segunda visita. La versión anterior decidía
+ * comparando el campo con "la última sugerencia que escribimos", pero esa memoria vivía en un
+ * `useRef` —muere al recargar— mientras el campo vive en localStorage —sobrevive—. En la
+ * segunda visita el campo traía el barrio del pedido pasado y el ref arrancaba vacío, así que
+ * ninguna rama se cumplía y el campo quedaba congelado: mover el pin no lo cambiaba y había
+ * que borrarlo a mano.
+ */
+export function decidirBarrio({
+  actual,
+  sugerido,
+  ultimaSugerencia,
+  motivo,
+}: DecisionBarrio): string | null {
+  // OSM no supo, o falló. Nunca se borra lo que haya: el campo es obligatorio y vaciarlo
+  // dejaría al cliente con un error que él no provocó.
+  if (!sugerido) return null;
+
+  // Un hueco se llena venga de donde venga la consulta: no hay nada que pisar.
+  if (actual.trim() === "") return sugerido;
+
+  // Mismo pin, misma dirección. Lo que el cliente dejó escrito —incluida una corrección al
+  // nombre que usa OSM— vale más que volver a sugerir lo mismo.
+  if (motivo === "montaje") return null;
+
+  // El pin se movió. Si el barrio sugerido cambió, el cliente cambió de dirección y el campo
+  // tiene que seguirlo. Si es el mismo, fue un ajuste de unos metros dentro del mismo barrio
+  // y no hay razón para borrar una corrección hecha a mano.
+  return sugerido === ultimaSugerencia ? null : sugerido;
 }
 
 /** Redondear a 4 decimales (~11 m) es la clave del memo: arrastrar el pin unos metros no
