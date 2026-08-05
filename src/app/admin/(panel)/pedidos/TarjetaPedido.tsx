@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, useSyncExternalStore, useTransition } from "react";
 import type { PedidoEnLista } from "@/db/queries/panel";
-import { cuandoCorto, pesos } from "@/lib/notificaciones/plantillas";
+import { cuandoCorto, horaCorta, pesos } from "@/lib/notificaciones/plantillas";
 import { ETIQUETA_ESTADO, METODO_PAGO_ETIQUETA } from "@/lib/pedidos/estados";
 import { cambiarEstado, prepararAviso } from "./acciones";
 
@@ -70,14 +70,19 @@ function espera(minutos: number): string {
   return resto === 0 ? `${horas} h` : `${horas} h ${resto}`;
 }
 
-/** Solo la hora: el tablero es del turno de hoy, la fecha sobra y ocupa. */
-function hora(fecha: Date): string {
-  return new Intl.DateTimeFormat("es-CO", {
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "America/Bogota",
-  }).format(fecha);
-}
+/**
+ * Solo la hora: el tablero es del turno de hoy, la fecha sobra y ocupa.
+ *
+ * Se usa `horaCorta` y **no** un `Intl.DateTimeFormat("es-CO").format()`, aunque parezca más
+ * directo. Esta tarjeta se pinta en el servidor y se rehidrata en el navegador, y `es-CO` mete
+ * un espacio duro entre "a." y "m." que **no es el mismo carácter en los dos**: Node emite
+ * U+00A0 y Chrome U+202F. Se ven idénticos, se imprimen idénticos en el log, y React tira un
+ * error de hidratación mostrando dos líneas que parecen iguales.
+ *
+ * `horaCorta` esquiva eso porque lee las partes con `formatToParts` y las une con un espacio
+ * normal, así que el separador del locale nunca llega a la pantalla.
+ */
+const hora = horaCorta;
 
 export function TarjetaPedido({
   pedido,

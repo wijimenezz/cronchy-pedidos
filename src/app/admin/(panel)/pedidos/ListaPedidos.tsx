@@ -15,7 +15,20 @@ import {
   sonarAviso,
 } from "./sonido";
 
-const CADA_MS = 5000;
+/**
+ * Cada cuánto se pregunta por pedidos nuevos.
+ *
+ * Eran 5 s y era una cifra puesta a ojo: nadie acepta un pedido en menos de quince, así que
+ * ese ritmo no compraba nada que un humano aprovechara y sí costaba lo suyo — con el panel
+ * abierto de 12 a 8 pm eran ~173.000 invocaciones al mes por pestaña, contra ~58.000 ahora.
+ *
+ * Lo que hace que 15 s no se noten es lo de abajo: volver a la pestaña o recuperar la conexión
+ * no esperan al siguiente tic.
+ */
+const CADA_MS = 15_000;
+
+/** Tope entre consultas. Sin él, alternar pestañas rápido dispara una ráfaga. */
+const MINIMO_ENTRE_MS = 3000;
 
 /**
  * Cada cuánto vuelve a sonar mientras quede algo sin aceptar. Un solo pitido se pierde entre
@@ -52,7 +65,12 @@ export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
    */
   const [sonido, setSonido] = useState(false);
 
+  /** Cuándo salió la última consulta, para el tope de `MINIMO_ENTRE_MS`. */
+  const ultimoRefresco = useRef(0);
+
   const refrescar = useCallback(async () => {
+    ultimoRefresco.current = Date.now();
+
     try {
       const respuesta = await fetch("/api/admin/pedidos", { cache: "no-store" });
 
@@ -74,12 +92,47 @@ export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
     }
   }, [router]);
 
-  // **Este intervalo no se pausa con la pestaña oculta, y es a propósito**: ya no solo pinta
-  // el tablero, es lo que detecta el pedido para avisar. Pausarlo apagaría la alarma justo
-  // cuando el empleado está en otra cosa, que es cuando más falta hace.
+  /**
+   * El reloj, más los dos momentos en los que no tiene sentido esperarlo.
+   *
+   * **El intervalo no se pausa con la pestaña oculta, y es a propósito**: ya no solo pinta el
+   * tablero, es lo que detecta el pedido para avisar. Pausarlo apagaría la alarma justo cuando
+   * el empleado está en otra cosa, que es cuando más falta hace.
+   *
+   * Todo se suscribe y se limpia aquí: un solo sitio que engancha y un solo `return` que
+   * desmonta, en vez de tres efectos que hay que leer juntos para saber qué queda vivo.
+   */
   useEffect(() => {
-    const id = setInterval(() => void refrescar(), CADA_MS);
-    return () => clearInterval(id);
+    const reloj = setInterval(() => void refrescar(), CADA_MS);
+
+    function refrescarSiToca() {
+      if (Date.now() - ultimoRefresco.current < MINIMO_ENTRE_MS) return;
+      void refrescar();
+    }
+
+    // Volver a la pestaña es justo cuando más falta: si entraron pedidos mientras el empleado
+    // estaba en WhatsApp, al volver los ve **y suenan**, porque la detección reacciona a la
+    // lista nueva y no a cómo llegó.
+    function alVolver() {
+      if (document.visibilityState === "visible") refrescarSiToca();
+    }
+
+    // El banner no espera a que falle una petición: en el local el wifi se cae y quien opera
+    // tiene que saberlo en el momento, no dentro de quince segundos.
+    function alCaerLaRed() {
+      setSinConexion(true);
+    }
+
+    document.addEventListener("visibilitychange", alVolver);
+    window.addEventListener("online", refrescarSiToca);
+    window.addEventListener("offline", alCaerLaRed);
+
+    return () => {
+      clearInterval(reloj);
+      document.removeEventListener("visibilitychange", alVolver);
+      window.removeEventListener("online", refrescarSiToca);
+      window.removeEventListener("offline", alCaerLaRed);
+    };
   }, [refrescar]);
 
   const sinAceptar = pedidos.filter((p) => p.estado === "nuevo");
