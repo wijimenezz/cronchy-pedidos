@@ -16,6 +16,17 @@ function useHidratado(): boolean {
   return useSyncExternalStore(sinSuscripcion, enCliente, enServidor);
 }
 
+/**
+ * **No usa `components/ui/Modal`, y no es un descuido.** Los otros dos diálogos del proyecto se
+ * unificaron ahí; este se quedó fuera porque difiere en las dos cosas que definen un modal:
+ *
+ * - **Es bloqueante.** Mientras no haya tipo elegido no se puede cerrar —ni por fuera, ni con
+ *   Escape—, porque toda la carta depende de esa respuesta. El `Modal` compartido cierra siempre.
+ * - **Es hoja inferior en móvil** (`items-end` + `rounded-t-lg`), donde el pulgar alcanza.
+ *
+ * Meterlo obligaría a añadirle al componente compartido dos props que usaría solo él, que es
+ * cómo una abstracción buena se convierte en una mala.
+ */
 export function SelectorTipoPedido() {
   const tipo = useTipoPedido();
   const [reabierto, setReabierto] = useState(false);

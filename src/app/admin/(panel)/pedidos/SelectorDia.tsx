@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
-import { DIAS_SEMANA, MESES, conMayuscula, diasDelMes } from "@/lib/fechas";
+import { DIAS_SEMANA, MESES, conMayuscula, desplazarDia, diasDelMes } from "@/lib/fechas";
+import { Modal, ModalCerrar } from "@/components/ui/Modal";
 
 /**
  * La barra de fecha del panel: `‹ 📅 Martes, 9 de diciembre ›  [Hoy]`.
@@ -109,99 +110,82 @@ export function SelectorDia({
       )}
 
       {abierto && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-cafe/40 p-4"
-          onClick={() => setAbierto(false)}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Elige el día"
-            onClick={(e) => e.stopPropagation()}
-            className="flex w-full max-w-sm flex-col overflow-hidden rounded-lg bg-tarjeta shadow-modal"
-          >
-            <div className="flex items-center justify-between gap-2 bg-naranja px-3 py-2">
-              <button
-                type="button"
-                aria-label="Mes anterior"
-                onClick={() => setMes((m) => moverMes(m, -1))}
-                className="flex size-11 shrink-0 items-center justify-center rounded-full text-crema"
-              >
-                <ChevronLeft className="size-5" />
-              </button>
+        <Modal etiqueta="Elige el día" onCerrar={() => setAbierto(false)}>
+          <div className="flex items-center justify-between gap-2 bg-naranja px-3 py-2">
+            <button
+              type="button"
+              aria-label="Mes anterior"
+              onClick={() => setMes((m) => moverMes(m, -1))}
+              className="flex size-11 shrink-0 items-center justify-center rounded-full text-crema"
+            >
+              <ChevronLeft className="size-5" />
+            </button>
 
-              <span className="font-titulo text-base font-semibold text-crema">
-                {conMayuscula(MESES[mes.mes - 1])} {mes.anio}
-              </span>
-
-              <button
-                type="button"
-                aria-label="Mes siguiente"
-                disabled={mesFuturo}
-                onClick={() => setMes((m) => moverMes(m, 1))}
-                className="flex size-11 shrink-0 items-center justify-center rounded-full text-crema disabled:opacity-30"
-              >
-                <ChevronRight className="size-5" />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-7 gap-0.5 p-4">
-              {DIAS_SEMANA.map((d) => (
-                <span
-                  key={d}
-                  className="flex h-8 items-center justify-center font-cuerpo text-[11px] text-cafe-tenue"
-                >
-                  {d}
-                </span>
-              ))}
-
-              {Array.from({ length: primerDiaSemana }, (_, i) => (
-                <span key={`hueco-${i}`} aria-hidden />
-              ))}
-
-              {Array.from({ length: totalDias }, (_, i) => i + 1).map((d) => {
-                const fecha = aTexto(mes.anio, mes.mes, d);
-                const futuro = fecha > hoy;
-                const elegido = fecha === dia;
-
-                // Un día futuro no es un enlace roto: no existe. Se pinta apagado y sin href.
-                if (futuro) {
-                  return (
-                    <span
-                      key={d}
-                      aria-disabled
-                      className="flex h-10 items-center justify-center font-cuerpo text-sm text-cafe-tenue opacity-30"
-                    >
-                      {d}
-                    </span>
-                  );
-                }
-
-                return (
-                  <Link
-                    key={d}
-                    href={`/admin/pedidos?fecha=${fecha}`}
-                    onClick={() => setAbierto(false)}
-                    aria-current={elegido ? "date" : undefined}
-                    className={`flex h-10 items-center justify-center rounded-full font-cuerpo text-sm ${
-                      elegido ? "bg-naranja font-bold text-crema" : "text-cafe hover:bg-crema"
-                    }`}
-                  >
-                    {d}
-                  </Link>
-                );
-              })}
-            </div>
+            <span className="font-titulo text-base font-semibold text-crema">
+              {conMayuscula(MESES[mes.mes - 1])} {mes.anio}
+            </span>
 
             <button
               type="button"
-              onClick={() => setAbierto(false)}
-              className="min-h-11 self-end px-5 pb-3 font-cuerpo text-sm font-bold uppercase text-naranja"
+              aria-label="Mes siguiente"
+              disabled={mesFuturo}
+              onClick={() => setMes((m) => moverMes(m, 1))}
+              className="flex size-11 shrink-0 items-center justify-center rounded-full text-crema disabled:opacity-30"
             >
-              Cerrar
+              <ChevronRight className="size-5" />
             </button>
           </div>
-        </div>
+
+          <div className="grid grid-cols-7 gap-0.5 p-4">
+            {DIAS_SEMANA.map((d) => (
+              <span
+                key={d}
+                className="flex h-8 items-center justify-center font-cuerpo text-[11px] text-cafe-tenue"
+              >
+                {d}
+              </span>
+            ))}
+
+            {Array.from({ length: primerDiaSemana }, (_, i) => (
+              <span key={`hueco-${i}`} aria-hidden />
+            ))}
+
+            {Array.from({ length: totalDias }, (_, i) => i + 1).map((d) => {
+              const fecha = aTexto(mes.anio, mes.mes, d);
+              const futuro = fecha > hoy;
+              const elegido = fecha === dia;
+
+              // Un día futuro no es un enlace roto: no existe. Se pinta apagado y sin href.
+              if (futuro) {
+                return (
+                  <span
+                    key={d}
+                    aria-disabled
+                    className="flex h-10 items-center justify-center font-cuerpo text-sm text-cafe-tenue opacity-30"
+                  >
+                    {d}
+                  </span>
+                );
+              }
+
+              return (
+                <Link
+                  key={d}
+                  href={`/admin/pedidos?fecha=${fecha}`}
+                  onClick={() => setAbierto(false)}
+                  aria-current={elegido ? "date" : undefined}
+                  className={`flex h-10 items-center justify-center rounded-full font-cuerpo text-sm ${
+                    elegido ? "bg-naranja font-bold text-crema" : "text-cafe hover:bg-crema"
+                  }`}
+                >
+                  {d}
+                </Link>
+              );
+            })}
+          </div>
+
+          <ModalCerrar onCerrar={() => setAbierto(false)} />
+        </Modal>
       )}
     </div>
   );
@@ -225,20 +209,4 @@ function Flecha({
       {icono}
     </Link>
   );
-}
-
-/**
- * Un día atrás o adelante, para los `href` de las flechas.
- *
- * Aquí sí se hace con `Date` local y no con el helper de Bogotá de `dias.ts`: esto es aritmética
- * de calendario sobre un número de día, no una conversión de instante. `new Date(a, m - 1, d)`
- * construye la fecha en hora local y las tres partes se vuelven a leer con `getFullYear/Month/Date`,
- * así que la zona horaria entra y sale por el mismo sitio y se cancela. Lo que jamás hay que
- * hacer es `new Date("2025-12-09")`, que se interpreta como UTC y en Colombia cae un día antes.
- */
-function desplazarDia(fecha: string, paso: number): string {
-  const [anio, mes, dia] = fecha.split("-").map(Number);
-  const d = new Date(anio, mes - 1, dia + paso);
-
-  return aTexto(d.getFullYear(), d.getMonth() + 1, d.getDate());
 }

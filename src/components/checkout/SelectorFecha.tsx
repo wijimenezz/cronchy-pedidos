@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import { DIAS_SEMANA, MESES_CORTOS, conMayuscula, diasDelMes } from "@/lib/fechas";
+import { Modal, ModalCerrar } from "@/components/ui/Modal";
 
 /**
  * Selector de fecha en tres etapas: año → mes → día.
@@ -126,156 +127,139 @@ export function SelectorFecha({
       </button>
 
       {abierto && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-cafe/40 p-4"
-          onClick={cerrar}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Elige tu fecha de cumpleaños"
-            onClick={(e) => e.stopPropagation()}
-            className="flex w-full max-w-sm flex-col overflow-hidden rounded-lg bg-tarjeta shadow-modal"
-          >
-            <div className="bg-naranja px-5 py-4">
-              <button
-                type="button"
-                onClick={() => setEtapa("anio")}
-                className="block font-cuerpo text-sm text-crema/80"
-              >
-                {borrador.anio}
-              </button>
-              <button
-                type="button"
-                onClick={() => setEtapa("dia")}
-                className="block text-left font-titulo text-2xl font-semibold text-crema"
-              >
-                {conMayuscula(formatear(borrador, { weekday: "short", day: "numeric", month: "long" }))}
-              </button>
-            </div>
+        <Modal etiqueta="Elige tu fecha de cumpleaños" onCerrar={cerrar}>
+          <div className="bg-naranja px-5 py-4">
+            <button
+              type="button"
+              onClick={() => setEtapa("anio")}
+              className="block font-cuerpo text-sm text-crema/80"
+            >
+              {borrador.anio}
+            </button>
+            <button
+              type="button"
+              onClick={() => setEtapa("dia")}
+              className="block text-left font-titulo text-2xl font-semibold text-crema"
+            >
+              {conMayuscula(formatear(borrador, { weekday: "short", day: "numeric", month: "long" }))}
+            </button>
+          </div>
 
-            <div className="p-4">
-              {etapa === "anio" && (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    aria-label="Años más recientes"
-                    disabled={paginaAnios === 0}
-                    onClick={() => setPaginaAnios((p) => p - 1)}
-                    className="flex size-11 shrink-0 items-center justify-center rounded-full text-cafe disabled:opacity-30"
-                  >
-                    <ChevronLeft className="size-5" />
-                  </button>
+          <div className="p-4">
+            {etapa === "anio" && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  aria-label="Años más recientes"
+                  disabled={paginaAnios === 0}
+                  onClick={() => setPaginaAnios((p) => p - 1)}
+                  className="flex size-11 shrink-0 items-center justify-center rounded-full text-cafe disabled:opacity-30"
+                >
+                  <ChevronLeft className="size-5" />
+                </button>
 
-                  <div className="grid flex-1 grid-cols-3 gap-1">
-                    {anios.map((a) => (
-                      <button
-                        key={a}
-                        type="button"
-                        onClick={() => {
-                          setBorrador((b) => ajustada({ ...b, anio: a }));
-                          setEtapa("mes");
-                        }}
-                        className={`${claseCelda} ${
-                          a === borrador.anio ? "bg-naranja font-bold text-crema" : "text-cafe"
-                        }`}
-                      >
-                        {a}
-                      </button>
-                    ))}
-                  </div>
-
-                  <button
-                    type="button"
-                    aria-label="Años anteriores"
-                    disabled={anioTope - ANIOS_POR_PAGINA < ANIO_MINIMO}
-                    onClick={() => setPaginaAnios((p) => p + 1)}
-                    className="flex size-11 shrink-0 items-center justify-center rounded-full text-cafe disabled:opacity-30"
-                  >
-                    <ChevronRight className="size-5" />
-                  </button>
-                </div>
-              )}
-
-              {etapa === "mes" && (
-                <div className="grid grid-cols-3 gap-1">
-                  {MESES_CORTOS.map((nombre, i) => (
+                <div className="grid flex-1 grid-cols-3 gap-1">
+                  {anios.map((a) => (
                     <button
-                      key={nombre}
+                      key={a}
                       type="button"
                       onClick={() => {
-                        setBorrador((b) => ajustada({ ...b, mes: i + 1 }));
-                        setEtapa("dia");
+                        setBorrador((b) => ajustada({ ...b, anio: a }));
+                        setEtapa("mes");
                       }}
                       className={`${claseCelda} ${
-                        i + 1 === borrador.mes ? "bg-naranja font-bold text-crema" : "text-cafe"
+                        a === borrador.anio ? "bg-naranja font-bold text-crema" : "text-cafe"
                       }`}
                     >
-                      {nombre}
+                      {a}
                     </button>
                   ))}
                 </div>
-              )}
 
-              {etapa === "dia" && (
-                <>
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setEtapa("mes")}
-                      className="flex-1 rounded-sm px-2 py-1 font-cuerpo text-sm font-bold text-cafe"
+                <button
+                  type="button"
+                  aria-label="Años anteriores"
+                  disabled={anioTope - ANIOS_POR_PAGINA < ANIO_MINIMO}
+                  onClick={() => setPaginaAnios((p) => p + 1)}
+                  className="flex size-11 shrink-0 items-center justify-center rounded-full text-cafe disabled:opacity-30"
+                >
+                  <ChevronRight className="size-5" />
+                </button>
+              </div>
+            )}
+
+            {etapa === "mes" && (
+              <div className="grid grid-cols-3 gap-1">
+                {MESES_CORTOS.map((nombre, i) => (
+                  <button
+                    key={nombre}
+                    type="button"
+                    onClick={() => {
+                      setBorrador((b) => ajustada({ ...b, mes: i + 1 }));
+                      setEtapa("dia");
+                    }}
+                    className={`${claseCelda} ${
+                      i + 1 === borrador.mes ? "bg-naranja font-bold text-crema" : "text-cafe"
+                    }`}
+                  >
+                    {nombre}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {etapa === "dia" && (
+              <>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEtapa("mes")}
+                    className="flex-1 rounded-sm px-2 py-1 font-cuerpo text-sm font-bold text-cafe"
+                  >
+                    {conMayuscula(formatear(borrador, { month: "long" }))}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEtapa("anio")}
+                    className="rounded-sm px-2 py-1 font-cuerpo text-sm font-bold text-cafe"
+                  >
+                    {borrador.anio}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-7 gap-0.5">
+                  {DIAS_SEMANA.map((d) => (
+                    <span
+                      key={d}
+                      className="flex h-8 items-center justify-center font-cuerpo text-[11px] text-cafe-tenue"
                     >
-                      {conMayuscula(formatear(borrador, { month: "long" }))}
-                    </button>
+                      {d}
+                    </span>
+                  ))}
+
+                  {Array.from({ length: primerDiaSemana }, (_, i) => (
+                    <span key={`hueco-${i}`} aria-hidden />
+                  ))}
+
+                  {Array.from({ length: totalDias }, (_, i) => i + 1).map((d) => (
                     <button
+                      key={d}
                       type="button"
-                      onClick={() => setEtapa("anio")}
-                      className="rounded-sm px-2 py-1 font-cuerpo text-sm font-bold text-cafe"
+                      onClick={() => elegirDia(d)}
+                      className={`flex h-10 items-center justify-center rounded-full font-cuerpo text-sm ${
+                        d === borrador.dia ? "bg-naranja font-bold text-crema" : "text-cafe"
+                      }`}
                     >
-                      {borrador.anio}
+                      {d}
                     </button>
-                  </div>
-
-                  <div className="grid grid-cols-7 gap-0.5">
-                    {DIAS_SEMANA.map((d) => (
-                      <span
-                        key={d}
-                        className="flex h-8 items-center justify-center font-cuerpo text-[11px] text-cafe-tenue"
-                      >
-                        {d}
-                      </span>
-                    ))}
-
-                    {Array.from({ length: primerDiaSemana }, (_, i) => (
-                      <span key={`hueco-${i}`} aria-hidden />
-                    ))}
-
-                    {Array.from({ length: totalDias }, (_, i) => i + 1).map((d) => (
-                      <button
-                        key={d}
-                        type="button"
-                        onClick={() => elegirDia(d)}
-                        className={`flex h-10 items-center justify-center rounded-full font-cuerpo text-sm ${
-                          d === borrador.dia ? "bg-naranja font-bold text-crema" : "text-cafe"
-                        }`}
-                      >
-                        {d}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-
-            <button
-              type="button"
-              onClick={cerrar}
-              className="min-h-11 self-end px-5 pb-3 font-cuerpo text-sm font-bold uppercase text-naranja"
-            >
-              Cerrar
-            </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
-        </div>
+
+          <ModalCerrar onCerrar={cerrar} />
+        </Modal>
       )}
     </>
   );
