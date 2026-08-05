@@ -85,17 +85,20 @@ const PEDIDO: PedidoParaMensaje = {
 
 const TIENDA = { nombre: "Cronchy", baseUrl: "https://cronchy.co" };
 
-describe("cambioEstado en 'nuevo'", () => {
-  it("dice que está pendiente de confirmar, no que fue aceptado", () => {
-    const texto = cambioEstado("nuevo", PEDIDO, TIENDA)!;
+// `preparando` es el mensaje de la aceptación: aceptar un pedido lo pone ahí de una vez, y
+// como ya no se avisa en `nuevo`, este es el PRIMERO que recibe el cliente. Por eso carga el
+// resumen que antes iba en el de "recibimos tu pedido".
+describe("cambioEstado al aceptar", () => {
+  it("dice que fue aceptado y que está en preparación", () => {
+    const texto = cambioEstado("preparando", PEDIDO, TIENDA)!;
 
-    expect(texto).toContain("Recibimos tu pedido");
-    expect(texto).toContain("pendiente de confirmar");
-    expect(texto).not.toContain("aceptado");
+    expect(texto).toContain("aceptado");
+    expect(texto).toContain("en preparación");
+    expect(texto).not.toContain("pendiente de confirmar");
   });
 
   it("lleva el número, el total y el link de seguimiento", () => {
-    const texto = cambioEstado("nuevo", PEDIDO, TIENDA)!;
+    const texto = cambioEstado("preparando", PEDIDO, TIENDA)!;
 
     expect(texto).toContain("#124");
     expect(texto).toContain("$41.000");
@@ -104,25 +107,42 @@ describe("cambioEstado en 'nuevo'", () => {
 
   // Sin hora elegida el mensaje no puede callarse: una línea ausente se lee como un olvido.
   it("dice cuándo llega también cuando es para ya", () => {
-    expect(cambioEstado("nuevo", PEDIDO, TIENDA)).toContain("lo antes posible");
+    expect(cambioEstado("preparando", PEDIDO, TIENDA)).toContain("lo antes posible");
     expect(
-      cambioEstado("nuevo", { ...PEDIDO, tipo: "recoger" }, TIENDA),
+      cambioEstado("preparando", { ...PEDIDO, tipo: "recoger" }, TIENDA),
     ).toContain("*Listo:*");
+  });
+
+  // Un pedido guardado en el estado retirado tiene que poder avisarse igual, y con el mismo
+  // contenido: para el cliente `aceptado` y `preparando` siempre fueron la misma noticia.
+  it("el estado retirado `aceptado` dice lo mismo", () => {
+    expect(cambioEstado("aceptado", PEDIDO, TIENDA)).toBe(
+      cambioEstado("preparando", PEDIDO, TIENDA),
+    );
   });
 });
 
 describe("llevaAviso", () => {
   // Se pregunta sin armar el texto porque el candado de idempotencia (regla 11) se cierra
   // ANTES de enviar. Antes esto se resolvía con un pedido de mentira, y reventó en cuanto la
-  // plantilla de `nuevo` empezó a leer el total.
+  // plantilla de la aceptación empezó a leer el total.
   it("es cierto para los estados que tienen mensaje", () => {
-    for (const estado of ["nuevo", "aceptado", "preparando", "en_camino", "listo"] as const) {
+    for (const estado of ["aceptado", "preparando", "en_camino", "listo", "cancelado"] as const) {
       expect(llevaAviso(estado)).toBe(true);
     }
   });
 
+  // Los dos estados mudos, cada uno por su motivo: en `nuevo` nadie ha mirado el pedido
+  // todavía, y en `entregado` el cliente ya tiene la comida en la mano.
+  it("es falso para `nuevo` y `entregado`, que no llevan mensaje", () => {
+    expect(llevaAviso("nuevo")).toBe(false);
+    expect(llevaAviso("entregado")).toBe(false);
+    expect(cambioEstado("nuevo", PEDIDO, TIENDA)).toBeNull();
+    expect(cambioEstado("entregado", PEDIDO, TIENDA)).toBeNull();
+  });
+
   it("no arma el texto para responder", () => {
-    // Si lo armara, este objeto vacío lanzaría.
-    expect(() => llevaAviso("nuevo")).not.toThrow();
+    // Si lo armara, la plantilla de la aceptación leería el total y esto lanzaría.
+    expect(() => llevaAviso("preparando")).not.toThrow();
   });
 });

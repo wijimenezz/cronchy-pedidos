@@ -241,15 +241,25 @@ abre con un toque desde el WhatsApp normal del negocio. Mañana puede implementa
 directamente desde un route handler o un componente.
 
 **Ningún aviso sale solo, y eso no es un pendiente: es el transporte.** `wa.me` necesita que
-un humano toque el link, así que todo mensaje al cliente —incluido el "recibimos tu pedido",
-que el panel ofrece en cuanto entra— lo dispara un empleado. Enviar de verdad en automático
-exige la Cloud API con un número dedicado. Si alguien pide "que le llegue solo al cliente", la
-respuesta es esa, no un cron.
+un humano toque el link, así que todo mensaje al cliente lo dispara un empleado desde el panel.
+Enviar de verdad en automático exige la Cloud API con un número dedicado. Si alguien pide "que
+le llegue solo al cliente", la respuesta es esa, no un cron.
+
+**No todos los estados llevan mensaje, y los dos que no lo llevan tampoco son un pendiente:**
+
+- `nuevo` **no avisa**. Hubo un "recibimos tu pedido, está pendiente de confirmar" que el panel
+  ofrecía en cuanto entraba, y era un mensaje de más: al cliente le llegaban dos WhatsApp con
+  medio minuto de diferencia, uno para decir que llegó y otro para decir que sí. Lo único
+  honesto que se puede decir antes de que alguien mire el pedido es "pendiente", y eso no vale
+  un mensaje. **El primer aviso al cliente es el de la aceptación**, y por eso es el que carga
+  el resumen —número, total y cuándo llega— que antes iba en el de `nuevo`.
+- `entregado` **no avisa**: el cliente acaba de recibir la comida en la mano.
 
 `llevaAviso(estado)` dice si un estado tiene mensaje **sin armarlo**, porque el candado de
 idempotencia (regla 11) se cierra antes de enviar. No lo reimplementes llamando a
 `cambioEstado` con un pedido de mentira: eso se hacía antes y reventó en cuanto una plantilla
-empezó a leer el total.
+empezó a leer el total. Y no lo dupliques en la UI: `avisoPendiente` sale de `llevaAviso` en la
+consulta del panel, así que quitar un estado de `TEXTO_ESTADO` borra su botón "Avisar" solo.
 
 Formato: texto plano, `*negrita*` de WhatsApp, separadores `--------------------------------`.
 
@@ -435,6 +445,19 @@ seguimiento (`indiceDeHito`). Es a propósito: si la cocina y el cliente contara
 fases distintas, uno de los dos estaría viendo algo que no está pasando. Lo que cambia son los
 rótulos, porque cambia quién lee. `cancelado` no tiene hito para el cliente pero sí columna
 aquí (Terminados): para la cocina es un pedido que ya no toca.
+
+**Cuatro columnas, cuatro estados vivos, un toque por columna.** El recorrido es
+`nuevo → preparando → en_camino|listo → entregado` (`pasosDelPedido`), y cada botón mueve la
+tarjeta de columna: Aceptar · En camino / Listo para recoger · Entregado.
+
+**`aceptado` salió del recorrido y sigue en el enum.** Era un paso entre `nuevo` y `preparando`
+que caía en la misma columna y en el mismo hito que `preparando`, así que pulsarlo no movía la
+tarjeta ni cambiaba nada de lo que veía el cliente: un botón "En preparación" dentro de la
+columna "En preparación". Quien acepta un pedido lo acepta *porque* lo va a preparar, y ahora
+"Aceptar" lo deja en `preparando` de una vez. El valor sobrevive en `estado_pedido` porque hay
+historial escrito con él, y `ESTADO_RETIRADO` en `estados.ts` lo lee como `preparando` para que
+un pedido guardado así siga pudiendo avanzar. **No lo quites del enum ni de los `Record`
+exhaustivos del módulo**, y no lo uses para pedidos nuevos.
 
 La consulta trae **lo vivo siempre, más lo terminado de hoy**. Lo vivo no se filtra por fecha
 porque un pedido programado para mañana ya entró; lo terminado sí, o la última columna se

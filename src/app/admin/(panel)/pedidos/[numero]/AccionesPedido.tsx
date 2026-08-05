@@ -95,12 +95,14 @@ export function AccionesPedido({
         </button>
       )}
 
+      {/* Ámbar, igual que en la tarjeta del tablero: es el segundo toque de la operación y
+          el que se olvida. */}
       {avisoPendiente && (
         <button
           type="button"
           onClick={avisar}
           disabled={pendiente}
-          className="min-h-11 rounded-full border border-crema-oscura px-6 py-3 font-cuerpo text-sm font-bold text-cafe transition-colors hover:bg-crema focus:outline-none focus:ring-2 focus:ring-naranja disabled:opacity-50"
+          className="min-h-11 rounded-full border border-alerta bg-alerta/20 px-6 py-3 font-cuerpo text-sm font-bold text-cafe transition-colors hover:bg-alerta/35 focus:outline-none focus:ring-2 focus:ring-naranja disabled:opacity-50"
         >
           Avisar al cliente
         </button>

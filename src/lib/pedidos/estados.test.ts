@@ -44,10 +44,30 @@ describe("transicionesPosibles", () => {
   });
 });
 
+// `aceptado` salió del recorrido (aceptar es empezar a preparar), pero sigue en el enum y
+// puede haber pedidos guardados con él. Si no se leyera como `preparando`, esos pedidos se
+// quedarían sin avance y la única salida del panel sería cancelarlos.
+describe("pedidos guardados en el estado retirado `aceptado`", () => {
+  it("avanzan como si estuvieran en preparación", () => {
+    expect(siguienteEstado("aceptado", "domicilio")).toBe("en_camino");
+    expect(siguienteEstado("aceptado", "recoger")).toBe("listo");
+  });
+
+  it("siguen en la columna y el hito de preparación", () => {
+    expect(columnaDeTablero("aceptado", "domicilio")).toBe(1);
+    expect(indiceDeHito("aceptado", "recoger")).toBe(1);
+  });
+
+  it("ya no se generan: aceptar deja el pedido en preparación", () => {
+    expect(pasosDelPedido("domicilio")).not.toContain("aceptado");
+    expect(siguienteEstado("nuevo", "domicilio")).toBe("preparando");
+    expect(siguienteEstado("nuevo", "recoger")).toBe("preparando");
+  });
+});
+
 describe("siguienteEstado", () => {
   it("recorre el camino completo de un domicilio", () => {
-    expect(siguienteEstado("nuevo", "domicilio")).toBe("aceptado");
-    expect(siguienteEstado("aceptado", "domicilio")).toBe("preparando");
+    expect(siguienteEstado("nuevo", "domicilio")).toBe("preparando");
     expect(siguienteEstado("preparando", "domicilio")).toBe("en_camino");
     expect(siguienteEstado("en_camino", "domicilio")).toBe("entregado");
     expect(siguienteEstado("entregado", "domicilio")).toBeNull();
@@ -65,7 +85,7 @@ describe("siguienteEstado", () => {
 
 describe("validarCambioEstado", () => {
   it("acepta el avance de a un paso", () => {
-    expect(validarCambioEstado(pedido(), "aceptado")).toEqual({ ok: true });
+    expect(validarCambioEstado(pedido(), "preparando")).toEqual({ ok: true });
   });
 
   it("rechaza saltarse pasos", () => {
@@ -76,14 +96,22 @@ describe("validarCambioEstado", () => {
   });
 
   it("rechaza retroceder", () => {
-    expect(validarCambioEstado(pedido({ estado: "preparando" }), "aceptado")).toEqual({
+    expect(validarCambioEstado(pedido({ estado: "en_camino" }), "preparando")).toEqual({
       ok: false,
       motivo: "transicion_invalida",
     });
   });
 
   it("rechaza repetir el estado en el que ya está", () => {
-    expect(validarCambioEstado(pedido({ estado: "aceptado" }), "aceptado")).toEqual({
+    expect(validarCambioEstado(pedido({ estado: "preparando" }), "preparando")).toEqual({
+      ok: false,
+      motivo: "transicion_invalida",
+    });
+  });
+
+  // El estado retirado tampoco se puede volver a escribir: leerlo es una cosa, generarlo otra.
+  it("rechaza volver a poner un pedido en `aceptado`", () => {
+    expect(validarCambioEstado(pedido(), "aceptado")).toEqual({
       ok: false,
       motivo: "transicion_invalida",
     });
@@ -93,7 +121,7 @@ describe("validarCambioEstado", () => {
   it("no deja aceptar un pedido Nequi sin comprobante", () => {
     const nequi = pedido({ metodoPago: "nequi", tieneComprobante: false });
 
-    expect(validarCambioEstado(nequi, "aceptado")).toEqual({
+    expect(validarCambioEstado(nequi, "preparando")).toEqual({
       ok: false,
       motivo: "nequi_sin_comprobante",
     });
@@ -102,7 +130,7 @@ describe("validarCambioEstado", () => {
   it("deja aceptarlo en cuanto sube el comprobante", () => {
     const nequi = pedido({ metodoPago: "nequi", tieneComprobante: true });
 
-    expect(validarCambioEstado(nequi, "aceptado")).toEqual({ ok: true });
+    expect(validarCambioEstado(nequi, "preparando")).toEqual({ ok: true });
   });
 
   it("sí deja cancelar un pedido Nequi sin comprobante", () => {
@@ -112,7 +140,7 @@ describe("validarCambioEstado", () => {
   });
 
   it("un pedido en efectivo no necesita comprobante", () => {
-    expect(validarCambioEstado(pedido({ metodoPago: "efectivo" }), "aceptado")).toEqual({
+    expect(validarCambioEstado(pedido({ metodoPago: "efectivo" }), "preparando")).toEqual({
       ok: true,
     });
   });
@@ -138,7 +166,6 @@ describe("hitos del seguimiento", () => {
   // cooking". Aceptar no es un hito propio — es la señal de que la cocina lo tiene.
   it("aceptar ya mueve la barra a preparación", () => {
     expect(indiceDeHito("nuevo", "domicilio")).toBe(0);
-    expect(indiceDeHito("aceptado", "domicilio")).toBe(1);
     expect(indiceDeHito("preparando", "domicilio")).toBe(1);
   });
 
@@ -188,7 +215,6 @@ describe("columnas del tablero", () => {
 
   it("un pedido sin aceptar abre el tablero y uno aceptado pasa a preparación", () => {
     expect(columnaDeTablero("nuevo", "domicilio")).toBe(0);
-    expect(columnaDeTablero("aceptado", "domicilio")).toBe(1);
     expect(columnaDeTablero("preparando", "domicilio")).toBe(1);
   });
 
