@@ -63,6 +63,7 @@ src/
       (panel)/                grupo con sesión: cabecera, nav y exigirRol()
         pedidos/              tablero con polling + [numero]/ detalle
                               SelectorDia + PedidosDelDia: consulta de un día pasado
+                              ResumenDia + DescargarPedidos: cifras y export (admin)
         catalogo/             switches de agotado (US21)
         zonas/                mapa con polígonos de cobertura — solo admin
         productos/            CRUD completo: 3 columnas categoría/producto/detalle
@@ -74,6 +75,7 @@ src/
     tipos-geo.ts              customType geometry para PostGIS
     queries/                  consultas reutilizables
       panel.ts                pedidos del panel + cambio de estado
+      resumen.ts              cifras del día (SQL agregado) + pedidos para el export
       disponibilidad.ts       switches de agotado
       catalogo.ts             CRUD de categorías, productos y enganches
       opciones.ts             CRUD de las listas de opciones y sus opciones
@@ -83,6 +85,10 @@ src/
     barrio.ts                 SUGERENCIA de barrio desde el pin (OSM) — nunca fuente de verdad
     horario.ts                ¿está abierta la tienda en tal instante?
     fechas.ts                 nombres de meses y días + calendario sin zona horaria
+                              (el único módulo de fechas que puede usar el cliente)
+    export/
+      hojas.ts                LAS CIFRAS del XLSX — puro, testeado
+      libro.ts                el archivo: celdas, formatos y hojas
     validaciones.ts           esquemas Zod
     autorizacion.ts           exigirRol() — permisos del panel
     texto.ts                  slugify() + slugLibre()
@@ -420,7 +426,7 @@ pueda saltar generando franjas por otro camino.
 
 | Pantalla          | colaborador                                                  | admin                                                             |
 | ----------------- | ------------------------------------------------------------ | ----------------------------------------------------------------- |
-| `admin/pedidos`   | ver, aceptar, cambiar estado, imprimir, avisos, domiciliario | todo, más el rango de entrega estimada                            |
+| `admin/pedidos`   | ver, aceptar, cambiar estado, imprimir, avisos, domiciliario | todo, más el rango de entrega estimada, el resumen del día y la descarga XLSX |
 | `admin/catalogo`  | switches `disponible` / `agotado` de productos y opciones    | igual                                                             |
 | `admin/productos` | solo Visible↔Agotado (ni ocultar ni reactivar)               | CRUD completo, precios, fotos, categorías, enganches              |
 | `admin/opciones`  | solo switch `disponible` (sabores de la semana)              | crear/renombrar/ordenar opciones, precio propio, archivar listas  |
@@ -491,6 +497,49 @@ La aritmética del día vive en `src/lib/pedidos/dias.ts`, pura y testeada como 
 inventes otra: un error de zona horaria ahí no rompe nada visible, solo mete los pedidos de la
 noche en el turno equivocado. El límite superior del rango es **exclusivo**, o un pedido de
 medianoche se contaría en dos días a la vez.
+
+**`dias.ts` es de servidor y `fechas.ts` es de los dos.** El primero importa `horario.ts`, que
+importa la capa de base de datos: usarlo desde un `'use client'` mete `postgres` en el bundle del
+navegador y el build lo rechaza. Por eso lo que es calendario puro —contar días entre dos
+`"YYYY-MM-DD"`, correr uno adelante o atrás, los nombres de los meses— vive en `fechas.ts`, sin
+zona horaria y sin dependencias. Regla práctica: si necesitas saber **qué hora es en Bogotá**, es
+`dias.ts`; si solo mueves números de calendario, es `fechas.ts`.
+
+### El resumen del día y la descarga
+
+Dos piezas, dos preguntas. El **resumen** (icono de estadísticas) es de **un día** y sirve para
+cerrar el turno y cuadrar la caja; la **descarga** XLSX es de **un rango** y sirve para
+contabilidad. Las dos son de **admin**: ahí sale junto lo que facturó el negocio.
+
+**Las cifras se agregan en SQL (`db/queries/resumen.ts`), nunca sumando la lista de la pantalla.**
+Parece equivalente y no lo es: en un día pasado daría igual, pero el tablero de **hoy** muestra
+"lo vivo siempre, más lo terminado de hoy", así que arrastra pedidos vivos creados **ayer** y
+además está topado en 100 filas. Sumar eso da una cifra que no es la del día y que se corta sola
+justo el día que más se factura.
+
+**Un pedido cancelado aparece pero no suma.** Queda fuera de ventas, productos y domicilios —esa
+plata no entró—, y se cuenta en su propia casilla. Los tres conteos cuadran:
+`domicilios + recoger + cancelados = pedidos`. Y el dinero también:
+`ventas = productos + domicilios − descuentos`; si algún día no cuadra, hay un pedido mal escrito.
+
+`pedidosDelRango` **no reusa `listarPedidosDelDia`**, y eso es deliberado: aquella tiene
+`TOPE_DIA = 300` y un archivo que descarta filas en silencio es peor que uno lento —se vería
+completo y la suma saldría corta—. El tope de la descarga es el del rango
+(`MAXIMO_DIAS_RANGO = 92`), que sí se le puede decir a quien descarga. Por lo mismo, las líneas
+con un snapshot corrupto se **cuentan** y salen avisadas en la hoja de resumen, en vez de
+descartarse en silencio como hace la pantalla.
+
+**En el XLSX los montos son números y las fechas son fechas.** Un Excel donde el total es la
+cadena `"$59.500"` no se puede sumar, que es justo para lo que se descarga: `pesos()` se queda en
+la pantalla. Y las fechas pasan por `enHoraDeBogota()` antes de escribirse, porque Excel guarda
+un número de días **sin zona horaria** y `write-excel-file` lo calcula con `getTime()` a secas:
+sin corregir, un pedido de las 3 pm se abriría como las 8 pm y la caja de la noche caería en el
+día siguiente.
+
+Faltan dos hojas que sí tiene la referencia de la que se copió el formato, y faltan a propósito:
+`Sedes` (hay una sola tienda) y `Domiciliarios` (el domicilio lo hace un courier externo, aquí no
+se modelan repartidores). La columna de cupón tampoco existe todavía: cuando llegue va junto a
+`Descuento $`. **No se añade vacía**, que se leería como un dato perdido.
 
 **El polling del panel NO se pausa con la pestaña oculta.** Parece la optimización obvia y es
 justo la que no se puede hacer: desde que el tablero avisa con sonido, ese intervalo dejó de ser

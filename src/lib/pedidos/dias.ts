@@ -1,5 +1,10 @@
 import { ahoraEnBogota, instanteEnBogota } from "@/lib/horario";
-import { DIAS_SEMANA_LARGOS, MESES } from "@/lib/fechas";
+import { DIAS_SEMANA_LARGOS, MAXIMO_DIAS_RANGO, MESES, contarDias } from "@/lib/fechas";
+
+// Se reexportan para que quien trabaja con días de Bogotá no tenga que saber que la aritmética
+// de calendario vive aparte. Está aparte porque el diálogo de descarga es cliente y este módulo
+// arrastra `horario.ts` —y la capa de base de datos— al bundle del navegador.
+export { MAXIMO_DIAS_RANGO, contarDias } from "@/lib/fechas";
 
 /**
  * Qué día es cada cosa, en Bogotá. Lo que necesita la consulta de un día pasado en el panel.
@@ -95,4 +100,105 @@ export function diaPedido(texto: string | undefined, hoy: string): string {
   if (texto > hoy) return hoy;
 
   return texto;
+}
+
+/**
+ * El mismo instante, corrido para que **sus componentes UTC sean la hora de Bogotá**.
+ *
+ * Es una fecha mentirosa a propósito, y solo sirve para una cosa: escribir celdas en una hoja de
+ * cálculo. Excel no guarda fechas con zona horaria, guarda un número de días desde 1900, y
+ * `write-excel-file` lo calcula con `date.getTime()` a secas. Sin corregir, un pedido de las 3:00
+ * pm en Bogotá se abriría en Excel como las 8:00 pm — la contabilidad de la noche caería en el
+ * día siguiente y nadie lo notaría hasta cuadrar el mes.
+ *
+ * No hardcodea el desfase: lo lee de `ahoraEnBogota`, que es la única puerta de la zona horaria
+ * en el proyecto (regla 6). Los segundos se copian tal cual porque el desfase es de horas
+ * enteras y no los toca.
+ *
+ * **No la uses para nada que no sea serializar.** Comparar dos de estas contra `Date.now()` da
+ * cinco horas de error.
+ */
+export function enHoraDeBogota(instante: Date): Date {
+  const { fecha, minutos } = ahoraEnBogota(instante);
+  const [anio, mes, dia] = fecha.split("-").map(Number);
+
+  return new Date(
+    Date.UTC(anio, mes - 1, dia, Math.floor(minutos / 60), minutos % 60, instante.getUTCSeconds()),
+  );
+}
+
+// ------------------------------------------------------------
+// Rangos de varios días — lo que necesita la descarga
+// ------------------------------------------------------------
+
+/**
+ * El rango absoluto que cubren varios días de Bogotá, ambos incluidos.
+ *
+ * Semiabierto por arriba por lo mismo que `rangoDelDia`: `hasta` es la medianoche del día
+ * siguiente al último, y esa medianoche ya no pertenece al rango.
+ */
+export function rangoDeDias(desde: string, hasta: string): { desde: Date; hasta: Date } {
+  return {
+    desde: instanteEnBogota(desde, 0),
+    hasta: instanteEnBogota(diaSiguiente(hasta), 0),
+  };
+}
+
+/**
+ * Todos los días del rango, uno por uno.
+ *
+ * Los devuelve **todos**, también los que no tuvieron pedidos: en una tabla por día, una fila que
+ * falta se lee como un dato que se perdió, mientras que una fila en cero dice "ese lunes no se
+ * abrió", que es justo lo que se quiere saber.
+ */
+export function diasDelRango(desde: string, hasta: string): string[] {
+  const dias: string[] = [];
+
+  for (let dia = desde; dia <= hasta; dia = diaSiguiente(dia)) {
+    dias.push(dia);
+  }
+
+  return dias;
+}
+
+export type RangoPedido = {
+  desde: string;
+  hasta: string;
+  dias: number;
+  /** Si hubo que recortar por el tope, para poder decirlo en vez de mentir con el archivo. */
+  recortado: boolean;
+};
+
+/**
+ * Qué rango pidió el usuario, a partir de lo que venga en la URL.
+ *
+ * Nunca falla: corrige en vez de rechazar, porque esto alimenta una descarga y un error de
+ * validación a mitad de camino se lee como que la app se rompió. Lo que hace, en orden:
+ *
+ * 1. Lo que no sea un día válido y pasado cae en hoy (`diaPedido`).
+ * 2. Si vienen al revés, se ordenan. Escribir "del 9 al 5" es un desliz obvio, no una intención.
+ * 3. Si el rango excede el tope, **se conserva `hasta` y se recorta `desde`**: quien pide un
+ *    rango enorme quiere lo más reciente, no los tres meses de hace dos años.
+ */
+export function rangoPedido(
+  desdeTexto: string | undefined,
+  hastaTexto: string | undefined,
+  hoy: string,
+): RangoPedido {
+  const a = diaPedido(desdeTexto, hoy);
+  const b = diaPedido(hastaTexto, hoy);
+
+  let desde = a <= b ? a : b;
+  const hasta = a <= b ? b : a;
+
+  const dias = contarDias(desde, hasta);
+  const recortado = dias > MAXIMO_DIAS_RANGO;
+
+  if (recortado) {
+    desde = diaDeBogota(
+      new Date(instanteEnBogota(hasta, MEDIODIA).getTime() - (MAXIMO_DIAS_RANGO - 1) * UN_DIA_MS),
+    );
+  }
+
+  return { desde, hasta, dias: recortado ? MAXIMO_DIAS_RANGO : dias, recortado };
 }

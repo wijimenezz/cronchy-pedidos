@@ -1,9 +1,12 @@
 import { getStore } from "@/db/queries/store";
 import { listarPedidos, listarPedidosDelDia } from "@/db/queries/panel";
+import { resumenDelDia } from "@/db/queries/resumen";
 import { exigirRol } from "@/lib/autorizacion";
 import { diaDeBogota, diaPedido, rotuloDeDia } from "@/lib/pedidos/dias";
+import { DescargarPedidos } from "./DescargarPedidos";
 import { ListaPedidos } from "./ListaPedidos";
 import { PedidosDelDia } from "./PedidosDelDia";
+import { ResumenDia } from "./ResumenDia";
 import { SelectorDia } from "./SelectorDia";
 import { TiempoEstimado } from "./TiempoEstimado";
 
@@ -34,26 +37,40 @@ export default async function PedidosPage({
   // Lo que venga de la URL pasa por aquí: formato malo o fecha futura caen en hoy.
   const dia = diaPedido(fecha, hoy);
   const esHoy = dia === hoy;
+  const rotulo = rotuloDeDia(dia, hoy);
+
+  // Las ventas del día son del dueño, no del turno. La consulta ni siquiera se lanza para un
+  // colaborador; esconder el icono es lo de menos.
+  const esAdmin = sesion.rol === "admin";
+  const resumen = esAdmin ? await resumenDelDia(tienda.id, dia) : null;
 
   return (
     <div className="flex flex-col gap-3">
       {/* Solo admin: el estimado es una promesa comercial, no una operación de turno. El
           `exigirRol("admin")` de la acción es quien corta de verdad (regla 12). */}
-      {sesion.rol === "admin" && esHoy && (
+      {esAdmin && esHoy && (
         <TiempoEstimado min={tienda.minutosEstimadoMin} max={tienda.minutosEstimadoMax} />
       )}
 
-      <SelectorDia dia={dia} hoy={hoy} rotulo={rotuloDeDia(dia, hoy)} />
+      {/* Tres zonas: la fecha queda centrada en la pantalla y las acciones a la derecha, aunque
+          el hueco de la izquierda esté vacío. Los `flex-1` son lo que sostiene ese centrado. */}
+      <div className="flex items-center gap-2">
+        <div className="hidden flex-1 sm:block" />
+
+        <SelectorDia dia={dia} hoy={hoy} rotulo={rotulo} />
+
+        <div className="flex flex-1 items-center justify-end gap-2">
+          {resumen && <ResumenDia resumen={resumen} rotulo={rotulo} />}
+          {esAdmin && <DescargarPedidos hoy={hoy} />}
+        </div>
+      </div>
 
       {esHoy ? (
         // Se renderiza en el servidor la primera carga y de ahí en adelante manda el polling:
         // así el empleado ve los pedidos de inmediato al abrir, sin un salto de pantalla vacía.
         <ListaPedidos iniciales={await listarPedidos(tienda.id)} />
       ) : (
-        <PedidosDelDia
-          pedidos={await listarPedidosDelDia(tienda.id, dia)}
-          rotulo={rotuloDeDia(dia, hoy)}
-        />
+        <PedidosDelDia pedidos={await listarPedidosDelDia(tienda.id, dia)} rotulo={rotulo} />
       )}
     </div>
   );
