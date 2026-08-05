@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
+import { DIAS_SEMANA, MESES_CORTOS, conMayuscula, diasDelMes } from "@/lib/fechas";
 
 /**
  * Selector de fecha en tres etapas: año → mes → día.
@@ -14,13 +15,6 @@ import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
  * `new Date("1990-12-16")` el valor se interpretaría como UTC y en Colombia
  * caería un día antes — el clásico cumpleaños corrido.
  */
-
-const MESES_CORTOS = [
-  "ENE", "FEB", "MAR", "ABR", "MAY", "JUN",
-  "JUL", "AGO", "SEPT", "OCT", "NOV", "DIC",
-];
-
-const DIAS_SEMANA = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
 /** Años por página de la grilla (3 columnas × 7 filas). */
 const ANIOS_POR_PAGINA = 21;
@@ -38,17 +32,8 @@ function desdeTexto(valor: string): Borrador | null {
   return { anio, mes, dia };
 }
 
-function diasDelMes(anio: number, mes: number): number {
-  // Día 0 del mes siguiente = último día de este mes.
-  return new Date(anio, mes, 0).getDate();
-}
-
 function formatear(b: Borrador, opciones: Intl.DateTimeFormatOptions): string {
   return new Intl.DateTimeFormat("es-CO", opciones).format(new Date(b.anio, b.mes - 1, b.dia));
-}
-
-function conMayuscula(texto: string): string {
-  return texto.charAt(0).toUpperCase() + texto.slice(1);
 }
 
 export function SelectorFecha({

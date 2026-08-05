@@ -61,7 +61,8 @@ src/
     admin/                    panel — protegido
       login/
       (panel)/                grupo con sesión: cabecera, nav y exigirRol()
-        pedidos/              lista con polling + [numero]/ detalle
+        pedidos/              tablero con polling + [numero]/ detalle
+                              SelectorDia + PedidosDelDia: consulta de un día pasado
         catalogo/             switches de agotado (US21)
         zonas/                mapa con polígonos de cobertura — solo admin
         productos/            CRUD completo: 3 columnas categoría/producto/detalle
@@ -81,6 +82,7 @@ src/
     zonas.ts                  CÁLCULO DE DOMICILIO — fuente única de verdad
     barrio.ts                 SUGERENCIA de barrio desde el pin (OSM) — nunca fuente de verdad
     horario.ts                ¿está abierta la tienda en tal instante?
+    fechas.ts                 nombres de meses y días + calendario sin zona horaria
     validaciones.ts           esquemas Zod
     autorizacion.ts           exigirRol() — permisos del panel
     texto.ts                  slugify() + slugLibre()
@@ -93,6 +95,7 @@ src/
       password.ts             bcrypt (jamás desde el proxy)
     pedidos/
       estados.ts              etiquetas + máquina de transiciones
+      dias.ts                 QUÉ DÍA ES CADA COSA en Bogotá — puro, testeado
       franjas.ts              HORAS PROGRAMABLES (regla 16) — puro, testeado
       entrega.ts              compone tienda + horario: qué se puede ofrecer hoy
     notificaciones/
@@ -241,15 +244,25 @@ abre con un toque desde el WhatsApp normal del negocio. Mañana puede implementa
 directamente desde un route handler o un componente.
 
 **Ningún aviso sale solo, y eso no es un pendiente: es el transporte.** `wa.me` necesita que
-un humano toque el link, así que todo mensaje al cliente —incluido el "recibimos tu pedido",
-que el panel ofrece en cuanto entra— lo dispara un empleado. Enviar de verdad en automático
-exige la Cloud API con un número dedicado. Si alguien pide "que le llegue solo al cliente", la
-respuesta es esa, no un cron.
+un humano toque el link, así que todo mensaje al cliente lo dispara un empleado desde el panel.
+Enviar de verdad en automático exige la Cloud API con un número dedicado. Si alguien pide "que
+le llegue solo al cliente", la respuesta es esa, no un cron.
+
+**No todos los estados llevan mensaje, y los dos que no lo llevan tampoco son un pendiente:**
+
+- `nuevo` **no avisa**. Hubo un "recibimos tu pedido, está pendiente de confirmar" que el panel
+  ofrecía en cuanto entraba, y era un mensaje de más: al cliente le llegaban dos WhatsApp con
+  medio minuto de diferencia, uno para decir que llegó y otro para decir que sí. Lo único
+  honesto que se puede decir antes de que alguien mire el pedido es "pendiente", y eso no vale
+  un mensaje. **El primer aviso al cliente es el de la aceptación**, y por eso es el que carga
+  el resumen —número, total y cuándo llega— que antes iba en el de `nuevo`.
+- `entregado` **no avisa**: el cliente acaba de recibir la comida en la mano.
 
 `llevaAviso(estado)` dice si un estado tiene mensaje **sin armarlo**, porque el candado de
 idempotencia (regla 11) se cierra antes de enviar. No lo reimplementes llamando a
 `cambioEstado` con un pedido de mentira: eso se hacía antes y reventó en cuanto una plantilla
-empezó a leer el total.
+empezó a leer el total. Y no lo dupliques en la UI: `avisoPendiente` sale de `llevaAviso` en la
+consulta del panel, así que quitar un estado de `TEXTO_ESTADO` borra su botón "Avisar" solo.
 
 Formato: texto plano, `*negrita*` de WhatsApp, separadores `--------------------------------`.
 
@@ -436,10 +449,48 @@ fases distintas, uno de los dos estaría viendo algo que no está pasando. Lo qu
 rótulos, porque cambia quién lee. `cancelado` no tiene hito para el cliente pero sí columna
 aquí (Terminados): para la cocina es un pedido que ya no toca.
 
+**Cuatro columnas, cuatro estados vivos, un toque por columna.** El recorrido es
+`nuevo → preparando → en_camino|listo → entregado` (`pasosDelPedido`), y cada botón mueve la
+tarjeta de columna: Aceptar · En camino / Listo para recoger · Entregado.
+
+**`aceptado` salió del recorrido y sigue en el enum.** Era un paso entre `nuevo` y `preparando`
+que caía en la misma columna y en el mismo hito que `preparando`, así que pulsarlo no movía la
+tarjeta ni cambiaba nada de lo que veía el cliente: un botón "En preparación" dentro de la
+columna "En preparación". Quien acepta un pedido lo acepta *porque* lo va a preparar, y ahora
+"Aceptar" lo deja en `preparando` de una vez. El valor sobrevive en `estado_pedido` porque hay
+historial escrito con él, y `ESTADO_RETIRADO` en `estados.ts` lo lee como `preparando` para que
+un pedido guardado así siga pudiendo avanzar. **No lo quites del enum ni de los `Record`
+exhaustivos del módulo**, y no lo uses para pedidos nuevos.
+
 La consulta trae **lo vivo siempre, más lo terminado de hoy**. Lo vivo no se filtra por fecha
 porque un pedido programado para mañana ya entró; lo terminado sí, o la última columna se
 vuelve un archivo. El corte va en la consulta y no después: con el `limit` y sin filtro, un día
 movido empujaría fuera justo los pedidos vivos.
+
+**`?fecha=YYYY-MM-DD` no es ese tablero con un filtro: es otra pantalla.** Un día pasado
+termina con **cero pedidos activos** —todo se despacha el mismo día, salvo lo programado de un
+día para otro—, así que mirar atrás no es operar, es consultar qué entró. Se ve como una lista
+(`PedidosDelDia`), no como cuatro columnas de las que tres estarían vacías, y la consulta es
+`listarPedidosDelDia`: rango cerrado y semiabierto por `creadoEn` (`[medianoche, medianoche)` de
+Bogotá), **sin** la rama de lo vivo, que arrastraría a esa vista los pedidos abiertos de hoy.
+Son dos preguntas distintas, y por eso son dos funciones y no una con bandera. El día de un
+pedido es el de `creadoEn`: uno tomado el lunes para el martes cuenta como del lunes.
+
+Esa lista es un **server component sin estado**: un día cerrado no cambia, así que no hay
+polling, ni sonido, ni botones — cada fila abre el detalle, que sí opera. **`ListaPedidos` no
+recibe ninguna bandera y no sabe que existen los días pasados**: la bifurcación vive en
+`page.tsx`, y en modo consulta ese componente sencillamente no se monta.
+
+Consecuencia que hay que tener presente antes de "arreglarla": **al salir de hoy, el tablero se
+desmonta y con él se van el polling, la alarma y el `(N)` del título** — las limpiezas de los
+`useEffect` lo hacen solas. Un panel dejado en "ayer" es un panel que no vigila el local, y por
+eso la lista lleva un aviso permanente y el atajo "Volver a hoy". No hay vuelta automática: un
+tablero que salta solo mientras alguien lo lee es peor que uno quieto.
+
+La aritmética del día vive en `src/lib/pedidos/dias.ts`, pura y testeada como `franjas.ts`. No
+inventes otra: un error de zona horaria ahí no rompe nada visible, solo mete los pedidos de la
+noche en el turno equivocado. El límite superior del rango es **exclusivo**, o un pedido de
+medianoche se contaría en dos días a la vez.
 
 **El polling del panel NO se pausa con la pestaña oculta.** Parece la optimización obvia y es
 justo la que no se puede hacer: desde que el tablero avisa con sonido, ese intervalo dejó de ser
@@ -540,11 +591,13 @@ servidor— y el audio necesita **un gesto del usuario** antes de poder sonar: d
 - Validación con Zod en el borde de cada route handler, antes de tocar la base.
 - Los estados del pedido se registran en `order_status_event`, no solo actualizando
   `order.estado`.
-- Tests con Vitest para `precios.ts`, `horario.ts`, `zonas.ts` y `pedidos/franjas.ts` como
-  mínimo — es donde un bug cuesta plata real. Para `zonas.ts`: punto dentro, fuera, en el
-  borde, en solapamiento (gana prioridad) y con todas las zonas apagadas. Para `franjas.ts`:
-  la anticipación de hoy, que mañana no la arrastre, el turno partido, el límite del cierre
-  y que el instante guardado sea el de Bogotá y no el de UTC.
+- Tests con Vitest para `precios.ts`, `horario.ts`, `zonas.ts`, `pedidos/franjas.ts` y
+  `pedidos/dias.ts` como mínimo — es donde un bug cuesta plata real. Para `zonas.ts`: punto
+  dentro, fuera, en el borde, en solapamiento (gana prioridad) y con todas las zonas apagadas.
+  Para `franjas.ts`: la anticipación de hoy, que mañana no la arrastre, el turno partido, el
+  límite del cierre y que el instante guardado sea el de Bogotá y no el de UTC. Para `dias.ts`:
+  las 11:30 de la noche (que en UTC ya son el día siguiente), la medianoche en los dos bordes
+  del rango, y los saltos de mes, de año y de 29 de febrero.
 
 ## Qué NO hacer
 

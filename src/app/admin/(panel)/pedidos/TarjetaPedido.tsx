@@ -227,12 +227,15 @@ export function TarjetaPedido({
             </button>
           )}
 
+          {/* Ámbar y no el gris de antes: avanzar y avisar son dos toques, y el segundo se
+              olvidaba. Los mismos tokens que el badge de espera de arriba, para que el
+              naranja sólido siga siendo solo del botón que mueve el pedido. */}
           {pedido.avisoPendiente && (
             <button
               type="button"
               onClick={avisar}
               disabled={pendiente}
-              className="min-h-11 rounded-full border border-crema-oscura px-3 font-cuerpo text-sm font-bold text-cafe transition-colors hover:bg-crema focus:outline-none focus:ring-2 focus:ring-naranja disabled:opacity-50"
+              className="min-h-11 rounded-full border border-alerta bg-alerta/20 px-3 font-cuerpo text-sm font-bold text-cafe transition-colors hover:bg-alerta/35 focus:outline-none focus:ring-2 focus:ring-naranja disabled:opacity-50"
             >
               Avisar
             </button>

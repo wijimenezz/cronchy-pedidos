@@ -23,13 +23,21 @@ export const DETALLE_ESTADO: Record<EstadoPedido, string> = {
 };
 
 /**
- * Secuencia que se le muestra al cliente. Depende del tipo: un domicilio va "en camino"
+ * Secuencia que recorre un pedido. Depende del tipo: un domicilio va "en camino"
  * y uno para recoger queda "listo" en el mostrador.
+ *
+ * **`aceptado` no está, y no es un olvido.** Era un paso entre "nuevo" y "preparando" que no
+ * describía nada: caía en la misma columna del tablero y en el mismo hito del seguimiento
+ * que `preparando`, así que pulsarlo no movía la tarjeta ni cambiaba lo que veía el cliente.
+ * Quien acepta un pedido lo acepta *porque* lo va a preparar; aceptar es empezarlo.
+ *
+ * El valor sigue en el enum de la base y en los mapas de este módulo porque hay pedidos e
+ * historial escritos con él. Lo que dejó de existir es la forma de generarlo.
  */
 export function pasosDelPedido(tipo: TipoPedido): EstadoPedido[] {
   return tipo === "domicilio"
-    ? ["nuevo", "aceptado", "preparando", "en_camino", "entregado"]
-    : ["nuevo", "aceptado", "preparando", "listo", "entregado"];
+    ? ["nuevo", "preparando", "en_camino", "entregado"]
+    : ["nuevo", "preparando", "listo", "entregado"];
 }
 
 // ------------------------------------------------------------
@@ -37,12 +45,12 @@ export function pasosDelPedido(tipo: TipoPedido): EstadoPedido[] {
 // ------------------------------------------------------------
 
 /**
- * Lo que el cliente ve avanzar. Son cuatro y no cinco a propósito: `aceptado` y `preparando`
- * comparten hito porque, desde la acera, "ya lo confirmaron" y "ya lo están haciendo" son la
- * misma noticia — el pedido dejó de estar en el aire y la cocina lo tiene.
+ * Lo que el cliente ve avanzar: cuatro hitos, uno por columna del tablero.
  *
- * La secuencia interna (`pasosDelPedido`) sigue teniendo los cinco estados y no cambia: el
- * panel opera con ellos y el historial los registra uno a uno. Esto es solo cómo se cuentan.
+ * Que `aceptado` y `preparando` compartieran hito fue la primera señal de que sobraba un
+ * estado: desde la acera, "ya lo confirmaron" y "ya lo están haciendo" son la misma noticia
+ * —el pedido dejó de estar en el aire y la cocina lo tiene—, y en el local también lo eran.
+ * Hoy `pasosDelPedido` tiene cuatro estados vivos y esta lista sigue teniendo cuatro hitos.
  */
 export type Hito = "recibido" | "preparando" | "saliendo" | "entregado";
 
@@ -61,6 +69,8 @@ export function hitosDelPedido(tipo: TipoPedido): { hito: Hito; etiqueta: string
 
 const HITO_DE_ESTADO: Record<EstadoPedido, Hito | null> = {
   nuevo: "recibido",
+  // `aceptado` ya no se genera (ver `pasosDelPedido`), pero un pedido guardado con él tiene
+  // que seguir cayendo donde caía: en la columna y el hito de preparación.
   aceptado: "preparando",
   preparando: "preparando",
   en_camino: "saliendo",
@@ -139,6 +149,18 @@ export const METODO_PAGO_ETIQUETA: Record<string, string> = {
 // ------------------------------------------------------------
 
 /**
+ * Dónde se lee cada estado retirado dentro del recorrido vigente.
+ *
+ * Sin esto, un pedido guardado en `aceptado` no aparecería en `pasosDelPedido` y quedaría
+ * atascado: `indexOf` devolvería -1, no habría avance que ofrecer y la única salida sería
+ * cancelarlo. Se lee como lo que `aceptado` siempre significó — un pedido que la cocina ya
+ * tiene—, así que ofrece el mismo siguiente paso que `preparando`.
+ */
+const ESTADO_RETIRADO: Partial<Record<EstadoPedido, EstadoPedido>> = {
+  aceptado: "preparando",
+};
+
+/**
  * Un pedido avanza por los pasos de su tipo, uno a uno, y se puede cancelar en cualquier
  * momento antes de entregarlo. No retrocede: un estado que vuelve atrás dispararía avisos
  * repetidos al cliente (regla 11) y dejaría un historial que no cuadra con lo que pasó.
@@ -151,7 +173,7 @@ export function transicionesPosibles(estado: EstadoPedido, tipo: TipoPedido): Es
   if (estado === "entregado" || estado === "cancelado") return [];
 
   const pasos = pasosDelPedido(tipo);
-  const actual = pasos.indexOf(estado);
+  const actual = pasos.indexOf(ESTADO_RETIRADO[estado] ?? estado);
   const siguiente = actual >= 0 && actual < pasos.length - 1 ? [pasos[actual + 1]] : [];
 
   return [...siguiente, "cancelado"];

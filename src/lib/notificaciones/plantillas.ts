@@ -353,17 +353,25 @@ export function nuevoPedidoNegocio(
 // Mensaje 3 — cambios de estado al CLIENTE
 // ------------------------------------------------------------
 
+/**
+ * Los estados que faltan aquí son los que **no** llevan mensaje, y falta cada uno por su
+ * motivo:
+ *
+ * - `nuevo`: el pedido entró a la base pero nadie en el local lo ha mirado. Lo único honesto
+ *   que se podría decir es "pendiente de confirmar", y eso obliga a un segundo WhatsApp medio
+ *   minuto después para decir que sí. Al cliente le llegaban dos mensajes donde va uno: el de
+ *   aceptación, que ahora es el primero y por eso carga el resumen del pedido.
+ * - `entregado`: el cliente acaba de recibir la comida en la mano. Un WhatsApp que le informe
+ *   de eso no le dice nada que no sepa.
+ */
 const TEXTO_ESTADO: Partial<Record<EstadoPedido, (t: string) => string>> = {
-  // `nuevo` sí lleva mensaje, y decir "pendiente de confirmar" no es un detalle: el pedido
-  // entró a la base, pero nadie en el local lo ha mirado todavía. Prometer que está aceptado
-  // sería mentir justo antes de tener que cancelarlo por un producto agotado.
-  nuevo: (t) => `¡Recibimos tu pedido en *${t}*! Está pendiente de confirmar.`,
-  aceptado: (t) => `¡Tu pedido en *${t}* ya fue aceptado!`,
-  preparando: (t) => `¡Tu pedido en *${t}* ya está en preparación!`,
+  // `aceptado` ya no se genera —aceptar un pedido lo pone en `preparando` de una vez, ver
+  // `pasosDelPedido`—, pero conserva su texto por si algún pedido guardado con él sigue sin
+  // avisar. Dice lo mismo que `preparando`, porque significaba lo mismo.
+  aceptado: (t) => `¡Tu pedido en *${t}* fue aceptado y ya está en preparación!`,
+  preparando: (t) => `¡Tu pedido en *${t}* fue aceptado y ya está en preparación!`,
   en_camino: (t) => `¡Tu pedido en *${t}* ya va en camino!`,
   listo: (t) => `¡Tu pedido en *${t}* ya está listo para recoger!`,
-  entregado: (t) =>
-    `¡Tu pedido en *${t}* fue entregado. Gracias por preferirnos!`,
   cancelado: (t) =>
     `Tu pedido en *${t}* fue cancelado. Te contactamos para explicarte.`,
 };
@@ -375,7 +383,7 @@ const TEXTO_ESTADO: Partial<Record<EstadoPedido, (t: string) => string>> = {
  *
  * Antes se resolvía llamando a `cambioEstado` con un pedido de mentira y mirando si devolvía
  * null. Eso funcionaba mientras ninguna plantilla leyera un campo del pedido; en cuanto la de
- * `nuevo` empezó a escribir el total, el pedido de mentira reventaba.
+ * la aceptación empezó a escribir el total, el pedido de mentira reventaba.
  */
 export function llevaAviso(estado: EstadoPedido): boolean {
   return Boolean(TEXTO_ESTADO[estado]);
@@ -384,10 +392,9 @@ export function llevaAviso(estado: EstadoPedido): boolean {
 /**
  * Devuelve null para los estados que NO llevan mensaje. Quien llama debe respetar el null.
  *
- * `nuevo` sí lo lleva, y antes no: el comentario de aquí decía "porque ya se envió la
- * confirmación", y era falso — al cliente no le avisaba nadie. El mensaje se manda desde el
- * panel a un toque, porque enviarlo solo exigiría la Cloud API con un número dedicado y el
- * del negocio se usa con proveedores (regla 10).
+ * Ninguno de estos sale solo: el transporte es un link `wa.me` que un empleado toca desde el
+ * panel, porque enviar de verdad en automático exigiría la Cloud API con un número dedicado
+ * y el del negocio se usa con proveedores (regla 10).
  */
 export function cambioEstado(
   estado: EstadoPedido,
@@ -399,9 +406,10 @@ export function cambioEstado(
 
   const partes = [plantilla(tienda.nombre), ""];
 
-  // Al confirmar es cuando el cliente quiere ver la cifra: acaba de decidir gastarla y, si
-  // paga en efectivo, es lo que tiene que tener listo cuando toquen el timbre.
-  if (estado === "nuevo") {
+  // El de aceptación es el primer mensaje que recibe el cliente, así que es donde va la
+  // cifra: acaba de decidir gastarla y, si paga en efectivo, es lo que tiene que tener
+  // listo cuando toquen el timbre.
+  if (estado === "preparando" || estado === "aceptado") {
     partes.push(`*Pedido:* #${pedido.numero}`);
     partes.push(`*Total:* ${pesos(pedido.total)}`);
     partes.push(lineaCuando(pedido, pedido.tipo === "recoger" ? "Listo" : "Llega"));
@@ -413,7 +421,7 @@ export function cambioEstado(
     partes.push("");
   }
 
-  if (estado !== "entregado" && estado !== "cancelado") {
+  if (estado !== "cancelado") {
     partes.push(urlSeguimiento(tienda, pedido.tokenPublico));
     partes.push("");
     partes.push("¡Estaremos en contacto!");
