@@ -140,6 +140,7 @@ function datosPedidos(pedidos: PedidoParaExport[]): SheetData {
       "Latitud",
       "Longitud",
       "Zona de cobro",
+      "Domiciliario",
       "Programado para",
       "Método de pago",
       "Paga con",
@@ -167,6 +168,7 @@ function datosPedidos(pedidos: PedidoParaExport[]): SheetData {
       p.latitud === null ? null : { value: p.latitud, type: Number, format: "0.000000" },
       p.longitud === null ? null : { value: p.longitud, type: Number, format: "0.000000" },
       texto(p.zona),
+      texto(p.domiciliario),
       momento(p.programadoPara),
       texto(p.metodoPago),
       p.pagaCon === null ? null : dinero(p.pagaCon),
@@ -220,7 +222,8 @@ function datosProductos(pedidos: PedidoParaExport[]): SheetData {
 const ANCHOS = {
   resumen: [16, 10, 12, 12, 10, 14, 14, 12, 14],
   pedidos: [
-    10, 18, 18, 14, 18, 22, 16, 22, 16, 18, 34, 26, 12, 12, 16, 18, 16, 12, 14, 12, 12, 14, 30, 38,
+    10, 18, 18, 14, 18, 22, 16, 22, 16, 18, 34, 26, 12, 12, 16, 20, 18, 16, 12, 14, 12, 12, 14, 30,
+    38,
   ],
   detalle: [10, 18, 14, 30, 10, 44, 14, 26],
   productos: [34, 18, 20, 14],
@@ -234,9 +237,12 @@ export type LibroDePedidos = {
 /**
  * El libro completo: Resumen, Pedidos, Detalle y Productos vendidos.
  *
- * Faltan dos hojas que sí tiene el panel del que se tomó la referencia, y faltan a propósito:
- * `Sedes` (aquí hay una sola tienda) y `Domiciliarios` (el domicilio lo hace un courier externo,
- * el proyecto no modela repartidores).
+ * Falta una hoja que sí tiene el panel del que se tomó la referencia, y falta a propósito:
+ * `Sedes`, porque aquí hay una sola tienda.
+ *
+ * `Domiciliarios` tampoco está, pero por otro motivo: los domiciliarios son una agenda de
+ * contactos externos, no una nómina con turnos ni pagos que reportar. Quién llevó cada pedido sí
+ * viaja, en su columna de la hoja `Pedidos`, que es donde sirve para cruzarlo con las ventas.
  */
 export async function libroDePedidos(
   pedidos: PedidoParaExport[],

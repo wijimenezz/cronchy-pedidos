@@ -58,6 +58,7 @@ src/
       page.tsx
       producto/[slug]/
     pedido/[token]/           seguimiento público del cliente
+    entrega/[token]/          el domiciliario confirma la entrega — otra llave (regla 18)
     admin/                    panel — protegido
       login/
       (panel)/                grupo con sesión: cabecera, nav y exigirRol()
@@ -76,6 +77,7 @@ src/
     queries/                  consultas reutilizables
       panel.ts                pedidos del panel + cambio de estado
       resumen.ts              cifras del día (SQL agregado) + pedidos para el export
+      domiciliarios.ts        agenda de couriers + asignación + confirmarEntrega
       disponibilidad.ts       switches de agotado
       catalogo.ts             CRUD de categorías, productos y enganches
       opciones.ts             CRUD de las listas de opciones y sus opciones
@@ -536,10 +538,65 @@ un número de días **sin zona horaria** y `write-excel-file` lo calcula con `ge
 sin corregir, un pedido de las 3 pm se abriría como las 8 pm y la caja de la noche caería en el
 día siguiente.
 
-Faltan dos hojas que sí tiene la referencia de la que se copió el formato, y faltan a propósito:
-`Sedes` (hay una sola tienda) y `Domiciliarios` (el domicilio lo hace un courier externo, aquí no
-se modelan repartidores). La columna de cupón tampoco existe todavía: cuando llegue va junto a
-`Descuento $`. **No se añade vacía**, que se leería como un dato perdido.
+Falta una hoja que sí tiene la referencia de la que se copió el formato, y falta a propósito:
+`Sedes`, porque hay una sola tienda. `Domiciliarios` tampoco está, pero por otro motivo: son una
+agenda de contactos externos, no una nómina con turnos ni pagos que reportar — quién llevó cada
+pedido viaja en su columna de la hoja `Pedidos`, que es donde se puede cruzar con las ventas. La
+columna de cupón no existe todavía: cuando llegue va junto a `Descuento $`. **No se añade vacía**,
+que se leería como un dato perdido.
+
+### 18. El domiciliario tiene su propia llave, y solo abre una puerta
+
+Asignar un pedido manda un WhatsApp al domiciliario con un link para **confirmar la entrega**
+desde su teléfono (`/entrega/<token>`). Ese link es el único write del proyecto **sin sesión de
+panel**, así que lo que lo sostiene queda escrito:
+
+- **`order.token_entrega` es distinto de `token_publico` a propósito.** El del cliente solo
+  *lee* su seguimiento; este *escribe* un estado. Reusar el del cliente le daría poder para
+  marcar su propio pedido como entregado. Dos permisos, dos llaves, y no se mezclan.
+- **Lo que decide qué se puede hacer no es el token, es `validarCambioEstado`**: solo
+  `en_camino → entregado`. Un link filtrado no cancela, no adelanta un pedido que sigue en
+  preparación y no sirve dos veces. Hay tests que fijan justo eso.
+- **La pantalla no expone datos.** Número, nombre y calle; ni teléfono, ni total, ni items — todo
+  eso ya se lo mandamos por WhatsApp, y repetirlo solo serviría para que un reenvío por error
+  enseñe la ficha de un cliente.
+- El evento se registra con `user_id` NULL: no lo tocó nadie del panel. Quién lo llevaba se sabe
+  por `order.domiciliario_nombre`.
+
+**Los domiciliarios son una agenda, no empleados** (tabla `courier`): el domicilio lo ejecuta un
+courier externo (regla 13). El teléfono los identifica, como en `customer`, y se archivan con
+`activo` en vez de borrarse (regla 9). El pedido guarda `courier_id` **más** nombre y teléfono
+como snapshot (regla 2), igual que `zona_nombre`.
+
+**Asignar NO cambia el estado del pedido.** Entre que se llama al domiciliario y que llega pasan
+entre cinco y quince minutos, y durante esa espera el pedido sigue en preparación — que es la
+verdad. Ponerlo "en camino" al asignar sería avisarle al cliente que ya salió cuando está en el
+mostrador. Reasignar sobrescribe y vuelve a mandar el mensaje: repetirlo es normal, no un error,
+y por eso ahí no hay candado de idempotencia. El de la regla 11 protege los avisos al **cliente**.
+
+El mensaje al domiciliario vive en `plantillas.ts` como todos (regla 10) y tiene su propio tipo de
+entrada: necesita `paga_con` y si el pedido ya está pagado, que son datos de caja y no tienen por
+qué existir en los avisos al cliente. Lleva **cuánto cobrar y la devuelta ya calculada** —para eso
+existe `order.paga_con`, y hasta ahora no lo leía nadie—, y cuando el pago está confirmado lo
+sustituye por un **NO COBRAR** solo, sin ninguna cifra al lado: cobrar un pedido ya pagado es un
+incidente con el cliente. **No lleva el detalle de productos**: no arma el pedido, lo lleva, y el
+texto viaja dentro de una URL `wa.me` que se rompe si crece.
+
+### 19. Avanzar el pedido avisa al cliente en el mismo toque
+
+El botón naranja del tablero cambia el estado **y** abre el WhatsApp del cliente si ese estado
+lleva mensaje. Eran dos botones y el segundo se olvidaba: es un solo momento —el pedido cambió de
+sitio, hay que decírselo— y partirlo en dos no lo hacía más seguro.
+
+La idempotencia no se relaja, y queda cerrada por partida doble: `cambiarEstadoPedido` reserva la
+fila con `SELECT … FOR UPDATE` y valida la transición, así que de dos pestañas pulsando a la vez
+**solo una gana el cambio de estado** — y solo esa llega a pedir el aviso. El candado de
+`marcarEstadoNotificado` sigue siendo el segundo cierre.
+
+Si el navegador bloquea la ventana emergente, `window.open` devuelve `null` —señal fiable— y la
+tarjeta ofrece el enlace a mano. **No se reabre el candado**: la URL ya está en el cliente, a un
+clic, y revertir un candado que existe para no enviar dos veces sería peor que el problema. El
+botón ámbar "Avisar" sigue existiendo como reintento para lo que quedó pendiente de antes.
 
 **El polling del panel NO se pausa con la pestaña oculta.** Parece la optimización obvia y es
 justo la que no se puede hacer: desde que el tablero avisa con sonido, ese intervalo dejó de ser

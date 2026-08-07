@@ -93,6 +93,7 @@ export function TarjetaPedido({
 }) {
   const [pendiente, iniciar] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [urlBloqueada, setUrlBloqueada] = useState<string | null>(null);
   const ahora = useAhora();
 
   // El polling entrega las fechas como string al pasar por JSON; el render del servidor las
@@ -114,26 +115,40 @@ export function TarjetaPedido({
           ? "aviso"
           : "normal";
 
+  /**
+   * `_blank` y no `location.href`: el panel se queda abierto en su pestaña, que es donde el
+   * empleado va a seguir trabajando cuando vuelva de WhatsApp.
+   *
+   * `window.open` devuelve `null` cuando el navegador bloquea la ventana. Es una señal fiable, y
+   * con ella la tarjeta ofrece el enlace a mano en vez de tragarse el mensaje: el candado de
+   * idempotencia ya se cerró en el servidor, así que si no se abre aquí no hay segunda vuelta.
+   */
+  function abrirWhatsapp(url: string | null) {
+    if (!url) return;
+    const ventana = window.open(url, "_blank", "noopener");
+    setUrlBloqueada(ventana ? null : url);
+  }
+
+  /** Avanza y avisa en el mismo toque: el pedido cambió de sitio y el cliente se entera. */
   function avanzar(estado: string) {
     setError(null);
+    setUrlBloqueada(null);
     iniciar(async () => {
       const resultado = await cambiarEstado({ pedidoId: pedido.id, estado });
       if (!resultado.ok) setError(resultado.error);
+      else abrirWhatsapp(resultado.url);
       alCambiar();
     });
   }
 
+  /** El reintento: solo aparece si quedó un aviso pendiente de antes. */
   function avisar() {
     setError(null);
+    setUrlBloqueada(null);
     iniciar(async () => {
       const resultado = await prepararAviso({ numero: pedido.numero, estado: pedido.estado });
-      if (!resultado.ok) {
-        setError(resultado.error);
-      } else if (resultado.url) {
-        // `_blank` y no `location.href`: el panel se queda abierto en su pestaña, que es
-        // donde el empleado va a seguir trabajando cuando vuelva de WhatsApp.
-        window.open(resultado.url, "_blank", "noopener");
-      }
+      if (!resultado.ok) setError(resultado.error);
+      else abrirWhatsapp(resultado.url);
       alCambiar();
     });
   }
@@ -203,6 +218,20 @@ export function TarjetaPedido({
         <p role="alert" className="font-cuerpo text-[13px] font-semibold text-error">
           {error}
         </p>
+      )}
+
+      {/* La ventana se bloqueó, pero el mensaje no se perdió: está a un clic. Va con `z-10` como
+          los botones, para quedar por encima del enlace que cubre la tarjeta. */}
+      {urlBloqueada && (
+        <a
+          href={urlBloqueada}
+          target="_blank"
+          rel="noopener"
+          onClick={() => setUrlBloqueada(null)}
+          className="relative z-10 rounded-sm bg-alerta/20 px-2 py-1.5 text-center font-cuerpo text-[13px] font-bold text-cafe underline-offset-2 hover:underline"
+        >
+          Abrir WhatsApp
+        </a>
       )}
 
       {/* El enlace que cubre la tarjeta. Va antes que los botones en el DOM y sin `z`, para

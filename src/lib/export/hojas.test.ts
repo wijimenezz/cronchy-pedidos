@@ -31,6 +31,7 @@ const BASE: PedidoParaExport = {
   indicaciones: "Casa blanca",
   zonaNombre: "Centro",
   punto: { lat: 4.34, lng: -74.36 },
+  domiciliarioNombre: "Jesús F",
   metodoPago: "efectivo",
   pagaCon: 50000,
   notas: null,

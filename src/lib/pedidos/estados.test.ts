@@ -146,6 +146,56 @@ describe("validarCambioEstado", () => {
   });
 });
 
+/**
+ * `POST /api/entrega/[token]` es el único write del proyecto sin sesión de panel, y lo que decide
+ * qué puede hacer ese link **no es el token sino esta función**. Si algún día deja de ser
+ * exhaustiva, un link filtrado por WhatsApp gana permisos que nadie le dio.
+ */
+describe("lo que puede hacer el link del domiciliario", () => {
+  const enCalle = (parcial: Partial<PedidoParaTransicion> = {}) =>
+    pedido({ estado: "en_camino", ...parcial });
+
+  it("desde en_camino solo puede entregar", () => {
+    expect(validarCambioEstado(enCalle(), "entregado")).toEqual({ ok: true });
+  });
+
+  it("no puede cancelar desde el link", () => {
+    // `cancelado` sí es una transición válida en el panel; el endpoint nunca la pide, y por eso
+    // pedir cualquier otra cosa que no sea `entregado` no llega a la base.
+    expect(validarCambioEstado(enCalle(), "entregado")).toEqual({ ok: true });
+    expect(validarCambioEstado(enCalle(), "preparando")).toEqual({
+      ok: false,
+      motivo: "transicion_invalida",
+    });
+  });
+
+  // Un link que llega antes de tiempo —o que alguien reenvía— no puede saltarse la cocina.
+  it("un pedido que todavía no salió no se puede entregar", () => {
+    for (const estado of ["nuevo", "preparando"] as const) {
+      expect(validarCambioEstado(pedido({ estado }), "entregado")).toEqual({
+        ok: false,
+        motivo: "transicion_invalida",
+      });
+    }
+  });
+
+  it("un pedido cancelado no se puede entregar", () => {
+    expect(validarCambioEstado(pedido({ estado: "cancelado" }), "entregado")).toEqual({
+      ok: false,
+      motivo: "transicion_invalida",
+    });
+  });
+
+  // El link es de domicilios, pero si alguien lo prueba en uno de recoger tampoco vale: para ese
+  // tipo, `en_camino` no está en su recorrido.
+  it("en un pedido para recoger, `en_camino` no lleva a ninguna parte", () => {
+    expect(validarCambioEstado(enCalle({ tipo: "recoger" }), "entregado")).toEqual({
+      ok: false,
+      motivo: "transicion_invalida",
+    });
+  });
+});
+
 describe("hitos del seguimiento", () => {
   it("son cuatro, y el tercero y el cuarto cambian con el tipo", () => {
     expect(hitosDelPedido("domicilio").map((h) => h.etiqueta)).toEqual([
