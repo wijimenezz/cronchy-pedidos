@@ -2,6 +2,7 @@ import {
   cambioEstado,
   llevaAviso,
   nuevoPedidoNegocio,
+  pedidoParaDomiciliario,
   type EstadoPedido,
   type PedidoParaMensaje,
   type Tienda,
@@ -9,6 +10,7 @@ import {
 import { obtenerTransporte, type ResultadoEnvio } from "./transporte";
 import { resolverBaseUrl } from "@/lib/url";
 import type { PedidoPublico } from "@/db/queries/pedidos";
+import type { PedidoPanel } from "@/db/queries/panel";
 
 /**
  * Compone plantilla + transporte. Existe para que ni un route handler ni un componente
@@ -98,6 +100,46 @@ export async function avisoNuevoPedido(
   const texto = nuevoPedidoNegocio(pedidoParaMensaje(pedido), tienda);
 
   return obtenerTransporte().preparar(store.telefono, texto);
+}
+
+/**
+ * El pedido para quien lo lleva (US: asignar domiciliario).
+ *
+ * El destinatario es el domiciliario, no el cliente: el link `wa.me` lo abre el panel con el
+ * mensaje ya escrito y quien despacha solo pulsa enviar.
+ *
+ * Se alimenta del pedido del panel y no de `pedidoParaMensaje`: hacen falta `pagaCon` y si el
+ * pago ya está confirmado, que son datos de caja y no tienen por qué existir en los avisos al
+ * cliente.
+ */
+export async function avisoDomiciliario(
+  pedido: PedidoPanel,
+  domiciliario: { telefono: string },
+  store: { nombre: string },
+): Promise<ResultadoEnvio> {
+  const texto = pedidoParaDomiciliario(
+    {
+      numero: pedido.numero,
+      clienteNombre: pedido.clienteNombre,
+      clienteTelefono: pedido.clienteTelefono,
+      recibeNombre: pedido.recibeNombre,
+      recibeTelefono: pedido.recibeTelefono,
+      direccion: pedido.direccion,
+      barrio: pedido.barrio,
+      indicaciones: pedido.indicaciones,
+      ubicacion: pedido.punto,
+      total: pedido.total,
+      metodoPago: pedido.metodoPago,
+      pagaCon: pedido.pagaCon,
+      // Un comprobante cargado es la única prueba de pago que maneja este negocio. En efectivo
+      // nunca hay comprobante, así que siempre toca cobrar — que es justo lo correcto.
+      pagado: Boolean(pedido.comprobanteUrl),
+      tokenEntrega: pedido.tokenEntrega,
+    },
+    tiendaParaMensaje(store),
+  );
+
+  return obtenerTransporte().preparar(domiciliario.telefono, texto);
 }
 
 /**

@@ -34,10 +34,24 @@ export function AccionesPedido({
   const router = useRouter();
   const [pendiente, iniciar] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [urlBloqueada, setUrlBloqueada] = useState<string | null>(null);
   const [confirmando, setConfirmando] = useState(false);
 
+  /**
+   * `_blank`: el panel se queda en su pestaña, que es donde se sigue trabajando al volver de
+   * WhatsApp. Si el navegador bloquea la ventana —`window.open` devuelve `null`— se ofrece el
+   * enlace a mano: el candado de idempotencia ya se cerró y no habrá una segunda oportunidad.
+   */
+  function abrirWhatsapp(url: string | null) {
+    if (!url) return;
+    const ventana = window.open(url, "_blank", "noopener");
+    setUrlBloqueada(ventana ? null : url);
+  }
+
+  /** Avanza y avisa en el mismo toque. Cancelar entra por aquí y también avisa al cliente. */
   function avanzar(nuevo: string) {
     setError(null);
+    setUrlBloqueada(null);
     iniciar(async () => {
       const resultado = await cambiarEstado({ pedidoId, estado: nuevo });
       if (!resultado.ok) {
@@ -45,25 +59,24 @@ export function AccionesPedido({
         return;
       }
       setConfirmando(false);
+      abrirWhatsapp(resultado.url);
       // La página es `force-dynamic`: esto la vuelve a pedir con el estado ya cambiado, sin
       // duplicar aquí el cálculo de cuál es el siguiente paso.
       router.refresh();
     });
   }
 
+  /** El reintento: solo aparece si quedó un aviso pendiente de antes. */
   function avisar() {
     setError(null);
+    setUrlBloqueada(null);
     iniciar(async () => {
       const resultado = await prepararAviso({ numero, estado });
       if (!resultado.ok) {
         setError(resultado.error);
         return;
       }
-      if (resultado.url) {
-        // `_blank`: el panel se queda en su pestaña, que es donde se sigue trabajando al
-        // volver de WhatsApp.
-        window.open(resultado.url, "_blank", "noopener");
-      }
+      abrirWhatsapp(resultado.url);
       router.refresh();
     });
   }
@@ -82,6 +95,19 @@ export function AccionesPedido({
         <p role="alert" className="font-cuerpo text-[13px] font-semibold text-error">
           {error}
         </p>
+      )}
+
+      {/* La ventana se bloqueó, pero el mensaje no se perdió: está a un clic. */}
+      {urlBloqueada && (
+        <a
+          href={urlBloqueada}
+          target="_blank"
+          rel="noopener"
+          onClick={() => setUrlBloqueada(null)}
+          className="rounded-sm bg-alerta/20 px-3 py-2 text-center font-cuerpo text-[13px] font-bold text-cafe underline-offset-2 hover:underline"
+        >
+          El navegador bloqueó WhatsApp — toca aquí para abrirlo
+        </a>
       )}
 
       {siguiente && (

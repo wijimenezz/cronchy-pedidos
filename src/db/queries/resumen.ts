@@ -141,6 +141,8 @@ export type PedidoParaExport = {
   indicaciones: string | null;
   zonaNombre: string | null;
   punto: { lat: number; lng: number } | null;
+  /** Quién lo llevó, congelado al asignar (regla 2). */
+  domiciliarioNombre: string | null;
   metodoPago: string;
   pagaCon: number | null;
   notas: string | null;
@@ -230,6 +232,7 @@ export async function pedidosDelRango(
       indicaciones: fila.indicaciones,
       zonaNombre: fila.zonaNombre,
       punto: puntoDesdeGeoJSON(fila.puntoGeo),
+      domiciliarioNombre: fila.domiciliarioNombre,
       metodoPago: fila.metodoPago,
       pagaCon: fila.pagaCon,
       notas: fila.notas,

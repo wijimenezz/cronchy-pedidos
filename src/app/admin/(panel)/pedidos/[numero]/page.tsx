@@ -4,6 +4,7 @@ import { ArrowLeft, MapPin, MessageCircle, Phone } from "lucide-react";
 import { getStore } from "@/db/queries/store";
 import { obtenerPedidoPorNumero } from "@/db/queries/panel";
 import { historialDelCliente, type HistorialCliente } from "@/db/queries/customers";
+import { listarDomiciliarios } from "@/db/queries/domiciliarios";
 import { exigirRol } from "@/lib/autorizacion";
 import { cuandoCorto, pesos } from "@/lib/notificaciones/plantillas";
 import { normalizarTelefono } from "@/lib/notificaciones/transporte";
@@ -12,6 +13,7 @@ import { ETIQUETA_ESTADO, siguienteEstado, toneDeEstado } from "@/lib/pedidos/es
 import { urlMapa } from "@/lib/zonas";
 import { MapaPedido } from "@/components/pedido/MapaPedido";
 import { AccionesPedido } from "./AccionesPedido";
+import { AsignarDomiciliario } from "./AsignarDomiciliario";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +64,8 @@ export default async function DetallePedidoPage({
   const cliente = await historialDelCliente(tienda.id, pedido.customerId, pedido.numero);
 
   const esDomicilio = pedido.tipo === "domicilio";
+  // La agenda se carga aquí y viaja como props: el modal no tiene que ir a buscarla al abrirse.
+  const domiciliarios = esDomicilio ? await listarDomiciliarios(tienda.id) : [];
   // Se derivan aquí y no en la consulta: son las mismas dos preguntas que responde la lista,
   // con los datos que este pedido ya trae.
   const siguiente = siguienteEstado(pedido.estado, pedido.tipo);
@@ -236,6 +240,27 @@ export default async function DetallePedidoPage({
               </>
             ) : (
               tienda.direccion && <Dato etiqueta="En" valor={tienda.direccion} />
+            )}
+
+            {/* Solo en domicilios: un pedido para recoger no tiene a quién asignar. Y solo
+                mientras el pedido siga vivo — mandarle un domicilio a alguien por un pedido ya
+                entregado o cancelado no es un caso, es un error. */}
+            {esDomicilio && pedido.estado !== "entregado" && pedido.estado !== "cancelado" && (
+              <div className="mt-3">
+                <AsignarDomiciliario
+                  pedidoId={pedido.id}
+                  numero={pedido.numero}
+                  domiciliarios={domiciliarios}
+                  asignado={
+                    pedido.domiciliarioNombre
+                      ? {
+                          nombre: pedido.domiciliarioNombre,
+                          telefono: pedido.domiciliarioTelefono ?? "",
+                        }
+                      : null
+                  }
+                />
+              </div>
             )}
           </Seccion>
 

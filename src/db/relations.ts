@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm/relations";
-import { store, storeHours, storeClosure, appUser, category, product, modifierGroup, modifierOption, productModifierGroup, deliveryZone, customer, order, orderItem, orderStatusEvent } from "./schema";
+import { store, storeHours, storeClosure, appUser, category, product, modifierGroup, modifierOption, productModifierGroup, deliveryZone, customer, courier, order, orderItem, orderStatusEvent } from "./schema";
 
 export const storeHoursRelations = relations(storeHours, ({one}) => ({
 	store: one(store, {
@@ -116,6 +116,14 @@ export const customerRelations = relations(customer, ({one, many}) => ({
 	orders: many(order),
 }));
 
+export const courierRelations = relations(courier, ({one, many}) => ({
+	store: one(store, {
+		fields: [courier.storeId],
+		references: [store.id]
+	}),
+	orders: many(order),
+}));
+
 export const orderRelations = relations(order, ({one, many}) => ({
 	customer: one(customer, {
 		fields: [order.customerId],
@@ -128,6 +136,10 @@ export const orderRelations = relations(order, ({one, many}) => ({
 	deliveryZone: one(deliveryZone, {
 		fields: [order.zonaId],
 		references: [deliveryZone.id]
+	}),
+	courier: one(courier, {
+		fields: [order.courierId],
+		references: [courier.id]
 	}),
 	orderItems: many(orderItem),
 	orderStatusEvents: many(orderStatusEvent),

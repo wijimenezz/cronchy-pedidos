@@ -111,6 +111,7 @@ export type FilaPedido = {
   latitud: number | null;
   longitud: number | null;
   zona: string | null;
+  domiciliario: string | null;
   programadoPara: Date | null;
   metodoPago: string;
   pagaCon: number | null;
@@ -146,6 +147,7 @@ export function hojaPedidos(pedidos: PedidoParaExport[]): FilaPedido[] {
     latitud: p.punto?.lat ?? null,
     longitud: p.punto?.lng ?? null,
     zona: p.zonaNombre,
+    domiciliario: p.domiciliarioNombre,
     programadoPara: p.programadoPara,
     metodoPago: METODO_PAGO_ETIQUETA[p.metodoPago] ?? p.metodoPago,
     pagaCon: p.pagaCon,

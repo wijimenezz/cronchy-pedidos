@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { instanteEnBogota } from "@/lib/horario";
-import { cambioEstado, cuandoCorto, horaCorta, llevaAviso } from "./plantillas";
+import {
+  cambioEstado,
+  cuandoCorto,
+  horaCorta,
+  llevaAviso,
+  pedidoParaDomiciliario,
+} from "./plantillas";
 import type { PedidoParaMensaje } from "./plantillas";
 
 /**
@@ -119,6 +125,112 @@ describe("cambioEstado al aceptar", () => {
     expect(cambioEstado("aceptado", PEDIDO, TIENDA)).toBe(
       cambioEstado("preparando", PEDIDO, TIENDA),
     );
+  });
+});
+
+/**
+ * El mensaje del domiciliario es el único que mueve plata en la calle: si dice mal cuánto cobrar
+ * —o dice que cobre algo ya pagado— nadie se entera hasta que el cliente reclama.
+ */
+describe("pedidoParaDomiciliario", () => {
+  const DOMI = {
+    numero: 28,
+    clienteNombre: "Wilson Jimenez",
+    clienteTelefono: "3116435036",
+    direccion: "Cra 11a #93A-22",
+    barrio: "Balmoral",
+    indicaciones: "al frente del farmacetodo",
+    ubicacion: { lat: 4.34, lng: -74.36 },
+    total: 59500,
+    metodoPago: "efectivo",
+    pagaCon: 70000,
+    pagado: false,
+    tokenEntrega: "f".repeat(32),
+  };
+
+  const MEDIODIA = new Date("2025-12-09T17:00:00Z"); // 12:00 en Bogotá
+
+  it("lleva lo que hace falta para llegar", () => {
+    const texto = pedidoParaDomiciliario(DOMI, TIENDA, MEDIODIA);
+
+    expect(texto).toContain("#28");
+    expect(texto).toContain("Wilson Jimenez");
+    expect(texto).toContain("3116435036");
+    expect(texto).toContain("Cra 11a #93A-22");
+    expect(texto).toContain("Balmoral");
+    expect(texto).toContain("al frente del farmacetodo");
+    expect(texto).toContain("maps.google.com");
+    expect(texto).toContain(`https://cronchy.co/entrega/${"f".repeat(32)}`);
+  });
+
+  it("calcula la devuelta", () => {
+    const texto = pedidoParaDomiciliario(DOMI, TIENDA, MEDIODIA);
+
+    expect(texto).toContain("*COBRAR:* $59.500 en efectivo");
+    expect(texto).toContain("*Paga con:* $70.000");
+    expect(texto).toContain("*Devuelta:* $10.500");
+  });
+
+  it("sin `pagaCon` no habla de devuelta", () => {
+    const texto = pedidoParaDomiciliario({ ...DOMI, pagaCon: null }, TIENDA, MEDIODIA);
+
+    expect(texto).toContain("*COBRAR:* $59.500");
+    expect(texto).not.toContain("Devuelta");
+    expect(texto).not.toContain("Paga con");
+  });
+
+  // El cliente escribió un billete menor que el total. Se muestra tal cual y no se inventa una
+  // devuelta negativa — mismo criterio que el panel.
+  it("no inventa una devuelta negativa", () => {
+    const texto = pedidoParaDomiciliario({ ...DOMI, pagaCon: 50000 }, TIENDA, MEDIODIA);
+
+    expect(texto).toContain("*Paga con:* $50.000");
+    expect(texto).not.toContain("Devuelta");
+  });
+
+  // Cobrar un pedido ya pagado es un incidente con el cliente. El aviso va solo, sin ninguna
+  // cifra al lado que se pueda leer como algo a recibir.
+  it("un pedido ya pagado dice NO COBRAR y ninguna cifra", () => {
+    const texto = pedidoParaDomiciliario(
+      { ...DOMI, metodoPago: "nequi", pagaCon: null, pagado: true },
+      TIENDA,
+      MEDIODIA,
+    );
+
+    expect(texto).toContain("*NO COBRAR* — ya pagó por Nequi");
+    expect(texto).not.toContain("COBRAR:");
+    expect(texto).not.toContain("$59.500");
+  });
+
+  // No arma el pedido, lo lleva. Y el texto viaja dentro de una URL `wa.me`, que se rompe si crece.
+  it("no lleva el detalle de productos y cabe en un link de WhatsApp", () => {
+    const texto = pedidoParaDomiciliario(DOMI, TIENDA, MEDIODIA);
+
+    expect(texto).not.toContain("▼");
+    expect(encodeURIComponent(texto).length).toBeLessThan(1800);
+  });
+
+  it("un pedido sin pin sale sin línea de Maps, no roto", () => {
+    const texto = pedidoParaDomiciliario({ ...DOMI, ubicacion: null }, TIENDA, MEDIODIA);
+
+    expect(texto).not.toContain("maps.google.com");
+    expect(texto).toContain("Cra 11a #93A-22");
+  });
+
+  it("solo nombra a quien recibe si es otra persona", () => {
+    expect(pedidoParaDomiciliario(DOMI, TIENDA, MEDIODIA)).not.toContain("Recibe:");
+    expect(
+      pedidoParaDomiciliario({ ...DOMI, recibeNombre: "Ana" }, TIENDA, MEDIODIA),
+    ).toContain("*Recibe:* Ana");
+  });
+
+  // Un "buena tarde" fijo a las ocho de la noche delata que lo escribió una máquina.
+  it("saluda según la hora de Bogotá", () => {
+    const aLas = (iso: string) => pedidoParaDomiciliario(DOMI, TIENDA, new Date(iso));
+
+    expect(aLas("2025-12-09T13:00:00Z")).toContain("Buenos días"); // 8:00 am
+    expect(aLas("2025-12-09T20:00:00Z")).toContain("Buenas tardes"); // 3:00 pm
+    expect(aLas("2025-12-10T02:00:00Z")).toContain("Buenas noches"); // 9:00 pm
   });
 });
 

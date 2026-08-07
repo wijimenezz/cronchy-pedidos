@@ -278,11 +278,42 @@ export const customer = pgTable("customer", {
 	unique("customer_store_id_telefono_key").on(table.storeId, table.telefono),
 ]);
 
+// Los domiciliarios de la tienda: una agenda, no empleados. El domicilio lo ejecuta un courier
+// externo (regla 13), así que esto es la lista de a quién se le puede pasar un pedido.
+//
+// El teléfono identifica a la persona, igual que en `customer`, y se guarda normalizado.
+// Se archiva con `activo`, nunca se borra (regla 9): un pedido viejo tiene que poder decir quién
+// lo llevó, y el snapshot en `order` solo cubre a los que ya salieron.
+export const courier = pgTable("courier", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	storeId: uuid("store_id").notNull(),
+	nombre: text().notNull(),
+	telefono: text().notNull(),
+	activo: boolean().default(true).notNull(),
+	creadoEn: timestamp("creado_en", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	foreignKey({
+			columns: [table.storeId],
+			foreignColumns: [store.id],
+			name: "courier_store_id_fkey"
+		}).onDelete("cascade"),
+	unique("courier_store_id_telefono_key").on(table.storeId, table.telefono),
+]);
+
 export const order = pgTable("order", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	storeId: uuid("store_id").notNull(),
 	numero: serial().notNull(),
 	tokenPublico: text("token_publico").default(sql`encode(gen_random_bytes(16), 'hex'::text)`).notNull(),
+	// La llave del DOMICILIARIO, y es otra que la del cliente a propósito.
+	//
+	// `token_publico` solo sirve para *leer* el seguimiento; este permite *escribir* el estado.
+	// Reusar aquel significaría que el cliente puede marcar su propio pedido como entregado. Dos
+	// permisos distintos, dos llaves distintas, y no se mezclan.
+	//
+	// Se genera en todas las filas —no hay estado nulo que manejar— y no sirve de nada hasta que
+	// el pedido está `en_camino`: lo que de verdad protege el endpoint es `validarCambioEstado`.
+	tokenEntrega: text("token_entrega").default(sql`encode(gen_random_bytes(16), 'hex'::text)`).notNull(),
 	tipo: tipoPedido().notNull(),
 	estado: estadoPedido().default('nuevo').notNull(),
 	customerId: uuid("customer_id"),
@@ -307,6 +338,12 @@ export const order = pgTable("order", {
 	barrio: text(),
 	indicaciones: text(),
 	notas: text(),
+	courierId: uuid("courier_id"),
+	// Snapshot del domiciliario (regla 2), mismo trato que `zona_nombre`: renombrar o archivar a
+	// alguien de la agenda jamás debe cambiar lo que dice un pedido ya despachado. `courier_id`
+	// se queda para reportes agregados.
+	domiciliarioNombre: text("domiciliario_nombre"),
+	domiciliarioTelefono: text("domiciliario_telefono"),
 	metodoPago: metodoPago("metodo_pago").notNull(),
 	// Con cuánto billete va a pagar, para que el domiciliario lleve la devuelta. Solo aplica
 	// a efectivo y es opcional: NULL significa "no lo dijo", no "paga justo".
@@ -340,7 +377,13 @@ export const order = pgTable("order", {
 			foreignColumns: [deliveryZone.id],
 			name: "order_zona_id_fkey"
 		}),
+	foreignKey({
+			columns: [table.courierId],
+			foreignColumns: [courier.id],
+			name: "order_courier_id_fkey"
+		}),
 	unique("order_token_publico_key").on(table.tokenPublico),
+	unique("order_token_entrega_key").on(table.tokenEntrega),
 	// Un domicilio sin pin ya no es posible: el pin es lo que determinó el precio (regla 14),
 	// y sin él no se puede reconstruir por qué se cobró lo que se cobró.
 	check(

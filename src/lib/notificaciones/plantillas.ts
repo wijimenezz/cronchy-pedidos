@@ -483,7 +483,142 @@ export function confirmacionClienteCorta(
 }
 
 // ------------------------------------------------------------
-// Mensaje 5 — el cliente quedó fuera de cobertura
+// Mensaje 5 — el pedido para el DOMICILIARIO
+// ------------------------------------------------------------
+
+/**
+ * Lo que hay que saber para llevar un pedido. Tiene su propio tipo y no reusa
+ * `PedidoParaMensaje` porque necesita dos cosas que los mensajes del cliente no deben tocar:
+ * con cuánto paga y si ya pagó. Estirar aquel tipo metería datos de caja en los tres avisos al
+ * cliente.
+ */
+export type PedidoParaDomiciliario = {
+  numero: number;
+  clienteNombre: string;
+  clienteTelefono: string;
+  recibeNombre?: string | null;
+  recibeTelefono?: string | null;
+  direccion?: string | null;
+  barrio?: string | null;
+  indicaciones?: string | null;
+  ubicacion?: { lat: number; lng: number } | null;
+  total: number;
+  metodoPago: string;
+  /** Con cuánto billete paga, para calcular la devuelta. `null` = no lo dijo. */
+  pagaCon?: number | null;
+  /** Si el pago ya está confirmado. Decide entre "COBRAR" y "NO COBRAR". */
+  pagado: boolean;
+  tokenEntrega: string;
+};
+
+/**
+ * El saludo según la hora de Bogotá.
+ *
+ * Se calcula con `Intl` aquí mismo y **no** importando `horario.ts`: ese módulo arrastra la capa
+ * de base de datos, y este archivo la evita a propósito (mismo motivo que `diaEnBogota`).
+ *
+ * Vale la pena calcularlo: un "buena tarde" fijo a las ocho de la noche delata que el mensaje lo
+ * escribió una máquina, y este se manda veinte veces al día a la misma persona.
+ */
+function saludo(ahora: Date): string {
+  const hora = Number(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Bogota",
+      hour: "2-digit",
+      hour12: false,
+    }).format(ahora),
+  ) % 24;
+
+  if (hora < 12) return "Buenos días";
+  if (hora < 19) return "Buenas tardes";
+
+  return "Buenas noches";
+}
+
+const NOMBRE_METODO: Record<string, string> = {
+  efectivo: "en efectivo",
+  nequi: "por Nequi",
+  transferencia: "por transferencia",
+  datafono: "con datáfono",
+};
+
+/**
+ * El bloque de plata, que es la razón de ser de este mensaje.
+ *
+ * Un domiciliario que cobra un pedido ya pagado es un incidente con el cliente, no un descuido,
+ * así que el "NO COBRAR" va solo y en negrita, sin ninguna cifra al lado que se pueda confundir
+ * con algo a recibir.
+ *
+ * La devuelta se calcula porque `order.paga_con` existe exactamente para eso y hasta ahora no la
+ * leía nadie: sin ella el domiciliario sale sin sencillo. Solo se escribe cuando de verdad hay
+ * vuelto — si el cliente escribió un número menor que el total, se muestra tal cual y no se
+ * inventa una devuelta negativa (mismo criterio que el panel, ver `validaciones.ts`).
+ */
+function bloqueCobro(pedido: PedidoParaDomiciliario): string[] {
+  if (pedido.pagado) {
+    return [`*NO COBRAR* — ya pagó ${NOMBRE_METODO[pedido.metodoPago] ?? pedido.metodoPago}`];
+  }
+
+  const lineas = [
+    `*COBRAR:* ${pesos(pedido.total)} ${NOMBRE_METODO[pedido.metodoPago] ?? pedido.metodoPago}`,
+  ];
+
+  if (pedido.pagaCon) {
+    lineas.push(`*Paga con:* ${pesos(pedido.pagaCon)}`);
+    if (pedido.pagaCon > pedido.total) {
+      lineas.push(`*Devuelta:* ${pesos(pedido.pagaCon - pedido.total)}`);
+    }
+  }
+
+  return lineas;
+}
+
+/**
+ * El pedido tal como lo necesita quien lo lleva.
+ *
+ * **No lleva el detalle de productos, y es a propósito.** El domiciliario no arma el pedido, lo
+ * lleva; y el texto viaja dentro de una URL `wa.me`, que se rompe si crece — el mismo motivo por
+ * el que existe `confirmacionClienteCorta`. Lo que sí lleva es todo lo que hace falta para
+ * llegar, cobrar bien y avisar que llegó.
+ */
+export function pedidoParaDomiciliario(
+  pedido: PedidoParaDomiciliario,
+  tienda: Tienda,
+  ahora: Date = new Date(),
+): string {
+  const partes = [`${saludo(ahora)}, un domicilio por favor 🛵`, ""];
+
+  partes.push(`*Pedido #${pedido.numero}*`);
+  partes.push(`*Cliente:* ${pedido.clienteNombre}`);
+  partes.push(`*Tel:* ${pedido.clienteTelefono}`);
+
+  // Quien recibe solo se nombra si es otra persona: repetir al cliente aquí haría dudar de si
+  // hay que buscar a dos.
+  if (pedido.recibeNombre) {
+    partes.push(`*Recibe:* ${pedido.recibeNombre}${pedido.recibeTelefono ? ` · ${pedido.recibeTelefono}` : ""}`);
+  }
+
+  if (pedido.direccion) partes.push(`*Dirección:* ${pedido.direccion}`);
+  if (pedido.barrio) partes.push(`*Barrio:* ${pedido.barrio}`);
+  if (pedido.indicaciones) partes.push(`*Detalles entrega:* ${pedido.indicaciones}`);
+  if (pedido.ubicacion) partes.push(`*Google Maps:* ${mapsUrl(pedido.ubicacion)}`);
+
+  partes.push(SEP);
+  partes.push(...bloqueCobro(pedido));
+  partes.push(SEP);
+  partes.push("Cuando entregues, confirma aquí:");
+  partes.push(urlEntrega(tienda, pedido.tokenEntrega));
+
+  return partes.join("\n");
+}
+
+/** El link que confirma la entrega. Otra llave que la del cliente: ver `order.token_entrega`. */
+function urlEntrega(tienda: Tienda, token: string): string {
+  return `${tienda.baseUrl}/entrega/${token}`;
+}
+
+// ------------------------------------------------------------
+// Mensaje 6 — el cliente quedó fuera de cobertura
 // ------------------------------------------------------------
 
 /**

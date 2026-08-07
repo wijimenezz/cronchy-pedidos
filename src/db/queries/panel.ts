@@ -21,6 +21,8 @@ export type PedidoPanel = {
   id: string;
   numero: number;
   tokenPublico: string;
+  /** La llave del domiciliario para confirmar la entrega. Otra que la del cliente, a propósito. */
+  tokenEntrega: string;
   tipo: TipoPedido;
   estado: EstadoPedido;
   creadoEn: Date;
@@ -44,6 +46,9 @@ export type PedidoPanel = {
   zonaNombre: string | null;
   /** El pin que confirmó el cliente. Es lo que abre el domiciliario en Maps (regla 14). */
   punto: { lat: number; lng: number } | null;
+  /** Quién lo lleva, congelado al asignar (regla 2). `null` si todavía no se asignó. */
+  domiciliarioNombre: string | null;
+  domiciliarioTelefono: string | null;
   metodoPago: string;
   /** Con cuánto paga, si lo dijo. La devuelta se calcula, no se guarda. */
   pagaCon: number | null;
@@ -266,6 +271,7 @@ export async function obtenerPedidoPorNumero(
       id: fila.id,
       numero: fila.numero,
       tokenPublico: fila.tokenPublico,
+      tokenEntrega: fila.tokenEntrega,
       tipo: fila.tipo,
       estado: fila.estado,
       creadoEn: new Date(fila.creadoEn),
@@ -280,6 +286,8 @@ export async function obtenerPedidoPorNumero(
       barrio: fila.barrio,
       zonaNombre: fila.zonaNombre,
       punto: puntoDesdeGeoJSON(fila.puntoGeo),
+      domiciliarioNombre: fila.domiciliarioNombre,
+      domiciliarioTelefono: fila.domiciliarioTelefono,
       metodoPago: fila.metodoPago,
       pagaCon: fila.pagaCon,
       comprobanteUrl: fila.comprobanteUrl,
