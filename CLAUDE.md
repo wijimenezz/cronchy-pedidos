@@ -683,6 +683,22 @@ servidor— y el audio necesita **un gesto del usuario** antes de poder sonar: d
 
   **`pnpm dev` no prueba nada de esto**: en desarrollo no existen ni el Router Cache ni el
   ISR real. Cualquier cambio de caché se verifica con `pnpm build && pnpm start`.
+- **El tipo de pedido caduca a las 6 horas, y esa caducidad es la feature.** `cronchy_tipo_pedido`
+  se guardaba para siempre, así que quien recogió la semana pasada volvía y llegaba al checkout
+  todavía en `recoger` — donde el paso de la dirección **se salta entero** y nada se lo gritaba.
+  El modal bloqueante de `SelectorTipoPedido` ya sabía preguntar cuando el valor es `null`; lo que
+  faltaba era que dejara de ser eterno. Seis horas cubren "miré a las 4 y pedí a las 9" sin llegar
+  al día siguiente. No es "hasta medianoche en Bogotá" porque esa aritmética vive en `dias.ts`, que
+  arrastra la capa de base de datos, y esto corre en el navegador. La lógica está partida en
+  `leerGuardado(crudo, ahora)`, pura y testeada, porque Vitest corre en `environment: "node"` y ahí
+  no hay `localStorage`. El checkout llama `renovarTipoPedido()` al montarse: estar ahí prueba que
+  la elección sigue vigente, y sin eso la pregunta podría saltar a mitad del pago.
+
+  **Dentro del checkout se cambia en el paso 1 y en ningún otro.** Ahí es gratis: el paso 1 existe
+  en las dos listas (`[1,2,3]` y `[1,3]`) así que no hay salto, y la dirección persiste en
+  `datos-cliente` aunque deje de viajar en el payload. En el paso 3 hay un total en pantalla y
+  puede haber un comprobante de Nequi ya transferido — mover el tipo ahí es invalidar dinero. El
+  paso 3 **muestra** el tipo ("Información de entrega" vs "Recoges en tienda") y no deja cambiarlo.
 - **Nada de polling en la tienda pública.** El panel sí lo usa (son 2-3 empleados); la carta
   la ven todos los clientes desde datos móviles, y una petición por visitante cada N
   segundos no se justifica. `RefrescarAlVolver` reacciona a que el cliente vuelva a la

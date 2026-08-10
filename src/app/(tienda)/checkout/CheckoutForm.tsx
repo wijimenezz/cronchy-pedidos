@@ -9,11 +9,12 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Loader2, MapPin, Phone, Store } from "lucide-react";
+import { ArrowLeft, Bike, Loader2, MapPin, Phone, ShoppingBag, Store } from "lucide-react";
 import { useCarrito } from "@/lib/carrito";
 import {
   useTipoPedido,
   elegirTipoPedido,
+  renovarTipoPedido,
   type TipoPedido,
 } from "@/lib/tienda/tipo-pedido";
 import { carritoAItems } from "@/lib/checkout/mapeo";
@@ -47,6 +48,46 @@ type Paso = 1 | 2 | 3;
 /** "3124914660" -> "312 491 4660". Solo para mostrar: lo que se copia son los dígitos. */
 function conEspacios(numero: string): string {
   return numero.replace(/^(\d{3})(\d{3})(\d{4})$/, "$1 $2 $3");
+}
+
+/**
+ * Domicilio o recoger, con el actual marcado.
+ *
+ * Vive en el **paso 1** y en ningún otro. Ahí cambiar de opinión es gratis —el paso sigue siendo
+ * el 1, que existe en las dos listas, y la dirección persiste en `datos-cliente` aunque deje de
+ * viajar—, mientras que en el paso 3 hay un total en pantalla y puede haber un comprobante de
+ * Nequi ya transferido: mover el tipo ahí es invalidar dinero.
+ *
+ * Antes era una etiqueta con un enlace "Cambiar" que alternaba a ciegas: un toque por error
+ * volteaba el pedido entero sin decir a qué. Los mismos iconos del modal de bienvenida, para que
+ * se reconozca que es la misma pregunta.
+ */
+function BotonesTipoPedido({ actual }: { actual: TipoPedido | null }) {
+  return (
+    <div className="flex gap-3">
+      {(["domicilio", "recoger"] as TipoPedido[]).map((t) => {
+        const elegido = actual === t;
+        const Icono = t === "domicilio" ? Bike : ShoppingBag;
+
+        return (
+          <button
+            key={t}
+            type="button"
+            onClick={() => elegirTipoPedido(t)}
+            aria-pressed={elegido}
+            className={`flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full px-4 py-3 font-cuerpo text-sm font-bold transition-colors ${
+              elegido
+                ? "bg-naranja text-crema"
+                : "border border-crema-oscura text-cafe-suave hover:bg-crema"
+            }`}
+          >
+            <Icono className="size-4" />
+            {t === "domicilio" ? "Domicilio" : "Recoger"}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 /**
@@ -286,6 +327,13 @@ export function CheckoutForm({
     [aplicarBarrio],
   );
 
+  // Llegar al checkout es la señal más fuerte de que la elección de domicilio/recoger sigue
+  // siendo la buena. Sin esto podría caducar a mitad del pago, que es justo la interrupción
+  // junto al dinero que la caducidad quiere evitar.
+  useEffect(() => {
+    renovarTipoPedido();
+  }, []);
+
   // El pin sobrevive en localStorage; su cobertura no, porque es estado de este componente.
   // Sin esto, quien recarga estando en el paso 3 —el paso también se guarda— ve el domicilio
   // en $0: el mapa que lo recotizaba está en el paso 2 y no se está renderizando. Y un
@@ -310,10 +358,12 @@ export function CheckoutForm({
       // si hay un barrio escrito —el del pedido pasado, o una corrección— se respeta.
       aplicarBarrio(barrio, "montaje");
     });
-    // Solo al terminar la hidratación, que es cuando aparece el pin guardado. De ahí en
-    // adelante manda el mapa.
+    // Al hidratar, que es cuando aparece el pin guardado, y al cambiar de tipo: pasar de
+    // recoger a domicilio en el paso 1 dejaba la cobertura en `sin_pin` y el envío en $0
+    // hasta que alguien tocara el pin. Reejecutarlo es seguro porque las tres guardas de
+    // arriba ya deciden si hay algo que cotizar, y `cobertura` no está en las deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hidratado]);
+  }, [hidratado, tipoPedido]);
 
   const [errores, setErrores] = useState<Errores>({});
   // Un campo "tocado" ya se validó al menos una vez (al salir de él o al intentar
@@ -388,18 +438,8 @@ export function CheckoutForm({
         <h2 className="font-titulo text-lg font-semibold text-cafe">
           ¿Cómo quieres tu pedido?
         </h2>
-        <div className="flex gap-3">
-          {(["domicilio", "recoger"] as TipoPedido[]).map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => elegirTipoPedido(t)}
-              className="min-h-11 flex-1 rounded-full bg-naranja px-4 py-3 font-cuerpo text-sm font-bold text-crema"
-            >
-              {t === "domicilio" ? "Domicilio" : "Recoger"}
-            </button>
-          ))}
-        </div>
+        {/* Sin nada elegido no hay ninguno marcado, igual que en el modal de bienvenida. */}
+        <BotonesTipoPedido actual={null} />
       </div>
     );
   }
@@ -782,19 +822,18 @@ export function CheckoutForm({
 
       {paso === 1 && (
         <section className="flex flex-col gap-3 rounded-md bg-tarjeta p-4 shadow-tarjeta">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-2">
             <span className="font-cuerpo text-sm font-bold text-cafe">
-              {esDomicilio ? "Domicilio" : "Recoger en tienda"}
+              ¿Cómo quieres tu pedido?
             </span>
-            <button
-              type="button"
-              onClick={() =>
-                elegirTipoPedido(esDomicilio ? "recoger" : "domicilio")
-              }
-              className="font-cuerpo text-[13px] font-bold text-naranja underline underline-offset-2"
-            >
-              Cambiar
-            </button>
+            <BotonesTipoPedido actual={tipoPedido} />
+            {/* La consecuencia, no el nombre del modo: es lo que hace caer en cuenta a quien
+                arrastra la elección del pedido anterior sin darse cuenta. */}
+            <p className="font-cuerpo text-[13px] text-cafe-tenue">
+              {esDomicilio
+                ? "Te lo llevamos a tu dirección."
+                : `Lo recoges en ${tienda.nombre}.`}
+            </p>
           </div>
 
           <Campo
