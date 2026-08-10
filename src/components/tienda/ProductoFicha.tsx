@@ -31,6 +31,30 @@ function construirSeleccion(selecciones: SeleccionesPorGrupo): SeleccionEnganche
 }
 
 /**
+ * Una opción agotada no entra en la selección, y el guard va AQUÍ y no solo en el `disabled`
+ * del botón: si vive en el CSS, cualquier gesto nuevo —o el teclado, o el DOM tocado a mano—
+ * la vuelve a colar. Y colarla no es inofensivo: como lo incluido es obligatorio (regla 4),
+ * una salsa agotada satisfacía el mínimo, el contador decía "2 de 2" y el botón Añadir se
+ * quedaba bloqueado sin explicar por qué.
+ *
+ * El servidor la rechaza igual (`opcion_invalida / no_disponible`), pero eso es la red de
+ * seguridad, no el sitio donde el cliente se entera.
+ */
+function disponible(enganche: EngancheParaFicha, opcionId: string): boolean {
+  return enganche.opciones.find((o) => o.id === opcionId)?.disponible ?? false;
+}
+
+/**
+ * Un grupo obligatorio del que se agotó TODO. El producto queda impedible de verdad, y hay
+ * que decirlo: dejar el "Te faltan 2 por elegir" sobre una lista donde nada se puede tocar
+ * manda al cliente a buscar un botón que no existe.
+ */
+function sinNadaQueElegir(enganche: EngancheParaFicha): boolean {
+  const esRequerido = enganche.minSelect > 0 && !enganche.avisarIncompleto;
+  return esRequerido && enganche.opciones.every((o) => !o.disponible);
+}
+
+/**
  * Selección de UN grupo tras tocar una opción. Extraída del componente para que el
  * producto de la ficha y las bebidas del upsell compartan exactamente el mismo
  * comportamiento (radio, tope de maxSelect, deseleccionar).
@@ -40,6 +64,8 @@ function toggleEnGrupo(
   enganche: EngancheParaFicha,
   opcionId: string,
 ): Record<string, number> {
+  if (!disponible(enganche, opcionId)) return actual;
+
   const yaSeleccionada = (actual[opcionId] ?? 0) > 0;
 
   // maxSelect 1 se comporta como radio: elegir otra reemplaza la anterior.
@@ -60,6 +86,8 @@ function cantidadEnGrupo(
   opcionId: string,
   delta: number,
 ): Record<string, number> {
+  if (!disponible(enganche, opcionId)) return actual;
+
   const cantidadActual = actual[opcionId] ?? 0;
   const suma = Object.values(actual).reduce((n, c) => n + c, 0);
   const maxPorOpcion = enganche.maxPorOpcion ?? Infinity;
@@ -77,17 +105,20 @@ function StepperCantidad({
   valor,
   onCambiar,
   min = 0,
+  deshabilitado = false,
 }: {
   valor: number;
   onCambiar: (delta: number) => void;
   min?: number;
+  /** Opción agotada: los dos botones quedan muertos, no solo el de restar. */
+  deshabilitado?: boolean;
 }) {
   return (
     <div className="flex items-center gap-2 rounded-full bg-crema-oscura px-1.5 py-1">
       <button
         type="button"
         onClick={() => onCambiar(-1)}
-        disabled={valor <= min}
+        disabled={deshabilitado || valor <= min}
         aria-label="Quitar uno"
         className="flex size-6 items-center justify-center rounded-full font-bold text-cafe disabled:opacity-40"
       >
@@ -97,8 +128,9 @@ function StepperCantidad({
       <button
         type="button"
         onClick={() => onCambiar(1)}
+        disabled={deshabilitado}
         aria-label="Agregar uno"
-        className="flex size-6 items-center justify-center rounded-full font-bold text-cafe"
+        className="flex size-6 items-center justify-center rounded-full font-bold text-cafe disabled:opacity-40"
       >
         <Plus className="size-3.5" />
       </button>
@@ -124,12 +156,20 @@ function FilaOpcion({
 
   return (
     // min-h-11: DESIGN §7 exige 44px mínimo en todo lo tocable.
-    <div className="flex min-h-11 items-center gap-3 rounded-md border border-crema-oscura px-3 py-2">
+    //
+    // La atenuación va en la FILA y no en el botón del nombre: ahí dejaba el nombre en gris
+    // con el stepper de al lado a todo color, que es exactamente lo que hacía pensar que la
+    // cantidad sí se podía subir.
+    <div
+      className={`flex min-h-11 items-center gap-3 rounded-md border border-crema-oscura px-3 py-2 ${
+        opcion.disponible ? "" : "opacity-40"
+      }`}
+    >
       <button
         type="button"
         onClick={onToggle}
         disabled={!opcion.disponible}
-        className="flex flex-1 items-center justify-between gap-2 self-stretch text-left disabled:opacity-40"
+        className="flex flex-1 items-center justify-between gap-2 self-stretch text-left"
       >
         <span className={`text-sm font-medium ${seleccionada ? "text-naranja" : "text-cafe"}`}>
           {opcion.nombre}
@@ -138,7 +178,11 @@ function FilaOpcion({
         {precio > 0 && <span className="text-xs text-cafe-suave">+{pesos(precio)}</span>}
       </button>
       {enganche.permiteCantidad ? (
-        <StepperCantidad valor={cantidad} onCambiar={onCambiarCantidad} />
+        <StepperCantidad
+          valor={cantidad}
+          onCambiar={onCambiarCantidad}
+          deshabilitado={!opcion.disponible}
+        />
       ) : (
         <span
           className={`flex size-6 shrink-0 items-center justify-center rounded-full border-2 ${
@@ -177,6 +221,7 @@ function GrupoEnganche({
   // Lo incluido es obligatorio: mientras falten, el botón Añadir está bloqueado y hay que
   // decir cuántas para que el cliente no se quede adivinando por qué no puede continuar.
   const faltan = enganche.avisarIncompleto ? 0 : Math.max(0, enganche.minSelect - recibidas);
+  const agotadoEntero = sinNadaQueElegir(enganche);
 
   const opciones = (
     <div className="flex flex-col gap-2">
@@ -237,8 +282,14 @@ function GrupoEnganche({
             compacto ? "px-2 py-1 text-[11px]" : "px-3 py-2 text-xs"
           }`}
         >
-          Te {faltan === 1 ? "falta" : "faltan"} {faltan} por elegir. Ya{" "}
-          {faltan === 1 ? "viene incluida" : "vienen incluidas"} en el precio.
+          {agotadoEntero ? (
+            <>Hoy no hay {enganche.nombreGrupo.toLowerCase()}.</>
+          ) : (
+            <>
+              Te {faltan === 1 ? "falta" : "faltan"} {faltan} por elegir. Ya{" "}
+              {faltan === 1 ? "viene incluida" : "vienen incluidas"} en el precio.
+            </>
+          )}
         </p>
       )}
     </div>
@@ -505,8 +556,14 @@ export function ProductoFicha({ productId, onClose }: { productId: string; onClo
       )
     : [];
 
-  const textoBoton =
-    precioTotal !== null
+  // Si se agotó un grupo entero, "Elige salsas" sería una instrucción imposible: no queda
+  // ninguna que elegir. Gana sobre el resto de textos porque no hay nada que el cliente pueda
+  // hacer aquí.
+  const impedible = enganclesSeleccion.some(sinNadaQueElegir);
+
+  const textoBoton = impedible
+    ? "No disponible por ahora"
+    : precioTotal !== null
       ? `Añadir ${pesos(precioTotal)}`
       : pendientes.length > 0
         ? pendientes[0].nombreProducto
