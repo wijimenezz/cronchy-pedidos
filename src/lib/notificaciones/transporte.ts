@@ -20,8 +20,8 @@ const MAX_LONGITUD_URL = 1800;
 export type ResultadoEnvio =
   /** Requiere que un humano toque el botón en el panel. */
   | { modo: "link"; url: string; texto: string }
-  /** Se envió solo. */
-  | { modo: "automatico"; id: string };
+  /** Se envió solo. `texto` viaja en las dos ramas porque quien envía también lo registra. */
+  | { modo: "automatico"; id: string; texto: string };
 
 export interface Transporte {
   preparar(telefono: string, texto: string): Promise<ResultadoEnvio>;
@@ -100,26 +100,69 @@ export const transporteWaLink: Transporte = {
 };
 
 // ------------------------------------------------------------
-// Adaptador: Cloud API (pendiente — requiere número dedicado)
+// Adaptador: Evolution API
 // ------------------------------------------------------------
 
-export const transporteCloudApi: Transporte = {
-  async preparar() {
-    throw new Error(
-      "Cloud API no configurada. Requiere un número dedicado y plantillas " +
-        "aprobadas por Meta. Ver regla 10 del CLAUDE.md.",
-    );
+/**
+ * Manda el mensaje de verdad, sin que nadie toque nada.
+ *
+ * Evolution corre en su propio servidor (Railway) y habla el protocolo de WhatsApp Web: el número
+ * de pedidos está vinculado ahí como un dispositivo más, así que el teléfono con el SIM conserva
+ * su WhatsApp funcionando. Es un cliente **no oficial**, y por eso el número enlazado es uno
+ * dedicado y no el del negocio — ver CLAUDE.md.
+ *
+ * No hay `MAX_LONGITUD_URL` que valga aquí: el texto va en el cuerpo de un POST, así que el
+ * mensaje largo del pedido cabe entero y el fallback a la versión corta deja de hacer falta.
+ */
+export const transporteEvolution: Transporte = {
+  async preparar(telefono, texto) {
+    const { url, apiKey, instancia } = configEvolution();
+
+    const respuesta = await fetch(`${url}/message/sendText/${instancia}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: apiKey },
+      body: JSON.stringify({ number: normalizarTelefono(telefono), text: texto }),
+    });
+
+    if (!respuesta.ok) {
+      const detalle = await respuesta.text().catch(() => "");
+      throw new Error(`Evolution respondió ${respuesta.status}: ${detalle.slice(0, 200)}`);
+    }
+
+    const datos = (await respuesta.json()) as { key?: { id?: string } };
+    const id = datos.key?.id;
+    // Sin id no hay candado de idempotencia posible al guardar el saliente, y un mensaje que se
+    // envió pero no se puede registrar es peor que uno que falló en voz alta.
+    if (!id) throw new Error("Evolution no devolvió el id del mensaje.");
+
+    return { modo: "automatico", id, texto };
   },
 };
+
+function configEvolution(): { url: string; apiKey: string; instancia: string } {
+  const url = process.env.EVOLUTION_URL?.replace(/\/+$/, "");
+  const apiKey = process.env.EVOLUTION_API_KEY;
+  const instancia = process.env.EVOLUTION_INSTANCIA;
+
+  if (!url || !apiKey || !instancia) {
+    throw new Error(
+      "Falta configurar Evolution: EVOLUTION_URL, EVOLUTION_API_KEY y EVOLUTION_INSTANCIA.",
+    );
+  }
+
+  return { url, apiKey, instancia };
+}
 
 // ------------------------------------------------------------
 // Selección del transporte activo
 // ------------------------------------------------------------
 
+/**
+ * `link` sigue siendo el default a propósito: mientras no se cambie la variable, el panel se
+ * comporta exactamente como antes de que existiera Evolution.
+ */
 export function obtenerTransporte(): Transporte {
-  return process.env.WHATSAPP_MODO === "api"
-    ? transporteCloudApi
-    : transporteWaLink;
+  return process.env.WHATSAPP_MODO === "evolution" ? transporteEvolution : transporteWaLink;
 }
 
 // ------------------------------------------------------------

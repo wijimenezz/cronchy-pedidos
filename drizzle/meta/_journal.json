@@ -127,6 +127,13 @@
       "when": 1785967456523,
       "tag": "0017_domiciliarios",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1786398198933,
+      "tag": "0018_chats",
+      "breakpoints": true
     }
   ]
 }

@@ -2,11 +2,13 @@ import { pgTable, unique, uuid, text, boolean, timestamp, foreignKey, check, sma
 import { sql } from "drizzle-orm"
 import { geometria } from "./tipos-geo"
 
+export const direccionMensaje = pgEnum("direccion_mensaje", ['entrante', 'saliente'])
 export const estadoPedido = pgEnum("estado_pedido", ['nuevo', 'aceptado', 'preparando', 'en_camino', 'listo', 'entregado', 'cancelado'])
 export const metodoPago = pgEnum("metodo_pago", ['efectivo', 'nequi', 'transferencia', 'datafono'])
 export const modoGrupo = pgEnum("modo_grupo", ['incluido', 'adicional'])
 export const rolUsuario = pgEnum("rol_usuario", ['admin', 'colaborador'])
 export const tipoGrupo = pgEnum("tipo_grupo", ['seleccion', 'upsell'])
+export const tipoMensaje = pgEnum("tipo_mensaje", ['texto', 'imagen', 'audio', 'otro'])
 export const tipoPedido = pgEnum("tipo_pedido", ['domicilio', 'recoger'])
 
 
@@ -446,4 +448,81 @@ export const orderStatusEvent = pgTable("order_status_event", {
 			foreignColumns: [appUser.id],
 			name: "order_status_event_user_id_fkey"
 		}),
+]);
+
+// El hilo de WhatsApp con una persona. La identidad es el TELÉFONO NORMALIZADO, igual que en
+// `customer` y en `courier`, y lo normaliza la misma función (`normalizarTelefono`) que usa
+// `upsertCustomer` — así lo que llega del webhook casa con lo que ya está guardado.
+//
+// `customerId` es nullable a propósito: cualquiera puede escribirle al negocio sin haber pedido
+// nunca, y esa conversación también hay que atenderla.
+export const conversation = pgTable("conversation", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	storeId: uuid("store_id").notNull(),
+	telefono: text().notNull(),
+	customerId: uuid("customer_id"),
+	/** El `pushName` de WhatsApp: cómo se llama esa persona en su perfil. No pisa `customer.nombre`. */
+	nombreWa: text("nombre_wa"),
+	ultimoMensajeEn: timestamp("ultimo_mensaje_en", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	ultimoTexto: text("ultimo_texto"),
+	sinLeer: integer("sin_leer").default(0).notNull(),
+	creadoEn: timestamp("creado_en", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("idx_conversation_reciente").using("btree", table.storeId.asc().nullsLast().op("uuid_ops"), table.ultimoMensajeEn.desc().nullsLast()),
+	foreignKey({
+			columns: [table.storeId],
+			foreignColumns: [store.id],
+			name: "conversation_store_id_fkey"
+		}).onDelete("cascade"),
+	foreignKey({
+			columns: [table.customerId],
+			foreignColumns: [customer.id],
+			name: "conversation_customer_id_fkey"
+		}).onDelete("set null"),
+	unique("conversation_store_id_telefono_key").on(table.storeId, table.telefono),
+]);
+
+// El UNIQUE de `waMessageId` ES el candado de idempotencia: Evolution reentrega sus eventos cuando
+// el webhook tarda o falla, y un ON CONFLICT DO NOTHING contra esa restricción es toda la
+// protección necesaria. Mismo espíritu que el `notificado_en IS NULL` de `marcarEstadoNotificado`:
+// decide la base, no la aplicación.
+//
+// No hay columna de estado de envío. Evolution reporta entregado/leído en otro evento que todavía
+// no se escucha, y una columna que nadie llena se lee como un dato perdido.
+export const message = pgTable("message", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	storeId: uuid("store_id").notNull(),
+	conversationId: uuid("conversation_id").notNull(),
+	direccion: direccionMensaje().notNull(),
+	tipo: tipoMensaje().default('texto').notNull(),
+	texto: text(),
+	waMessageId: text("wa_message_id").notNull(),
+	/** Quién del panel lo escribió. NULL en los entrantes y en los avisos automáticos. */
+	userId: uuid("user_id"),
+	/** El pedido del que salió el aviso, para leer el hilo y ver dónde se le dijo qué. */
+	orderId: uuid("order_id"),
+	creadoEn: timestamp("creado_en", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("idx_message_hilo").using("btree", table.conversationId.asc().nullsLast().op("uuid_ops"), table.creadoEn.asc().nullsLast()),
+	foreignKey({
+			columns: [table.storeId],
+			foreignColumns: [store.id],
+			name: "message_store_id_fkey"
+		}).onDelete("cascade"),
+	foreignKey({
+			columns: [table.conversationId],
+			foreignColumns: [conversation.id],
+			name: "message_conversation_id_fkey"
+		}).onDelete("cascade"),
+	foreignKey({
+			columns: [table.userId],
+			foreignColumns: [appUser.id],
+			name: "message_user_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.orderId],
+			foreignColumns: [order.id],
+			name: "message_order_id_fkey"
+		}).onDelete("set null"),
+	unique("message_store_id_wa_message_id_key").on(table.storeId, table.waMessageId),
 ]);

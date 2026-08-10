@@ -13,12 +13,14 @@ import {
   crearDomiciliario,
   type Domiciliario,
 } from "@/db/queries/domiciliarios";
+import { registrarSaliente } from "@/db/queries/chats";
 import { exigirRol } from "@/lib/autorizacion";
 import {
   avisoCambioEstado,
   avisoDomiciliario,
   puedeAvisarse,
 } from "@/lib/notificaciones/avisos";
+import type { ResultadoEnvio } from "@/lib/notificaciones/transporte";
 import { MENSAJE_BLOQUEO } from "@/lib/pedidos/estados";
 import { idSchema } from "@/lib/validaciones";
 
@@ -103,7 +105,12 @@ export async function cambiarEstado(entrada: {
 
   // El pedido avanzó pase lo que pase con el aviso: si armarlo falla, el estado ya está guardado
   // y el botón ámbar queda como reintento. Nunca al revés.
-  const url = await avisoDelAvance(sesion.storeId, resultado.numero, resultado.estado);
+  const url = await avisoDelAvance(
+    sesion.storeId,
+    resultado.numero,
+    resultado.estado,
+    sesion.sub,
+  );
 
   return { ok: true, url };
 }
@@ -113,6 +120,7 @@ async function avisoDelAvance(
   storeId: string,
   numero: number,
   estado: (typeof ESTADOS)[number],
+  userId: string,
 ): Promise<string | null> {
   if (!puedeAvisarse(estado)) return null;
 
@@ -124,8 +132,38 @@ async function avisoDelAvance(
   if (!marcado) return null;
 
   const aviso = await avisoCambioEstado(estado, encontrado.pedido, tienda);
+  await registrarEnHilo(aviso, {
+    storeId,
+    telefono: encontrado.pedido.clienteTelefono,
+    orderId: encontrado.pedido.id,
+    userId,
+  });
 
   return aviso?.modo === "link" ? aviso.url : null;
+}
+
+/**
+ * Deja el saliente en el hilo de esa persona, para que el aviso se lea junto a lo que contesta.
+ *
+ * **Solo cuando el transporte lo envió de verdad.** Con `wa.me` no hay nada que registrar y no es
+ * una limitación que se pueda rodear: el mensaje lo manda el teléfono del empleado desde otra app,
+ * y este proyecto nunca se entera de si llegó a pulsar enviar. Registrarlo igual sería escribir en
+ * el historial una conversación que quizá no ocurrió.
+ */
+async function registrarEnHilo(
+  aviso: ResultadoEnvio | null,
+  destino: { storeId: string; telefono: string; orderId: string | null; userId: string | null },
+): Promise<void> {
+  if (aviso?.modo !== "automatico") return;
+
+  await registrarSaliente({
+    storeId: destino.storeId,
+    telefono: destino.telefono,
+    texto: aviso.texto,
+    waMessageId: aviso.id,
+    userId: destino.userId,
+    orderId: destino.orderId,
+  });
 }
 
 const estimadoSchema = z
@@ -192,7 +230,7 @@ export async function prepararAviso(entrada: {
   numero: number;
   estado: string;
 }): Promise<ResultadoAviso> {
-  await exigirRol("colaborador");
+  const sesion = await exigirRol("colaborador");
 
   const parsed = z
     .object({ numero: z.number().int().positive(), estado: z.enum(ESTADOS) })
@@ -217,6 +255,12 @@ export async function prepararAviso(entrada: {
   if (!marcado) return { ok: false, error: "Ese aviso ya se envió." };
 
   const aviso = await avisoCambioEstado(parsed.data.estado, encontrado.pedido, tienda);
+  await registrarEnHilo(aviso, {
+    storeId: tienda.id,
+    telefono: encontrado.pedido.clienteTelefono,
+    orderId: encontrado.pedido.id,
+    userId: sesion.sub,
+  });
 
   revalidatePath("/admin/pedidos");
   revalidatePath(`/admin/pedidos/${parsed.data.numero}`);
@@ -295,6 +339,14 @@ export async function asignarDomiciliarioAccion(entrada: {
   if (!encontrado) return { ok: false, error: "Ese pedido ya no existe." };
 
   const aviso = await avisoDomiciliario(encontrado.pedido, asignado, tienda);
+  // El hilo es el del DOMICILIARIO, no el del cliente: es a él a quien se le escribió, y si
+  // contesta "ya llegué" esa respuesta cae en esta misma conversación.
+  await registrarEnHilo(aviso, {
+    storeId: sesion.storeId,
+    telefono: asignado.telefono,
+    orderId: encontrado.pedido.id,
+    userId: sesion.sub,
+  });
 
   revalidatePath("/admin/pedidos");
   revalidatePath(`/admin/pedidos/${parsed.data.numero}`);
