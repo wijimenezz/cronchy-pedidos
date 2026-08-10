@@ -105,6 +105,7 @@ src/
       estados.ts              etiquetas + máquina de transiciones
       dias.ts                 QUÉ DÍA ES CADA COSA en Bogotá — puro, testeado
       franjas.ts              HORAS PROGRAMABLES (regla 16) — puro, testeado
+      modificadores.ts        cómo se LEE el snapshot en pantalla — puro, testeado
       entrega.ts              compone tienda + horario: qué se puede ofrecer hoy
     notificaciones/
       plantillas.ts           TEXTO de los mensajes — fuente única
@@ -137,6 +138,23 @@ haciendo JOIN contra los precios actuales: si mañana sube el churro, se reescri
 el historial y la contabilidad pasada cambiaría sola.
 
 `product_id` en `order_item` existe solo para reportes agregados, no para mostrar el pedido.
+
+**Dos cosas del snapshot que hay que saber antes de pintarlo:**
+
+- **El `modo` del enganche NO se guarda.** Cada modificador lleva solo `grupo`, `nombre`,
+  `cantidad` y `precio`, así que "incluido vs adicional" no se puede reconstruir: `precio > 0`
+  implica adicional con certeza, pero `precio === 0` puede ser un incluido **o** un adicional
+  gratis (Gas, Nivel de dulce). Por eso lo que la UI separa es **cobrado vs no cobrado**, que sí
+  responde el precio — llamarle "extra cobrado" a algo que costó $0 sería falso igual. No lo
+  deduzcas del nombre del grupo: el esquema permite enganchar el mismo grupo en los dos modos con
+  la misma etiqueta.
+- **`precio` es UNITARIO.** Quien lo muestre multiplica por `cantidad`. El detalle del panel no lo
+  hacía y decía $2.000 donde el WhatsApp del negocio decía $4.000 por el mismo pedido.
+
+`src/lib/pedidos/modificadores.ts` hace las dos cosas —agrupar y repartir por precio— y es de
+donde debe salir cualquier pantalla nueva. **El WhatsApp y el XLSX tienen su propio formato a
+propósito** y no se unifican con ese módulo: en el export van los nombres completos porque va a
+contabilidad, y en el mensaje el texto viaja dentro de una URL `wa.me` que se rompe si crece.
 
 ### 3. Modificadores: `incluido` vs `adicional`
 

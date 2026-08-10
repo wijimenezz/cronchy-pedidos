@@ -1,15 +1,25 @@
+import { Fragment } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, MapPin, MessageCircle, Phone } from "lucide-react";
+import {
+  ArrowLeft,
+  Bike,
+  MapPin,
+  MessageCircle,
+  Phone,
+  Plus,
+  ShoppingBag,
+} from "lucide-react";
 import { getStore } from "@/db/queries/store";
 import { obtenerPedidoPorNumero } from "@/db/queries/panel";
 import { historialDelCliente, type HistorialCliente } from "@/db/queries/customers";
 import { listarDomiciliarios } from "@/db/queries/domiciliarios";
 import { exigirRol } from "@/lib/autorizacion";
-import { cuandoCorto, pesos } from "@/lib/notificaciones/plantillas";
+import { cuandoCorto, pesos, type ItemSnapshot } from "@/lib/notificaciones/plantillas";
 import { normalizarTelefono } from "@/lib/notificaciones/transporte";
 import { puedeAvisarse } from "@/lib/notificaciones/avisos";
 import { ETIQUETA_ESTADO, siguienteEstado, toneDeEstado } from "@/lib/pedidos/estados";
+import { agruparModificadores, contarPreparacion } from "@/lib/pedidos/modificadores";
 import { urlMapa } from "@/lib/zonas";
 import { MapaPedido } from "@/components/pedido/MapaPedido";
 import { AccionesPedido } from "./AccionesPedido";
@@ -74,6 +84,7 @@ export default async function DetallePedidoPage({
     !historial.some((e) => e.estado === pedido.estado && e.notificadoEn);
 
   const telefono = normalizarTelefono(pedido.clienteTelefono);
+  const cuenta = contarPreparacion(pedido.items);
 
   return (
     <div className="flex flex-col gap-4">
@@ -92,7 +103,8 @@ export default async function DetallePedidoPage({
         >
           {ETIQUETA_ESTADO[pedido.estado]}
         </span>
-        <span className="rounded-full bg-crema px-3 py-1 font-cuerpo text-sm font-bold text-cafe-suave">
+        <span className="flex items-center gap-1.5 rounded-full bg-crema px-3 py-1 font-cuerpo text-sm font-bold text-cafe-suave">
+          {esDomicilio ? <Bike className="size-4" /> : <ShoppingBag className="size-4" />}
           {esDomicilio ? "Domicilio" : "Recoge en tienda"}
         </span>
         {pedido.metodoPago === "nequi" && !pedido.comprobanteUrl && (
@@ -110,34 +122,17 @@ export default async function DetallePedidoPage({
       <div className="grid gap-4 lg:grid-cols-[1fr_360px] lg:items-start">
         <div className="flex flex-col gap-4">
           <Seccion titulo="Qué preparar">
-            <ul className="flex flex-col gap-3">
+            <p className="-mt-2 mb-3 font-cuerpo text-[13px] text-cafe-tenue">
+              {cuenta.unidades} {cuenta.unidades === 1 ? "ítem" : "ítems"}
+              {cuenta.extras > 0 &&
+                ` · ${cuenta.extras} ${cuenta.extras === 1 ? "extra cobrado" : "extras cobrados"}`}
+            </p>
+
+            {/* Separados por línea y no por hueco: cada ítem se lee como un bloque, que es como
+                se despacha. */}
+            <ul className="flex flex-col divide-y divide-crema-oscura">
               {pedido.items.map((item, i) => (
-                <li key={i} className="flex justify-between gap-3">
-                  <div>
-                    <p className="font-cuerpo text-[15px] font-bold text-cafe">
-                      {item.cantidad}× {item.nombre}
-                    </p>
-                    {item.modificadores.length > 0 && (
-                      <ul className="mt-0.5">
-                        {item.modificadores.map((mod, j) => (
-                          <li key={j} className="font-cuerpo text-[13px] text-cafe-suave">
-                            {mod.grupo}: {mod.nombre}
-                            {mod.cantidad > 1 && ` ×${mod.cantidad}`}
-                            {mod.precio > 0 && ` (${pesos(mod.precio)})`}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    {item.notas && (
-                      <p className="mt-0.5 font-cuerpo text-[13px] font-bold text-alerta">
-                        Nota: {item.notas}
-                      </p>
-                    )}
-                  </div>
-                  <span className="shrink-0 font-cuerpo text-[15px] text-cafe">
-                    {pesos(item.subtotal)}
-                  </span>
-                </li>
+                <ItemPreparar key={i} item={item} />
               ))}
             </ul>
 
@@ -393,6 +388,65 @@ function FichaCliente({
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * Un ítem del pedido tal como se prepara.
+ *
+ * La etiqueta del grupo va angosta a la izquierda y en tenue, y el valor a la derecha en
+ * seminegrita: quien despacha busca "qué salsa", no la palabra "Salsa". Antes pesaban igual y
+ * cada opción repetía su grupo, así que cuatro salsas incluidas eran cuatro renglones que
+ * empezaban con la misma palabra.
+ *
+ * Lo cobrado aparte sale de la rejilla y se pinta como píldora. En ámbar y no en naranja porque
+ * el naranja ya es el estado activo en esta misma pantalla.
+ */
+function ItemPreparar({ item }: { item: ItemSnapshot }) {
+  const { incluidos, extras } = agruparModificadores(item.modificadores);
+
+  return (
+    <li className="flex justify-between gap-3 py-3 first:pt-0 last:pb-0">
+      <div className="min-w-0">
+        <p className="font-cuerpo text-[15px] font-bold text-cafe">
+          {item.cantidad}× {item.nombre}
+        </p>
+
+        {incluidos.length > 0 && (
+          <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
+            {incluidos.map((grupo) => (
+              <Fragment key={grupo.etiqueta}>
+                <dt className="font-cuerpo text-[13px] text-cafe-tenue">{grupo.etiqueta}</dt>
+                <dd className="font-cuerpo text-[13px] font-semibold text-cafe">
+                  {grupo.valores.join(" · ")}
+                </dd>
+              </Fragment>
+            ))}
+          </dl>
+        )}
+
+        {extras.length > 0 && (
+          <ul className="mt-1.5 flex flex-wrap gap-1.5">
+            {extras.map((extra, i) => (
+              <li
+                key={i}
+                className="flex items-center gap-1 rounded-full bg-alerta/15 px-2 py-0.5 font-cuerpo text-[12px] font-bold text-alerta"
+              >
+                <Plus className="size-3 shrink-0" />
+                Extra: {extra.nombre}
+                {extra.cantidad > 1 && ` ×${extra.cantidad}`} · {pesos(extra.total)}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {item.notas && (
+          <p className="mt-1 font-cuerpo text-[13px] font-bold text-alerta">Nota: {item.notas}</p>
+        )}
+      </div>
+
+      <span className="shrink-0 font-cuerpo text-[15px] text-cafe">{pesos(item.subtotal)}</span>
+    </li>
   );
 }
 
