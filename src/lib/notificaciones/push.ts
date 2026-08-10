@@ -13,7 +13,28 @@ import { borrarSuscripcion, suscripcionesDeTienda } from "@/db/queries/push";
 
 /** Configurar VAPID es global en la librería, así que se hace una vez y se recuerda. */
 let configurado = false;
+let yaSeQuejo = false;
 
+/**
+ * El estándar exige que el sujeto sea una URI, y lo natural es escribir el correo pelado.
+ * `web-push` lo rechaza con "Vapid subject is not a valid URL", así que se normaliza en vez de
+ * castigar la forma obvia de escribirlo: un `mailto:` que falta no vale un deploy en el que no
+ * llega ni un aviso.
+ */
+function normalizarSujeto(valor: string): string {
+  const limpio = valor.trim();
+
+  return /^(mailto:|https?:\/\/)/i.test(limpio) ? limpio : `mailto:${limpio}`;
+}
+
+/**
+ * Devuelve si el push puede salir.
+ *
+ * **Se queja en voz alta la primera vez que no puede**, y eso importa: quien llama envuelve esto
+ * en un `try/catch` para no tumbar el checkout, así que una configuración mal puesta se
+ * traduciría en silencio absoluto — ni push, ni error, ni pista. Un aviso que no llega y no deja
+ * rastro es el peor de los dos mundos.
+ */
 function configurar(): boolean {
   if (configurado) return true;
 
@@ -21,11 +42,27 @@ function configurar(): boolean {
   const privada = process.env.VAPID_PRIVATE_KEY;
   const sujeto = process.env.VAPID_SUBJECT;
 
-  if (!publica || !privada || !sujeto) return false;
+  if (!publica || !privada || !sujeto) {
+    if (!yaSeQuejo) {
+      yaSeQuejo = true;
+      console.warn(
+        "Web Push apagado: faltan NEXT_PUBLIC_VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY o VAPID_SUBJECT.",
+      );
+    }
+    return false;
+  }
 
-  webpush.setVapidDetails(sujeto, publica, privada);
-  configurado = true;
-  return true;
+  try {
+    webpush.setVapidDetails(normalizarSujeto(sujeto), publica, privada);
+    configurado = true;
+    return true;
+  } catch (error) {
+    if (!yaSeQuejo) {
+      yaSeQuejo = true;
+      console.error("Web Push apagado: las llaves VAPID no son válidas.", error);
+    }
+    return false;
+  }
 }
 
 /**
