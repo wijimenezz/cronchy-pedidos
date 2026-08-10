@@ -37,12 +37,13 @@ function obtenerContexto(): AudioContext | null {
 }
 
 /**
- * Reanuda el contexto. **Solo funciona dentro de un gesto del usuario**: llamarlo en un efecto
- * al montar no sirve de nada, el navegador lo ignora.
+ * Reanuda el contexto. **La primera vez solo funciona dentro de un gesto del usuario**:
+ * llamarlo en un efecto al montar no sirve de nada, el navegador lo ignora. Después de ese
+ * primer desbloqueo sí se puede reanudar por código, que es de lo que vive `sonarAviso`.
  */
 export async function desbloquearSonido(): Promise<void> {
   const ctx = obtenerContexto();
-  if (ctx && ctx.state === "suspended") await ctx.resume();
+  if (ctx && ctx.state !== "running") await ctx.resume().catch(() => {});
 }
 
 /** Si el aviso puede sonar ahora mismo, sin intentarlo. */
@@ -51,12 +52,27 @@ export function sonidoListo(): boolean {
 }
 
 /**
- * Suena el aviso. Si el contexto sigue bloqueado no hace nada y no lanza: quien decide si el
- * empleado se entera es el botón, no esta función.
+ * Suena el aviso.
+ *
+ * **Reanima el contexto antes de rendirse, y ese era el bug**: Chrome suspende el `AudioContext`
+ * de una pestaña que lleva rato en segundo plano, y antes esta función simplemente salía en
+ * silencio. Como el único `resume()` estaba detrás de un gesto, la alarma se quedaba muda hasta
+ * que el empleado volvía y tocaba la ventana — o sea, hasta después de enterarse, que es cuando
+ * ya no servía de nada.
+ *
+ * Reanudar por código es legal aquí porque **ya hubo un gesto**: el botón de armar los avisos. Si
+ * nunca lo hubo, `resume()` falla, se traga el error y no suena — que es el comportamiento
+ * correcto, porque entonces nadie ha pedido que suene.
  */
-export function sonarAviso(): void {
+export async function sonarAviso(): Promise<void> {
   const ctx = obtenerContexto();
-  if (!ctx || ctx.state !== "running") return;
+  if (!ctx) return;
+
+  if (ctx.state !== "running") await ctx.resume().catch(() => {});
+  // Se vuelve a consultar en vez de mirar `ctx.state` otra vez: `resume()` puede haber fallado
+  // —si nunca hubo un gesto no hay nada que reanudar— y además TypeScript no sabe que ese await
+  // cambia el estado, así que seguiría creyendo que no puede ser "running".
+  if (!sonidoListo()) return;
 
   const ahora = ctx.currentTime;
 
@@ -81,6 +97,66 @@ export function sonarAviso(): void {
     oscilador.start(inicio);
     oscilador.stop(fin);
   }
+}
+
+// ------------------------------------------------------------
+// Mantener la pestaña despierta
+// ------------------------------------------------------------
+
+/** Inaudible, pero no cero: lo que cuenta como "reproduciendo" es que salga señal. */
+const VOLUMEN_TESTIGO = 0.0001;
+
+let testigo: OscillatorNode | null = null;
+
+/**
+ * Un tono continuo e inaudible mientras los avisos están armados.
+ *
+ * Chrome frena los temporizadores de una pestaña oculta a ~1 por minuto y a los cinco minutos
+ * aprieta más, así que el polling de 15 s deja de correr a su ritmo justo cuando el empleado está
+ * en otra cosa. La excepción es una pestaña que está **reproduciendo audio de verdad** — no una
+ * que podría reproducirlo. Esto la mantiene en esa categoría, y de paso impide que el contexto
+ * vuelva a suspenderse.
+ *
+ * **Es best-effort, y conviene saberlo antes de confiar en ello**: las heurísticas de audibilidad
+ * de Chrome no son un contrato y pueden cambiar sin aviso. Si algún día dejan de eximir a esta
+ * pestaña, el aviso sigue llegando —`sonarAviso` reanima y la notificación del sistema no depende
+ * del audio—, solo que con el retraso del throttling. Por eso esto es una mejora del ritmo, no el
+ * arreglo.
+ */
+export function iniciarMantenerDespierto(): void {
+  const ctx = obtenerContexto();
+  if (!ctx || testigo) return;
+
+  const oscilador = ctx.createOscillator();
+  const volumen = ctx.createGain();
+
+  // 20 Hz queda por debajo de lo que un oído distingue, y el volumen lo hace inaudible igual.
+  oscilador.frequency.value = 20;
+  volumen.gain.value = VOLUMEN_TESTIGO;
+
+  oscilador.connect(volumen).connect(ctx.destination);
+  oscilador.start();
+
+  testigo = oscilador;
+}
+
+export function detenerMantenerDespierto(): void {
+  if (!testigo) return;
+
+  testigo.stop();
+  testigo.disconnect();
+  testigo = null;
+}
+
+/**
+ * Apagar los avisos de verdad.
+ *
+ * Antes el botón cambiaba el icono y guardaba la preferencia, pero `sonarAviso` no consultaba
+ * nada y el pitido seguía. Ahora además se corta el testigo, para que una pestaña con los avisos
+ * apagados deje de pedirle al navegador que la trate como si estuviera sonando.
+ */
+export function silenciar(): void {
+  detenerMantenerDespierto();
 }
 
 // ------------------------------------------------------------

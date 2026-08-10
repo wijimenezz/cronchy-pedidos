@@ -4,6 +4,7 @@ import { calcularPedido } from "@/lib/precios";
 import { esFranjaOfrecida, opcionesDeEntrega } from "@/lib/pedidos/entrega";
 import { getStore } from "@/db/queries/store";
 import { crearPedidoEnDB } from "@/db/queries/pedidos";
+import { enviarPushPedidoNuevo } from "@/lib/notificaciones/push";
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
@@ -68,6 +69,17 @@ export async function POST(request: Request) {
   }
 
   const pedido = await crearPedidoEnDB(tienda.id, input, resultado.valor);
+
+  // El aviso al panel, y va DESPUÉS de crear el pedido y sin poder tumbarlo: el cliente ya compró,
+  // así que un fallo empujando la notificación no puede convertirse en un error de su checkout.
+  //
+  // Se espera (`await`) a propósito, igual que al borrar fotos huérfanas: en una función
+  // serverless, disparar sin esperar mata la instancia antes de que salga la petición.
+  try {
+    await enviarPushPedidoNuevo(tienda.id, pedido.numero);
+  } catch (error) {
+    console.error("No se pudo avisar al panel del pedido nuevo:", error);
+  }
 
   return NextResponse.json(
     {

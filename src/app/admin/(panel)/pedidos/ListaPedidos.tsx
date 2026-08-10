@@ -9,11 +9,20 @@ import { TarjetaPedido } from "./TarjetaPedido";
 import { idsNuevos } from "./alerta";
 import {
   desbloquearSonido,
+  detenerMantenerDespierto,
   guardarPreferencia,
+  iniciarMantenerDespierto,
   prefiereSonido,
   reanudarAlPrimerToque,
+  silenciar,
   sonarAviso,
 } from "./sonido";
+import {
+  avisarPedidosNuevos,
+  pedirPermisoNotificaciones,
+  permisoDenegado,
+} from "./notificaciones";
+import { activarPush, desactivarPush } from "./push";
 
 /**
  * Cada cuánto se pregunta por pedidos nuevos.
@@ -40,7 +49,7 @@ const INSISTIR_MS = 30_000;
 const TITULO_BASE = "Pedidos — Cronchy";
 
 /**
- * El tablero de operación. Se refresca solo cada 5 s (CLAUDE.md: polling, nada de
+ * El tablero de operación. Se refresca solo cada 15 s (CLAUDE.md: polling, nada de
  * WebSockets) porque el negocio lo deja abierto en el mostrador y un pedido nuevo tiene
  * que aparecer sin que nadie recargue.
  *
@@ -64,6 +73,17 @@ export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
    * decir lo contrario en el botón sería mentir. Lo reactiva el primer toque.
    */
   const [sonido, setSonido] = useState(false);
+  /**
+   * Si además del pitido va a salir la notificación del sistema. Se pinta porque un panel que
+   * cree estar avisando y no avisa es peor que uno mudo declarado: quien deniega el permiso sin
+   * querer no tiene otra forma de enterarse.
+   *
+   * Se lee del navegador al montar —el permiso sobrevive a la recarga— y no se pide aquí: un
+   * diálogo de permiso que nadie invocó es de las cosas que se deniegan por reflejo. Lo pide el
+   * botón. En el servidor no hay `Notification`, y da igual: el aviso solo se pinta con el
+   * sonido armado, que ahí siempre es `false`.
+   */
+  const [notificaSistema, setNotificaSistema] = useState(() => !permisoDenegado());
 
   /** Cuándo salió la última consulta, para el tope de `MINIMO_ENTRE_MS`. */
   const ultimoRefresco = useRef(0);
@@ -113,8 +133,15 @@ export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
     // Volver a la pestaña es justo cuando más falta: si entraron pedidos mientras el empleado
     // estaba en WhatsApp, al volver los ve **y suenan**, porque la detección reacciona a la
     // lista nueva y no a cómo llegó.
+    //
+    // Y de paso se reanima el audio: si Chrome suspendió el contexto mientras la pestaña estaba
+    // de fondo, el siguiente aviso lo encontraría muerto. `sonarAviso` también reanima por su
+    // cuenta, pero hacerlo aquí es gratis y llega antes.
     function alVolver() {
-      if (document.visibilityState === "visible") refrescarSiToca();
+      if (document.visibilityState !== "visible") return;
+
+      refrescarSiToca();
+      if (sonido) void desbloquearSonido();
     }
 
     // El banner no espera a que falle una petición: en el local el wifi se cae y quien opera
@@ -133,7 +160,9 @@ export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
       window.removeEventListener("online", refrescarSiToca);
       window.removeEventListener("offline", alCaerLaRed);
     };
-  }, [refrescar]);
+    // `sonido` entra en las deps y por tanto reengancha los listeners al tocar el botón. Es una
+    // vez por clic de un humano, no por vuelta del polling: recrear el reloj ahí no cuesta nada.
+  }, [refrescar, sonido]);
 
   const sinAceptar = pedidos.filter((p) => p.estado === "nuevo");
 
@@ -147,9 +176,13 @@ export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
   // de ella recrearía el temporizador de 30 s antes de que llegue a disparar. Nunca sonaría.
   const pendientes = useRef(0);
 
-  // Suena en cuanto aparece uno que no estaba, y de paso deja los dos refs al día. Va en un
+  // Avisa en cuanto aparece uno que no estaba, y de paso deja los dos refs al día. Va en un
   // efecto y no en el render porque escribir un ref mientras se pinta es justo lo que React
   // prohíbe: el render tiene que poder repetirse sin dejar rastro.
+  //
+  // Los dos canales salen juntos: el pitido para quien está delante y la notificación del
+  // sistema para quien está en otra aplicación. Antes solo estaba el primero, y por eso un
+  // pedido podía entrar sin que nadie se enterara.
   useEffect(() => {
     const sinAceptarAhora = pedidos.filter((p) => p.estado === "nuevo").map((p) => p.id);
     const nuevos = idsNuevos(vistos.current, sinAceptarAhora);
@@ -157,17 +190,27 @@ export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
     vistos.current = sinAceptarAhora;
     pendientes.current = sinAceptarAhora.length;
 
-    if (nuevos.length > 0) sonarAviso();
-  }, [pedidos]);
+    // El gate estaba solo dentro de `sonarAviso`, mirando el estado del AudioContext: apagar el
+    // botón cambiaba el icono y el pitido seguía saliendo igual.
+    if (nuevos.length === 0 || !sonido) return;
 
-  // Y sigue insistiendo mientras nadie lo acepte.
+    void sonarAviso();
+    avisarPedidosNuevos(nuevos.length, sinAceptarAhora.length);
+    // Reejecutarlo al tocar el botón es inofensivo: `vistos` ya quedó al día, así que `nuevos`
+    // sale vacío y no suena nada.
+  }, [pedidos, sonido]);
+
+  // Y sigue insistiendo mientras nadie lo acepte. Solo el sonido: repetir la notificación cada
+  // 30 s sería acoso, y la primera sigue en pantalla porque lleva `requireInteraction`.
   useEffect(() => {
+    if (!sonido) return;
+
     const id = setInterval(() => {
-      if (pendientes.current > 0) sonarAviso();
+      if (pendientes.current > 0) void sonarAviso();
     }, INSISTIR_MS);
 
     return () => clearInterval(id);
-  }, []);
+  }, [sonido]);
 
   // El título es la única señal que se ve **desde otra pestaña**, y sale gratis.
   useEffect(() => {
@@ -182,17 +225,42 @@ export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
   // exige un gesto, pero cualquiera sirve y el empleado va a tocar algo igualmente.
   useEffect(() => {
     if (!prefiereSonido()) return;
-    return reanudarAlPrimerToque(() => setSonido(true));
+
+    return reanudarAlPrimerToque(() => {
+      setSonido(true);
+      iniciarMantenerDespierto();
+    });
   }, []);
+
+  // Al desmontar —salir del tablero, irse a un día pasado— se corta el tono testigo. Sin esto
+  // la pestaña seguiría pidiéndole al navegador que la trate como si estuviera sonando.
+  useEffect(() => detenerMantenerDespierto, []);
 
   function alternarSonido() {
     const activar = !sonido;
     setSonido(activar);
     guardarPreferencia(activar);
 
-    // Este clic **es** el gesto que desbloquea el audio. Suena una vez para que quien lo
-    // active oiga qué va a oír cuando entre un pedido.
-    if (activar) void desbloquearSonido().then(sonarAviso);
+    if (!activar) {
+      silenciar();
+      void desactivarPush();
+      return;
+    }
+
+    // Este clic **es** el gesto que hace falta, y sirve para los tres canales: desbloquea el
+    // audio, y es el único momento en que el navegador deja pedir el permiso de notificaciones.
+    // Suena una vez para que quien lo active oiga qué va a oír cuando entre un pedido.
+    void desbloquearSonido().then(() => {
+      iniciarMantenerDespierto();
+      void sonarAviso();
+    });
+
+    void pedirPermisoNotificaciones().then((concedido) => {
+      setNotificaSistema(concedido);
+      // El push solo se suscribe con el permiso ya concedido: sin él, `subscribe()` falla y
+      // además no habría forma de mostrar lo que llegara.
+      if (concedido) void activarPush();
+    });
   }
 
   /**
@@ -252,10 +320,22 @@ export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
             }`}
           >
             {sonido ? <Bell className="size-4" /> : <BellOff className="size-4" />}
-            {sonido ? "Sonido activo" : "Activar sonido"}
+            {sonido ? "Avisos activos" : "Activar avisos"}
           </button>
         </div>
       </div>
+
+      {/* El sonido solo sirve si alguien está delante. Sin permiso de notificaciones no hay
+          aviso fuera del navegador, y quien lo denegó sin querer no tiene otra forma de saberlo. */}
+      {sonido && !notificaSistema && (
+        <p
+          role="status"
+          className="rounded-md bg-alerta/15 px-4 py-2 font-cuerpo text-[13px] text-cafe"
+        >
+          Solo va a sonar. Para que además te avise estando en otra aplicación, permite las
+          notificaciones de este sitio en el candado de la barra de direcciones.
+        </p>
+      )}
 
       {/* El aviso que se ve. Acompaña al sonido y lo sustituye cuando está apagado. */}
       {sinAceptar.length > 0 && (

@@ -422,6 +422,40 @@ export const orderItem = pgTable("order_item", {
 	check("order_item_cantidad_check", sql`cantidad > 0`),
 ]);
 
+// A qué dispositivos empujar el aviso de pedido nuevo.
+//
+// El `endpoint` lo asigna el servicio de push del navegador y ya identifica por sí solo a ese
+// navegador en ese dispositivo: es la llave natural, y por eso el UNIQUE va ahí y no sobre
+// (usuario, dispositivo), que no sabríamos construir.
+//
+// `userId` existe para poder soltar la suscripción al cerrar sesión: el celular de quien ya no
+// trabaja aquí no debería seguir sonando cada vez que entra un pedido.
+//
+// No hay columna de "última vez usada": las suscripciones muertas no se detectan por antigüedad
+// sino porque el servicio de push responde 404 o 410, y ahí se borran. Una columna que nadie lee
+// se leería como un dato perdido.
+export const pushSubscription = pgTable("push_subscription", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	storeId: uuid("store_id").notNull(),
+	userId: uuid("user_id").notNull(),
+	endpoint: text().notNull(),
+	p256dh: text().notNull(),
+	auth: text().notNull(),
+	creadoEn: timestamp("creado_en", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	foreignKey({
+			columns: [table.storeId],
+			foreignColumns: [store.id],
+			name: "push_subscription_store_id_fkey"
+		}).onDelete("cascade"),
+	foreignKey({
+			columns: [table.userId],
+			foreignColumns: [appUser.id],
+			name: "push_subscription_user_id_fkey"
+		}).onDelete("cascade"),
+	unique("push_subscription_endpoint_key").on(table.endpoint),
+]);
+
 export const orderStatusEvent = pgTable("order_status_event", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	storeId: uuid("store_id").notNull(),

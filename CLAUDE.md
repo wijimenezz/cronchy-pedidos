@@ -619,8 +619,58 @@ botón ámbar "Avisar" sigue existiendo como reintento para lo que quedó pendie
 **El polling del panel NO se pausa con la pestaña oculta.** Parece la optimización obvia y es
 justo la que no se puede hacer: desde que el tablero avisa con sonido, ese intervalo dejó de ser
 "pintar la pantalla" y es **lo que detecta el pedido**. Pausarlo apaga la alarma cuando el
-empleado está en otra cosa, que es cuando hace falta. (El navegador ya frena por su cuenta los
-temporizadores de fondo a ~1 por minuto; una pestaña que suena queda exenta de ese freno.)
+empleado está en otra cosa, que es cuando hace falta.
+
+**Avisar de fondo es una pelea con el navegador, y hay tres piezas.** Aquí decía que "una pestaña
+que suena queda exenta" del freno de fondo, y eso llevó a dar por hecho que funcionaba. No
+funcionaba: durante meses la alarma **solo sonaba al volver y abrir la ventana**. Lo que hay que
+saber:
+
+- **El `AudioContext` se suspende en segundo plano y no revive solo.** Esta era la causa de que no
+  sonara *nada*, no de que sonara tarde. `sonarAviso()` intenta `resume()` antes de rendirse, y
+  puede hacerlo por código porque el botón ya aportó el gesto que exige el navegador. Sin ese
+  primer gesto no hay nada que reanudar, que es correcto: nadie ha pedido que suene.
+- **La exención del freno exige estar reproduciendo audio de verdad**, no poder reproducirlo. Por
+  eso `iniciarMantenerDespierto()` deja un oscilador inaudible sonando mientras los avisos están
+  armados. Es **best-effort**: las heurísticas de Chrome no son un contrato. Si dejan de eximir a
+  la pestaña, el aviso sigue llegando con el retraso del throttling (~1 tic por minuto), no se
+  pierde.
+- **La notificación del sistema es el canal que se ve desde otra aplicación.** El `(N)` del título
+  hay que verlo en la barra de pestañas y el pitido se pierde entre el ruido de la cocina. Lleva
+  `requireInteraction` —una notificación que se desvanece a los cinco segundos es una que nadie
+  vio— y `tag` + `renotify`, para reemplazar en vez de apilar cinco pedidos seguidos.
+- **Sale por el service worker y no por `new Notification()`, porque en Android el constructor
+  directo LANZA.** La primera versión usaba el constructor y no avisaba nada en la tablet, con el
+  `catch` tragándoselo en silencio. `registration.showNotification()` funciona en los dos sitios.
+
+Un solo botón arma los tres canales, porque el navegador exige un gesto tanto para desbloquear el
+audio como para pedir el permiso de notificaciones. Si el permiso queda denegado el panel lo dice
+en pantalla: uno que cree estar avisando y no avisa es peor que uno mudo declarado.
+
+**Web Push es el tercer canal, y el único que llega con el navegador cerrado.** Lo dispara
+`POST /api/pedidos` justo después de crear el pedido, envuelto en `try/catch`: el cliente ya
+compró, así que un fallo empujando el aviso no puede convertirse en un error de su checkout.
+
+- **En la tablet Android llega con Chrome cerrado del todo**, porque lo entrega el sistema
+  operativo. Es el caso que motivó todo esto.
+- **En Windows hace falta activar "Seguir ejecutando aplicaciones en segundo plano al cerrar Google
+  Chrome"** (`chrome://settings/system`). Sin eso, al cerrar la última ventana el proceso muere y
+  no recibe nada. Es un ajuste invisible y sin esta nota alguien va a concluir que el push no
+  sirve.
+- **El payload lleva solo el número del pedido.** Eso se ve en una pantalla bloqueada, y quien pasa
+  al lado del mostrador no tiene por qué leer el nombre ni la dirección de nadie — misma doctrina
+  que la regla 18.
+- **Una suscripción muerta se detecta por el 404/410 del servicio de push, no por antigüedad**, y
+  se borra ahí mismo. Cerrar sesión también la suelta: el teléfono de quien ya no trabaja aquí no
+  puede seguir sonando.
+- **`NEXT_PUBLIC_VAPID_PUBLIC_KEY` es la excepción legítima** a la regla de no exponer nada con ese
+  prefijo: la llave pública VAPID está diseñada para ir al navegador y sola no autoriza nada. La
+  privada, jamás.
+
+**`public/sw.js` NO puede ganar un handler de `fetch`.** Es lo que alguien añadirá algún día "para
+que funcione sin conexión", y un service worker que cachea respuestas rompe de raíz el ISR de la
+carta y el polling del tablero: un pedido servido desde caché es un pedido que no existe. Ese
+service worker existe solo para recibir avisos.
 
 **El intervalo es de 15 s, y antes eran 5 puestos a ojo.** Nadie acepta un pedido en menos de
 quince, así que el ritmo rápido no compraba nada aprovechable y sí costaba: con el panel abierto
