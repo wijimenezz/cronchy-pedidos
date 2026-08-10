@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { desactivarPush } from "./pedidos/push";
 
 export function BotonSalir() {
   const router = useRouter();
@@ -9,6 +10,12 @@ export function BotonSalir() {
 
   async function salir() {
     setSaliendo(true);
+
+    // Antes de cerrar la sesión: el teléfono de quien ya no trabaja aquí no puede seguir sonando
+    // con cada pedido. Si falla se sale igual — quedarse dentro por no poder desuscribirse sería
+    // peor.
+    await desactivarPush();
+
     await fetch("/api/admin/sesion", { method: "DELETE" }).catch(() => {});
     router.replace("/admin/login");
     router.refresh();
