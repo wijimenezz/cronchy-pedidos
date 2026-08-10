@@ -8,13 +8,16 @@ import { CALIDAD_WEBP, LADO_MAXIMO } from "@/lib/imagenes";
  * Sin librería: `createImageBitmap` + un canvas es todo lo que hace falta, y meter una
  * dependencia de 40 KB para esto sería peor que el problema.
  *
+ * El `lado` es parámetro porque el banner de categoría necesita más (`LADO_MAXIMO_BANNER`):
+ * se muestra a ancho completo, no dentro de una tarjeta.
+ *
  * Solo cliente — toca `document` y `createImageBitmap`.
  */
-export async function comprimirImagen(archivo: File): Promise<Blob> {
+export async function comprimirImagen(archivo: File, lado = LADO_MAXIMO): Promise<Blob> {
   const bitmap = await createImageBitmap(archivo);
 
   try {
-    const escala = Math.min(1, LADO_MAXIMO / Math.max(bitmap.width, bitmap.height));
+    const escala = Math.min(1, lado / Math.max(bitmap.width, bitmap.height));
     const ancho = Math.round(bitmap.width * escala);
     const alto = Math.round(bitmap.height * escala);
 

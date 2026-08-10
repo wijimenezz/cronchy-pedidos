@@ -2,6 +2,15 @@
 
 import { useEffect } from "react";
 
+/** `xl` existe para las vistas previas: un banner de categoría a 672 px se juzga mal, porque
+ *  el título se ve la mitad de grande de lo que será en la carta. */
+const ANCHO: Record<"sm" | "md" | "lg" | "xl", string> = {
+  sm: "max-w-sm",
+  md: "max-w-lg",
+  lg: "max-w-2xl",
+  xl: "max-w-4xl",
+};
+
 /**
  * El diálogo del proyecto.
  *
@@ -22,7 +31,7 @@ export function Modal({
   /** Lo que anuncia el lector de pantalla al abrirse. */
   etiqueta: string;
   onCerrar: () => void;
-  ancho?: "sm" | "md" | "lg";
+  ancho?: keyof typeof ANCHO;
   children: React.ReactNode;
 }) {
   useEffect(() => {
@@ -45,9 +54,7 @@ export function Modal({
         aria-label={etiqueta}
         // Sin esto, un clic dentro del panel burbujea hasta el overlay y lo cierra.
         onClick={(e) => e.stopPropagation()}
-        className={`flex max-h-full w-full flex-col overflow-hidden rounded-lg bg-tarjeta shadow-modal ${
-          ancho === "lg" ? "max-w-2xl" : ancho === "md" ? "max-w-lg" : "max-w-sm"
-        }`}
+        className={`flex max-h-full w-full flex-col overflow-hidden rounded-lg bg-tarjeta shadow-modal ${ANCHO[ancho]}`}
       >
         {children}
       </div>

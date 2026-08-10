@@ -21,7 +21,7 @@ export function CategoryBanner({
           src={bannerUrl}
           alt={nombre}
           fill
-          sizes="100vw"
+          sizes="(max-width: 1024px) calc(100vw - 2rem), 1080px"
           className="object-cover"
         />
       ) : (
@@ -39,7 +39,9 @@ export function CategoryBanner({
         <h2 className="font-titulo text-4xl leading-none font-bold tracking-tight text-crema uppercase sm:text-6xl">
           {nombre}
         </h2>
-        {subtitulo && <p className="text-sm text-crema/90 sm:text-base">{subtitulo}</p>}
+        {subtitulo && (
+          <p className="text-sm text-crema/90 sm:text-base">{subtitulo}</p>
+        )}
         {ctaHref && (
           <a
             href={ctaHref}

@@ -75,27 +75,53 @@ export function SelectorTipoPedido() {
             <h2 className="mt-2 text-center font-titulo text-xl font-semibold text-cafe">
               ¿Cómo quieres tu pedido?
             </h2>
+            {/* Al reabrirlo desde el chip hay que ver cuál está puesto: si los dos se pintan
+                igual, el diálogo no responde la pregunta que trae quien lo abre. */}
             <div className="mt-4 flex gap-3">
-              <button
-                type="button"
+              <Opcion
+                icono={<Bike className="size-6" />}
+                etiqueta="Domicilio"
+                elegido={tipo === "domicilio"}
                 onClick={() => elegir("domicilio")}
-                className="flex flex-1 flex-col items-center gap-2 rounded-md border border-crema-oscura py-4 text-cafe hover:border-naranja hover:text-naranja"
-              >
-                <Bike className="size-6" />
-                Domicilio
-              </button>
-              <button
-                type="button"
+              />
+              <Opcion
+                icono={<ShoppingBag className="size-6" />}
+                etiqueta="Recoger"
+                elegido={tipo === "recoger"}
                 onClick={() => elegir("recoger")}
-                className="flex flex-1 flex-col items-center gap-2 rounded-md border border-crema-oscura py-4 text-cafe hover:border-naranja hover:text-naranja"
-              >
-                <ShoppingBag className="size-6" />
-                Recoger
-              </button>
+              />
             </div>
           </div>
         </div>
       )}
     </>
+  );
+}
+
+function Opcion({
+  icono,
+  etiqueta,
+  elegido,
+  onClick,
+}: {
+  icono: React.ReactNode;
+  etiqueta: string;
+  elegido: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={elegido}
+      className={`flex flex-1 flex-col items-center gap-2 rounded-md border py-4 ${
+        elegido
+          ? "border-naranja bg-naranja/10 font-semibold text-naranja"
+          : "border-crema-oscura text-cafe hover:border-naranja hover:text-naranja"
+      }`}
+    >
+      {icono}
+      {etiqueta}
+    </button>
   );
 }
