@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm/relations";
-import { store, storeHours, storeClosure, appUser, category, product, modifierGroup, modifierOption, productModifierGroup, deliveryZone, customer, order, orderItem, orderStatusEvent } from "./schema";
+import { store, storeHours, storeClosure, appUser, category, product, modifierGroup, modifierOption, productModifierGroup, deliveryZone, customer, courier, order, orderItem, orderStatusEvent } from "./schema";
 
 export const storeHoursRelations = relations(storeHours, ({one}) => ({
 	store: one(store, {
@@ -15,9 +15,13 @@ export const storeRelations = relations(store, ({many}) => ({
 	categories: many(category),
 	products: many(product),
 	modifierGroups: many(modifierGroup),
+	modifierOptions: many(modifierOption),
+	productModifierGroups: many(productModifierGroup),
 	deliveryZones: many(deliveryZone),
 	customers: many(customer),
 	orders: many(order),
+	orderItems: many(orderItem),
+	orderStatusEvents: many(orderStatusEvent),
 }));
 
 export const storeClosureRelations = relations(storeClosure, ({one}) => ({
@@ -67,6 +71,10 @@ export const modifierGroupRelations = relations(modifierGroup, ({one, many}) => 
 }));
 
 export const modifierOptionRelations = relations(modifierOption, ({one}) => ({
+	store: one(store, {
+		fields: [modifierOption.storeId],
+		references: [store.id]
+	}),
 	modifierGroup: one(modifierGroup, {
 		fields: [modifierOption.groupId],
 		references: [modifierGroup.id]
@@ -78,6 +86,10 @@ export const modifierOptionRelations = relations(modifierOption, ({one}) => ({
 }));
 
 export const productModifierGroupRelations = relations(productModifierGroup, ({one}) => ({
+	store: one(store, {
+		fields: [productModifierGroup.storeId],
+		references: [store.id]
+	}),
 	modifierGroup: one(modifierGroup, {
 		fields: [productModifierGroup.groupId],
 		references: [modifierGroup.id]
@@ -104,6 +116,14 @@ export const customerRelations = relations(customer, ({one, many}) => ({
 	orders: many(order),
 }));
 
+export const courierRelations = relations(courier, ({one, many}) => ({
+	store: one(store, {
+		fields: [courier.storeId],
+		references: [store.id]
+	}),
+	orders: many(order),
+}));
+
 export const orderRelations = relations(order, ({one, many}) => ({
 	customer: one(customer, {
 		fields: [order.customerId],
@@ -117,11 +137,19 @@ export const orderRelations = relations(order, ({one, many}) => ({
 		fields: [order.zonaId],
 		references: [deliveryZone.id]
 	}),
+	courier: one(courier, {
+		fields: [order.courierId],
+		references: [courier.id]
+	}),
 	orderItems: many(orderItem),
 	orderStatusEvents: many(orderStatusEvent),
 }));
 
 export const orderItemRelations = relations(orderItem, ({one}) => ({
+	store: one(store, {
+		fields: [orderItem.storeId],
+		references: [store.id]
+	}),
 	order: one(order, {
 		fields: [orderItem.orderId],
 		references: [order.id]
@@ -133,6 +161,10 @@ export const orderItemRelations = relations(orderItem, ({one}) => ({
 }));
 
 export const orderStatusEventRelations = relations(orderStatusEvent, ({one}) => ({
+	store: one(store, {
+		fields: [orderStatusEvent.storeId],
+		references: [store.id]
+	}),
 	order: one(order, {
 		fields: [orderStatusEvent.orderId],
 		references: [order.id]

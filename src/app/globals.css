@@ -1,26 +1,117 @@
 @import "tailwindcss";
-
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
 @theme inline {
+  /* Identidad Cronchy — ver DESIGN.md */
+  --color-crema: var(--crema);
+  --color-crema-oscura: var(--crema-oscura);
+  --color-tarjeta: var(--tarjeta);
+  --color-naranja: var(--naranja);
+  --color-naranja-osc: var(--naranja-osc);
+  --color-cafe: var(--cafe);
+  --color-cafe-suave: var(--cafe-suave);
+  --color-cafe-tenue: var(--cafe-tenue);
+  --color-exito: var(--exito);
+  --color-alerta: var(--alerta);
+  --color-error: var(--error);
+  --color-agotado: var(--agotado);
+
+  --color-badge-vendido: var(--badge-vendido);
+  --color-badge-nuevo: var(--badge-nuevo);
+  --color-badge-recomendado: var(--badge-recomendado);
+  --color-badge-agotado: var(--badge-agotado);
+
+  --color-gutter: var(--gutter);
+
+  --font-titulo: var(--font-baloo);
+  --font-cuerpo: var(--font-nunito);
+  --font-sans: var(--font-nunito);
+
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-full: 9999px;
+
+  --container-contenido: 1080px; /* ancho nativo de foto_local.png */
+
+  --shadow-tarjeta: 0 2px 8px rgba(67, 30, 14, 0.08);
+  --shadow-modal: 0 -4px 24px rgba(67, 30, 14, 0.12);
+
+  /* Slots de shadcn/ui mapeados a la identidad Cronchy */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+:root {
+  /* Marca */
+  --crema: #faf3e8;
+  --crema-oscura: #e8dfd0;
+  --tarjeta: #fdf9f2;
+  --naranja: #f26b1d;
+  --naranja-osc: #e2570e;
+  --cafe: #50240a;
+  --cafe-suave: #6b4a38;
+  --cafe-tenue: #9a8574;
+  --exito: #4a7c3f;
+  --alerta: #d97b29;
+  --error: #c0392b;
+  --agotado: #9a8574;
+
+  /* Badges de producto */
+  --badge-vendido: #e03e00;
+  --badge-nuevo: #f28c1d;
+  --badge-recomendado: var(--naranja-osc);
+  --badge-agotado: var(--agotado);
+
+  /* Gutter: fuera de la columna de contenido, en cualquier tamaño */
+  --gutter: #f0ddbb;
+
+  /* shadcn/ui, mapeados a la marca */
+  --background: var(--crema);
+  --foreground: var(--cafe);
+  --card: var(--tarjeta);
+  --card-foreground: var(--cafe);
+  --popover: var(--tarjeta);
+  --popover-foreground: var(--cafe);
+  --primary: var(--naranja);
+  --primary-foreground: var(--crema);
+  --secondary: var(--crema-oscura);
+  --secondary-foreground: var(--cafe);
+  --muted: var(--crema-oscura);
+  --muted-foreground: var(--cafe-suave);
+  --accent: var(--crema-oscura);
+  --accent-foreground: var(--cafe);
+  --destructive: var(--error);
+  --border: var(--crema-oscura);
+  --input: var(--crema-oscura);
+  --ring: var(--naranja);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
   }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
 }

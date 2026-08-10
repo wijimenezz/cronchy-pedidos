@@ -1,0 +1,94 @@
+import { NextResponse } from "next/server";
+import { crearPedidoSchema } from "@/lib/validaciones";
+import { calcularPedido } from "@/lib/precios";
+import { esFranjaOfrecida, opcionesDeEntrega } from "@/lib/pedidos/entrega";
+import { getStore } from "@/db/queries/store";
+import { crearPedidoEnDB } from "@/db/queries/pedidos";
+import { enviarPushPedidoNuevo } from "@/lib/notificaciones/push";
+
+export async function POST(request: Request) {
+  const body = await request.json().catch(() => null);
+  if (body === null) {
+    return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
+  }
+
+  const parsed = crearPedidoSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "Datos inválidos", detalles: parsed.error.flatten() },
+      { status: 400 },
+    );
+  }
+  const input = parsed.data;
+
+  // El "cuándo" se valida igual que el "cuánto" (regla 1): el servidor genera las opciones y
+  // solo acepta una de las suyas. De paso resuelve la carrera de la franja que caduca mientras
+  // el cliente llena el formulario — a las 6:59 la de las 7:00 ya no está en la lista.
+  const opciones = await opcionesDeEntrega();
+
+  if (input.programadoPara) {
+    if (!esFranjaOfrecida(opciones, new Date(input.programadoPara))) {
+      // Dos situaciones distintas bajo el mismo 409, y el checkout las trata distinto: si
+      // quedan horas, solo caducó la suya y basta con volver a elegir; si no queda ninguna,
+      // la tienda cerró de verdad y no hay nada que reintentar.
+      return opciones.dias.length > 0
+        ? NextResponse.json(
+            { error: "Esa hora ya no está disponible. Elige otra.", motivo: "franja_caducada" },
+            { status: 409 },
+          )
+        : NextResponse.json(
+            { error: opciones.mensajeCerrado ?? "Estamos cerrados en este momento." },
+            { status: 409 },
+          );
+    }
+  } else if (!opciones.pronto) {
+    return NextResponse.json(
+      { error: opciones.mensajeCerrado ?? "Estamos cerrados en este momento." },
+      { status: 409 },
+    );
+  }
+
+  const tienda = await getStore();
+
+  // Todo el dinero se calcula aquí, en servidor (regla 1 de CLAUDE.md) — nunca se
+  // confía en un total que venga del cliente. El descuento es siempre 0 al crear el
+  // pedido: es un ajuste manual del negocio, no algo que el cliente controle.
+  const resultado = await calcularPedido(tienda.id, {
+    tipo: input.tipo,
+    items: input.items,
+    // Llega el pin, no la zona ni el precio: el servidor resuelve la cobertura de nuevo.
+    punto: input.punto,
+    descuento: 0,
+  });
+
+  if (!resultado.ok) {
+    return NextResponse.json(
+      { error: "No se pudo calcular el pedido", detalle: resultado.error },
+      { status: 422 },
+    );
+  }
+
+  const pedido = await crearPedidoEnDB(tienda.id, input, resultado.valor);
+
+  // El aviso al panel, y va DESPUÉS de crear el pedido y sin poder tumbarlo: el cliente ya compró,
+  // así que un fallo empujando la notificación no puede convertirse en un error de su checkout.
+  //
+  // Se espera (`await`) a propósito, igual que al borrar fotos huérfanas: en una función
+  // serverless, disparar sin esperar mata la instancia antes de que salga la petición.
+  try {
+    await enviarPushPedidoNuevo(tienda.id, pedido.numero);
+  } catch (error) {
+    console.error("No se pudo avisar al panel del pedido nuevo:", error);
+  }
+
+  return NextResponse.json(
+    {
+      id: pedido.id,
+      numero: pedido.numero,
+      tokenPublico: pedido.tokenPublico,
+      total: resultado.valor.total,
+      avisos: resultado.valor.avisos,
+    },
+    { status: 201 },
+  );
+}

@@ -10,4 +10,7 @@ export default defineConfig({
   dbCredentials: {
     url: process.env.DIRECT_URL!,
   },
+  // PostGIS instala objetos propios (spatial_ref_sys, geography_columns, …). Sin este
+  // filtro, drizzle-kit los ve como tablas ajenas al schema y propone dropearlas.
+  extensionsFilters: ["postgis"],
 });

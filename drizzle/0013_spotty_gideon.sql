@@ -1,0 +1,14 @@
+-- Archivar una lista de opciones (Salsas, Toppings, Sabor de helado) sin borrarla, que es
+-- lo que exige la regla 9 y lo que además imponen las FK: `modifier_option.group_id` y
+-- `product_modifier_group.group_id` son ON DELETE CASCADE, así que un DELETE del grupo se
+-- llevaría por delante las opciones Y los enganches de todos los productos, en silencio.
+--
+-- `activo = false` significa exactamente dos cosas y ninguna más: la lista no aparece en el
+-- desplegable de la Carta para enganchar productos nuevos, y no sale en "Qué hay hoy". La
+-- carta pública NO se entera: los productos que ya la usan la siguen ofreciendo. Sacarla de
+-- la ficha de un churro que exige elegir 1 salsa lo dejaría sin ninguna que ofrecer y, por
+-- la regla 4, imposible de añadir al carrito.
+--
+-- Sin UNIQUE sobre el nombre a propósito: la migración fallaría si la base ya trae dos
+-- listas que se llaman igual. El choque lo evita la server action con `slugify()`.
+ALTER TABLE "modifier_group" ADD COLUMN "activo" boolean DEFAULT true NOT NULL;
