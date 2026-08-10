@@ -430,7 +430,7 @@ pueda saltar generando franjas por otro camino.
 | ----------------- | ------------------------------------------------------------ | ----------------------------------------------------------------- |
 | `admin/pedidos`   | ver, aceptar, cambiar estado, imprimir, avisos, domiciliario | todo, más el rango de entrega estimada, el resumen del día y la descarga XLSX |
 | `admin/catalogo`  | switches `disponible` / `agotado` de productos y opciones    | igual                                                             |
-| `admin/productos` | solo Visible↔Agotado (ni ocultar ni reactivar)               | CRUD completo, precios, fotos, categorías, enganches              |
+| `admin/productos` | solo Visible↔Agotado (ni ocultar ni reactivar)               | CRUD completo, precios, fotos (de producto y de categoría), categorías, enganches |
 | `admin/opciones`  | solo switch `disponible` (sabores de la semana)              | crear/renombrar/ordenar opciones, precio propio, archivar listas  |
 | `admin/zonas`     | sin acceso (ni lectura)                                      | mapa: dibujar, editar vértices, precio, prioridad, activar/apagar |
 
@@ -656,6 +656,13 @@ servidor— y el audio necesita **un gesto del usuario** antes de poder sonar: d
   función falla a propósito en vez de borrar a medias.
 - **Fotos de productos:** máximo 3 por producto; se comprimen ANTES de subir
   (WebP, ~800 px, ~100–150 KB). La primera es la portada.
+- **La foto de categoría es una sola y se sube más grande.** Vive en `category.banner_url`, va al
+  mismo bucket público bajo `categorias/<id>/`, se edita desde `/admin/productos` (icono de foto en
+  la fila de la categoría, **solo admin**) y abre la sección en la carta. Se comprime a **1280 px**
+  (`LADO_MAXIMO_BANNER`) y no a 800: es un hero a ancho completo, no una miniatura.
+  **`CategoryBanner` es el único `next/image` sin `unoptimized`**, y esa excepción está razonada en
+  el propio componente: su ancho mostrado va de ~390 a ~1016 px. No lo "corrijas" contra la
+  convención de las miniaturas.
 - **Server Components por defecto.** `'use client'` solo donde hay interacción real
   (modal de producto, carrito, panel, mapas).
 - **El menú público se sirve con ISR, y encima hay cuatro capas de caché.** Solo la última

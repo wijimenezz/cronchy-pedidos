@@ -78,6 +78,13 @@ export const MAX_FOTOS = 3;
  *  completa en móvil, que es donde se ve el 95% de los pedidos. */
 export const LADO_MAXIMO = 800;
 
+/**
+ * El banner de categoría no es una miniatura: es un hero a ancho completo, que en escritorio
+ * ocupa hasta ~1016 px (`max-w-contenido` de 1080 menos el `lg:px-8`). Con los 800 px de una
+ * foto de producto se vería blando justo en la primera imagen de la carta.
+ */
+export const LADO_MAXIMO_BANNER = 1280;
+
 /** Calidad del WebP. 0.82 deja las fotos en ~100–150 KB sin que se note el recorte. */
 export const CALIDAD_WEBP = 0.82;
 

@@ -5,6 +5,7 @@ import { Check, Pencil, Plus, X } from "lucide-react";
 import { BotonOrden } from "@/components/admin/BotonOrden";
 import { BotonSwitch } from "@/components/admin/Interruptor";
 import type { CategoriaPanel } from "@/db/queries/catalogo";
+import { BannerCategoria } from "./BannerCategoria";
 import {
   crearCategoriaNueva,
   marcarCategoriaActiva,
@@ -154,10 +155,16 @@ export function ColumnaCategorias({
             )}
 
             {esAdmin && editandoId !== categoria.id && (
-              <div className="flex items-center justify-between gap-2 px-2 pb-1">
-                <span className="font-cuerpo text-[13px] text-cafe-tenue">
+              /* La foto va en esta fila y no arriba: la de arriba ya está al límite en los
+                 220 px de la columna y un cuarto botón truncaría nombres como
+                 "Churros con Helado". */
+              <div className="flex items-center gap-1 pb-1 pl-1 pr-2">
+                <BannerCategoria categoria={categoria} />
+
+                <span className="min-w-0 flex-1 truncate font-cuerpo text-[13px] text-cafe-tenue">
                   {categoria.activa ? "En la carta" : "Fuera de la carta"}
                 </span>
+
                 <BotonSwitch
                   activo={categoria.activa}
                   etiqueta={`${categoria.nombre}: ${categoria.activa ? "en la carta" : "fuera de la carta"}`}
