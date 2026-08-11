@@ -60,6 +60,38 @@ describe("resolverBaseUrl", () => {
     delete process.env.VERCEL_URL;
     expect(resolverBaseUrl()).toBe("http://localhost:3000");
   });
+
+  // Pasó de verdad: la variable quedó copiada del ejemplo en Vercel y los clientes recibieron
+  // `http://localhost:3000/pedido/…` en su WhatsApp. Estando desplegado, el despliegue gana.
+  it("ignora un localhost explícito si estamos desplegados", () => {
+    process.env.NEXT_PUBLIC_BASE_URL = "http://localhost:3000";
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = "cronchy-pedidos.vercel.app";
+    delete process.env.VERCEL_URL;
+    expect(resolverBaseUrl()).toBe("https://cronchy-pedidos.vercel.app");
+  });
+
+  it("reconoce las otras formas de decir localhost", () => {
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = "cronchy-pedidos.vercel.app";
+
+    for (const local of ["http://127.0.0.1:3000", "http://localhost", "https://localhost:3000/"]) {
+      process.env.NEXT_PUBLIC_BASE_URL = local;
+      expect(resolverBaseUrl()).toBe("https://cronchy-pedidos.vercel.app");
+    }
+  });
+
+  // La guarda no puede tragarse un dominio legítimo que empiece parecido.
+  it("no confunde un dominio real con localhost", () => {
+    process.env.NEXT_PUBLIC_BASE_URL = "https://localhost.cronchy.co";
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = "cronchy-pedidos.vercel.app";
+    expect(resolverBaseUrl()).toBe("https://localhost.cronchy.co");
+  });
+
+  it("fuera de Vercel respeta el localhost explícito, que es lo único que hay", () => {
+    process.env.NEXT_PUBLIC_BASE_URL = "http://localhost:3000";
+    delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
+    delete process.env.VERCEL_URL;
+    expect(resolverBaseUrl()).toBe("http://localhost:3000");
+  });
 });
 
 describe("pedidoParaMensaje", () => {

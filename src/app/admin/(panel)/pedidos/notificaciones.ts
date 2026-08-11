@@ -14,7 +14,7 @@
  * (`push.ts`), que usa el mismo service worker por el otro extremo.
  */
 
-import { registroSw } from "./push";
+import { registroSw, type ResultadoPush } from "./push";
 
 /** El icono más pequeño que ya existe en `public/`. Los demás son fotos de producto o logos. */
 const ICONO = "/churro_icon.png";
@@ -51,6 +51,39 @@ export async function pedirPermisoNotificaciones(): Promise<boolean> {
   } catch {
     // Safari viejo devolvía el permiso por callback y no por promesa. Sin permiso, sin aviso.
     return false;
+  }
+}
+
+/**
+ * Qué le falta a los avisos, en una frase, o `null` si los tres canales están armados.
+ *
+ * Existe porque el panel llegó a decir "Avisos activos" con el push sin registrar: cuando algo
+ * falla en silencio, el operario no descubre que no le avisan hasta que se le enfría un pedido.
+ * Aquí se nombra el canal que falta Y qué hacer, porque "algo falló" no es accionable.
+ *
+ * Pura y testeada: son cadenas que alguien va a leer a las ocho de la noche con la freidora
+ * encendida, y el orden de precedencia importa —el permiso primero, porque sin él no hay ningún
+ * aviso visual, ni de la página ni empujado—.
+ */
+export function problemaDeAvisos(
+  notificaSistema: boolean,
+  push: ResultadoPush | null,
+): string | null {
+  if (!notificaSistema || push === "sin-permiso") {
+    return "Solo va a sonar. Para que además te avise estando en otra aplicación, permite las notificaciones de este sitio en el candado de la barra de direcciones.";
+  }
+
+  switch (push) {
+    // `null` es "todavía no se ha intentado": avisar de un fallo que no ha ocurrido sería ruido.
+    case null:
+    case "ok":
+      return null;
+    case "sin-llave":
+      return "Suena y avisa en pantalla, pero no con el navegador cerrado: al servidor le falta la llave VAPID. Si acabas de añadirla, hay que volver a desplegar para que llegue al navegador.";
+    case "no-soportado":
+      return "Suena y avisa en pantalla. Este navegador no admite avisos con el navegador cerrado.";
+    case "error":
+      return "Suena y avisa en pantalla, pero no pudimos registrar los avisos con el navegador cerrado. Recarga la página para reintentar.";
   }
 }
 
