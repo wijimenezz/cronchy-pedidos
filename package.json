@@ -11,6 +11,7 @@
     "test": "vitest",
     "crear-usuario": "node scripts/crear-usuario.mjs",
     "configurar-purga": "node scripts/configurar-purga.mjs",
+    "verificar-push": "node scripts/verificar-push.mjs",
     "db:introspect": "drizzle-kit introspect",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",

@@ -60,22 +60,44 @@ export async function registroSw(): Promise<ServiceWorkerRegistration | null> {
 }
 
 /**
+ * Por qué no quedó armado el push, para poder decirlo en pantalla.
+ *
+ * Antes esto era un booleano y quien llamaba lo descartaba, así que un fallo dejaba el panel
+ * diciendo "Avisos activos" sin que nadie pudiera saber que el push no se registró. Un motivo
+ * concreto convierte un misterio en una frase.
+ */
+export type ResultadoPush = "ok" | "sin-llave" | "no-soportado" | "sin-permiso" | "error";
+
+/**
  * Suscribe este dispositivo y guarda la suscripción en el servidor.
  *
- * Se llama desde el mismo clic que arma el sonido y pide el permiso: el navegador exige un gesto
- * para lo primero y para lo segundo, así que un solo toque deja los tres canales listos.
+ * **Se llama al montar el panel y no solo al encender el botón**, y esa diferencia era el bug:
+ * quien ya tenía el sonido guardado de antes nunca pasaba por el camino de encenderlo, así que
+ * jamás se suscribía y el panel afirmaba que los avisos estaban activos.
  *
- * Devuelve si quedó suscrito. No lanza: que falle el push no puede impedir que suene la alarma.
+ * Repetirlo en cada carga sale casi gratis y se autorrepara: `getSubscription()` devuelve la que
+ * ya exista sin crear nada, y el servidor hace upsert sobre el `endpoint`. Así vuelve a quedar
+ * bien si la fila se borró o si ahora hay otro empleado en sesión.
+ *
+ * No lanza: que falle el push no puede impedir que suene la alarma.
  */
-export async function activarPush(): Promise<boolean> {
-  if (!soportaPush()) return false;
+export async function activarPush(): Promise<ResultadoPush> {
+  if (!soportaPush()) return "no-soportado";
+
+  // Con el permiso denegado, `subscribe()` falla igual — y aunque llegara un push, no habría
+  // forma de mostrarlo.
+  if (typeof Notification !== "undefined" && Notification.permission !== "granted") {
+    return "sin-permiso";
+  }
 
   const clavePublica = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-  if (!clavePublica) return false;
+  // Ojo: al ser `NEXT_PUBLIC_` se inyecta AL COMPILAR. Si la variable se añadió al hosting
+  // después del último build, aquí llega vacía por mucho que esté puesta en el panel de Vercel.
+  if (!clavePublica) return "sin-llave";
 
   try {
     const registro = await registroSw();
-    if (!registro) return false;
+    if (!registro) return "no-soportado";
 
     // `userVisibleOnly` es obligatorio en Chrome: no se puede recibir un push sin mostrar nada.
     // Aquí encaja solo, porque todo push de este panel termina en una notificación.
@@ -92,9 +114,9 @@ export async function activarPush(): Promise<boolean> {
       body: JSON.stringify(suscripcion),
     });
 
-    return respuesta.ok;
+    return respuesta.ok ? "ok" : "error";
   } catch {
-    return false;
+    return "error";
   }
 }
 
