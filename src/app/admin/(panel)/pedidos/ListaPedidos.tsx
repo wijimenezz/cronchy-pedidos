@@ -21,8 +21,9 @@ import {
   avisarPedidosNuevos,
   pedirPermisoNotificaciones,
   permisoDenegado,
+  problemaDeAvisos,
 } from "./notificaciones";
-import { activarPush, desactivarPush } from "./push";
+import { activarPush, desactivarPush, type ResultadoPush } from "./push";
 
 /**
  * Cada cuánto se pregunta por pedidos nuevos.
@@ -84,6 +85,14 @@ export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
    * sonido armado, que ahí siempre es `false`.
    */
   const [notificaSistema, setNotificaSistema] = useState(() => !permisoDenegado());
+  /**
+   * Cómo quedó el push. `null` mientras no se ha intentado.
+   *
+   * Se guarda el motivo y no un sí/no porque el fallo de ayer fue justo ese: `activarPush()`
+   * devolvía un booleano, quien llamaba lo descartaba, y un push que no se registró se veía
+   * exactamente igual que uno que sí.
+   */
+  const [estadoPush, setEstadoPush] = useState<ResultadoPush | null>(null);
 
   /** Cuándo salió la última consulta, para el tope de `MINIMO_ENTRE_MS`. */
   const ultimoRefresco = useRef(0);
@@ -232,9 +241,27 @@ export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
     });
   }, []);
 
+  /**
+   * Registrar el push en CADA carga del panel, y no solo al encender el botón.
+   *
+   * Este efecto es el arreglo del bug que dejó la tabla de suscripciones vacía: quien ya tenía
+   * el sonido guardado nunca volvía a pasar por `alternarSonido`, así que nunca se suscribía —
+   * mientras el botón afirmaba que los avisos estaban activos.
+   *
+   * Repetirlo no cuesta: `activarPush()` reutiliza la suscripción que ya exista y el servidor
+   * hace upsert. Así se autorrepara si la fila se borró o si entró otro empleado.
+   */
+  useEffect(() => {
+    if (!prefiereSonido()) return;
+
+    void activarPush().then(setEstadoPush);
+  }, []);
+
   // Al desmontar —salir del tablero, irse a un día pasado— se corta el tono testigo. Sin esto
   // la pestaña seguiría pidiéndole al navegador que la trate como si estuviera sonando.
   useEffect(() => detenerMantenerDespierto, []);
+
+  const problema = problemaDeAvisos(notificaSistema, estadoPush);
 
   function alternarSonido() {
     const activar = !sonido;
@@ -243,6 +270,7 @@ export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
 
     if (!activar) {
       silenciar();
+      setEstadoPush(null);
       void desactivarPush();
       return;
     }
@@ -259,7 +287,7 @@ export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
       setNotificaSistema(concedido);
       // El push solo se suscribe con el permiso ya concedido: sin él, `subscribe()` falla y
       // además no habría forma de mostrar lo que llegara.
-      if (concedido) void activarPush();
+      void activarPush().then(setEstadoPush);
     });
   }
 
@@ -325,15 +353,14 @@ export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
         </div>
       </div>
 
-      {/* El sonido solo sirve si alguien está delante. Sin permiso de notificaciones no hay
-          aviso fuera del navegador, y quien lo denegó sin querer no tiene otra forma de saberlo. */}
-      {sonido && !notificaSistema && (
+      {/* Qué canal quedó armado y cuál no. El silencio aquí solo puede significar que los tres
+          funcionan: un panel que cree estar avisando y no avisa es peor que uno mudo declarado. */}
+      {sonido && problema && (
         <p
           role="status"
           className="rounded-md bg-alerta/15 px-4 py-2 font-cuerpo text-[13px] text-cafe"
         >
-          Solo va a sonar. Para que además te avise estando en otra aplicación, permite las
-          notificaciones de este sitio en el candado de la barra de direcciones.
+          {problema}
         </p>
       )}
 
