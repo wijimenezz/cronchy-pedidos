@@ -8,7 +8,14 @@ import { useCarrito } from "@/lib/carrito";
 import { useTipoPedido } from "@/lib/tienda/tipo-pedido";
 import { precargarProducto } from "@/lib/tienda/productos-cache";
 import { calcularItem, precioEfectivoOpcion } from "@/lib/precios-calculo";
-import { bebidasElegidas, pendientesDeFicha, seleccionSinUpsells } from "@/lib/checkout/mapeo";
+// Puro y sin dependencias de servidor: `modificadores.ts` solo tiene un `import type` —que
+// TypeScript borra al compilar— y `plantillas.ts` no importa nada. No engorda el bundle.
+import { etiquetaCorta } from "@/lib/pedidos/modificadores";
+import {
+  bebidasElegidas,
+  pendientesDeFicha,
+  seleccionSinUpsells,
+} from "@/lib/checkout/mapeo";
 import type { SeleccionEnganche } from "@/lib/precios-calculo";
 import type {
   EngancheParaFicha,
@@ -19,13 +26,18 @@ import type {
 
 type SeleccionesPorGrupo = Record<string, Record<string, number>>;
 
-function construirSeleccion(selecciones: SeleccionesPorGrupo): SeleccionEnganche[] {
+function construirSeleccion(
+  selecciones: SeleccionesPorGrupo,
+): SeleccionEnganche[] {
   return Object.entries(selecciones)
     .map(([productModifierGroupId, opciones]) => ({
       productModifierGroupId,
       opciones: Object.entries(opciones)
         .filter(([, cantidad]) => cantidad > 0)
-        .map(([modifierOptionId, cantidad]) => ({ modifierOptionId, cantidad })),
+        .map(([modifierOptionId, cantidad]) => ({
+          modifierOptionId,
+          cantidad,
+        })),
     }))
     .filter((s) => s.opciones.length > 0);
 }
@@ -91,14 +103,24 @@ function cantidadEnGrupo(
   const cantidadActual = actual[opcionId] ?? 0;
   const suma = Object.values(actual).reduce((n, c) => n + c, 0);
   const maxPorOpcion = enganche.maxPorOpcion ?? Infinity;
-  const tope = Math.min(maxPorOpcion, enganche.maxSelect - (suma - cantidadActual));
+  const tope = Math.min(
+    maxPorOpcion,
+    enganche.maxSelect - (suma - cantidadActual),
+  );
   const nueva = Math.max(0, Math.min(tope, cantidadActual + delta));
 
-  return nueva > 0 ? { ...actual, [opcionId]: nueva } : sinOpcion(actual, opcionId);
+  return nueva > 0
+    ? { ...actual, [opcionId]: nueva }
+    : sinOpcion(actual, opcionId);
 }
 
-function sinOpcion(seleccion: Record<string, number>, opcionId: string): Record<string, number> {
-  return Object.fromEntries(Object.entries(seleccion).filter(([id]) => id !== opcionId));
+function sinOpcion(
+  seleccion: Record<string, number>,
+  opcionId: string,
+): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(seleccion).filter(([id]) => id !== opcionId),
+  );
 }
 
 function StepperCantidad({
@@ -124,7 +146,9 @@ function StepperCantidad({
       >
         <Minus className="size-3.5" />
       </button>
-      <span className="min-w-[16px] text-center text-sm font-bold text-cafe">{valor}</span>
+      <span className="min-w-[16px] text-center text-sm font-bold text-cafe">
+        {valor}
+      </span>
       <button
         type="button"
         onClick={() => onCambiar(1)}
@@ -154,36 +178,37 @@ function FilaOpcion({
   const seleccionada = cantidad > 0;
   const precio = precioEfectivoOpcion(enganche, opcion);
 
-  return (
-    // min-h-11: DESIGN §7 exige 44px mínimo en todo lo tocable.
-    //
-    // La atenuación va en la FILA y no en el botón del nombre: ahí dejaba el nombre en gris
-    // con el stepper de al lado a todo color, que es exactamente lo que hacía pensar que la
-    // cantidad sí se podía subir.
-    <div
-      className={`flex min-h-11 items-center gap-3 rounded-md border border-crema-oscura px-3 py-2 ${
-        opcion.disponible ? "" : "opacity-40"
-      }`}
-    >
+  const claseFila = `flex min-h-11 items-center gap-3 rounded-md border border-crema-oscura px-3 py-2 ${
+    opcion.disponible ? "" : "opacity-40"
+  }`;
+
+  const nombreYPrecio = (
+    <>
+      <span
+        className={`flex-1 text-left text-sm font-medium ${
+          seleccionada ? "text-naranja" : "text-cafe"
+        }`}
+      >
+        {opcion.nombre}
+        {!opcion.disponible && " (agotado)"}
+      </span>
+      {precio > 0 && (
+        <span className="text-xs text-cafe-suave">+{pesos(precio)}</span>
+      )}
+    </>
+  );
+
+  // Sin stepper: la fila COMPLETA es el botón — nombre, precio y círculo
+  // son una sola zona táctil.
+  if (!enganche.permiteCantidad) {
+    return (
       <button
         type="button"
         onClick={onToggle}
         disabled={!opcion.disponible}
-        className="flex flex-1 items-center justify-between gap-2 self-stretch text-left"
+        className={`${claseFila} w-full`}
       >
-        <span className={`text-sm font-medium ${seleccionada ? "text-naranja" : "text-cafe"}`}>
-          {opcion.nombre}
-          {!opcion.disponible && " (agotado)"}
-        </span>
-        {precio > 0 && <span className="text-xs text-cafe-suave">+{pesos(precio)}</span>}
-      </button>
-      {enganche.permiteCantidad ? (
-        <StepperCantidad
-          valor={cantidad}
-          onCambiar={onCambiarCantidad}
-          deshabilitado={!opcion.disponible}
-        />
-      ) : (
+        {nombreYPrecio}
         <span
           className={`flex size-6 shrink-0 items-center justify-center rounded-full border-2 ${
             seleccionada ? "border-naranja bg-naranja" : "border-crema-oscura"
@@ -191,7 +216,27 @@ function FilaOpcion({
         >
           {seleccionada && <span className="size-2 rounded-full bg-crema" />}
         </span>
-      )}
+      </button>
+    );
+  }
+
+  // Con stepper: igual que antes, porque el stepper tiene sus propios botones
+  // y no puede vivir dentro de otro botón (HTML inválido + clics ambiguos).
+  return (
+    <div className={claseFila}>
+      <button
+        type="button"
+        onClick={onToggle}
+        disabled={!opcion.disponible}
+        className="flex flex-1 items-center justify-between gap-2 self-stretch text-left"
+      >
+        {nombreYPrecio}
+      </button>
+      <StepperCantidad
+        valor={cantidad}
+        onCambiar={onCambiarCantidad}
+        deshabilitado={!opcion.disponible}
+      />
     </div>
   );
 }
@@ -201,6 +246,8 @@ function GrupoEnganche({
   seleccion,
   plegable = false,
   expandido = false,
+  plegado = false,
+  onExpandir,
   onToggleExpandir,
   onToggleOpcion,
   onCambiarCantidad,
@@ -210,6 +257,9 @@ function GrupoEnganche({
   seleccion: Record<string, number>;
   plegable?: boolean;
   expandido?: boolean;
+  /** Grupo incluido ya completo: se muestra como un resumen de una línea. */
+  plegado?: boolean;
+  onExpandir?: () => void;
   onToggleExpandir?: () => void;
   onToggleOpcion: (opcionId: string) => void;
   onCambiarCantidad: (opcionId: string, delta: number) => void;
@@ -220,7 +270,9 @@ function GrupoEnganche({
   const esRequerido = enganche.minSelect > 0 && !enganche.avisarIncompleto;
   // Lo incluido es obligatorio: mientras falten, el botón Añadir está bloqueado y hay que
   // decir cuántas para que el cliente no se quede adivinando por qué no puede continuar.
-  const faltan = enganche.avisarIncompleto ? 0 : Math.max(0, enganche.minSelect - recibidas);
+  const faltan = enganche.avisarIncompleto
+    ? 0
+    : Math.max(0, enganche.minSelect - recibidas);
   const agotadoEntero = sinNadaQueElegir(enganche);
 
   const opciones = (
@@ -238,6 +290,42 @@ function GrupoEnganche({
     </div>
   );
 
+  // Grupo obligatorio ya completo: una sola línea con lo elegido, tocable para corregir.
+  //
+  // **El resumen es la mitad que importa.** Contraerlo a un "Toppings ✓" obligaría a reabrirlo
+  // solo para verificar qué se eligió, y entonces el pliegue escondería información en vez de
+  // ahorrar espacio. Con los nombres a la vista únicamente ahorra espacio.
+  if (plegado && !plegable) {
+    const elegidas = enganche.opciones
+      .filter((opcion) => (seleccion[opcion.id] ?? 0) > 0)
+      .map((opcion) => {
+        const cuantas = seleccion[opcion.id] ?? 0;
+        return cuantas > 1 ? `${opcion.nombre} ×${cuantas}` : opcion.nombre;
+      })
+      // Mismo formato que usa el panel para este dato (`agruparModificadores`): es lo mismo
+      // leído en dos pantallas y no debería escribirse de dos maneras.
+      .join(" · ");
+
+    return (
+      <button
+        type="button"
+        onClick={onExpandir}
+        aria-expanded={false}
+        className="flex min-h-11 w-full items-center justify-between gap-3 rounded-md bg-crema-oscura/50 px-3 py-2 text-left"
+      >
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold text-cafe">
+            {enganche.nombreGrupo}
+          </span>
+          <span className="block truncate text-xs text-naranja">
+            {elegidas}
+          </span>
+        </span>
+        <ChevronDown className="size-4 shrink-0 text-cafe" />
+      </button>
+    );
+  }
+
   if (plegable) {
     return (
       <div>
@@ -246,8 +334,20 @@ function GrupoEnganche({
           onClick={onToggleExpandir}
           className="flex w-full items-center justify-between rounded-md bg-crema-oscura/50 px-3 py-2 text-sm font-semibold text-cafe"
         >
-          <span>{expandido ? enganche.nombreGrupo : `+ Agregar más ${enganche.nombreGrupo.toLowerCase()}`}</span>
-          <ChevronDown className={`size-4 transition-transform ${expandido ? "rotate-180" : ""}`} />
+          {/* El mismo texto abierto y cerrado: quien lo lee ya sabe qué hay dentro, y el estado
+              lo dice el chevron. Antes cambiaba entre dos frases distintas.
+
+              `etiquetaCorta` recorta el "Agregar más " que traen las etiquetas de los enganches
+              adicionales, que era lo que producía "+ Agregar más agregar más toppings". Es la
+              misma función con la que el panel dice "Toppings" en el detalle del pedido, así que
+              la carta y el panel nombran el grupo igual — y da lo mismo si el enganche tiene
+              etiqueta propia o cae al nombre del grupo. */}
+          <span>
+            {`+ Agregar ${etiquetaCorta(enganche.nombreGrupo).toLowerCase()} adicionales`}
+          </span>
+          <ChevronDown
+            className={`size-4 transition-transform ${expandido ? "rotate-180" : ""}`}
+          />
         </button>
         {expandido && <div className="mt-2">{opciones}</div>}
       </div>
@@ -256,7 +356,9 @@ function GrupoEnganche({
 
   return (
     <div>
-      <div className={`flex items-center justify-between ${compacto ? "mb-1.5" : "mb-2"}`}>
+      <div
+        className={`flex items-center justify-between ${compacto ? "mb-1.5" : "mb-2"}`}
+      >
         <h4
           className={
             compacto
@@ -287,7 +389,8 @@ function GrupoEnganche({
           ) : (
             <>
               Te {faltan === 1 ? "falta" : "faltan"} {faltan} por elegir. Ya{" "}
-              {faltan === 1 ? "viene incluida" : "vienen incluidas"} en el precio.
+              {faltan === 1 ? "viene incluida" : "vienen incluidas"} en el
+              precio.
             </>
           )}
         </p>
@@ -319,7 +422,11 @@ function FilaUpsell({
   onToggle: () => void;
   onCambiarCantidad: (delta: number) => void;
   onToggleOpcionBebida: (enganche: EngancheParaFicha, opcionId: string) => void;
-  onCambiarCantidadBebida: (enganche: EngancheParaFicha, opcionId: string, delta: number) => void;
+  onCambiarCantidadBebida: (
+    enganche: EngancheParaFicha,
+    opcionId: string,
+    delta: number,
+  ) => void;
 }) {
   const elegida = cantidad > 0;
   // Los grupos upsell de una bebida no se pintan (invariante: llevan minSelect 0).
@@ -330,7 +437,13 @@ function FilaUpsell({
       <div className="flex items-center gap-3 p-2">
         <div className="relative size-12 shrink-0 overflow-hidden rounded-sm bg-crema-oscura">
           {bebida.imagen && (
-            <Image src={bebida.imagen} alt="" fill sizes="48px" className="object-cover" />
+            <Image
+              src={bebida.imagen}
+              alt=""
+              fill
+              sizes="48px"
+              className="object-cover"
+            />
           )}
         </div>
         <div className="flex-1">
@@ -344,7 +457,9 @@ function FilaUpsell({
             type="button"
             onClick={onToggle}
             className={`min-h-11 rounded-full px-4 text-sm font-bold ${
-              elegida ? "bg-crema-oscura text-cafe" : "bg-naranja text-crema hover:bg-naranja-osc"
+              elegida
+                ? "bg-crema-oscura text-cafe"
+                : "bg-naranja text-crema hover:bg-naranja-osc"
             }`}
           >
             {elegida ? "Quitar" : "Agregar"}
@@ -361,7 +476,9 @@ function FilaUpsell({
               compacto
               enganche={grupoBebida}
               seleccion={seleccionBebida[grupoBebida.id] ?? {}}
-              onToggleOpcion={(opcionId) => onToggleOpcionBebida(grupoBebida, opcionId)}
+              onToggleOpcion={(opcionId) =>
+                onToggleOpcionBebida(grupoBebida, opcionId)
+              }
               onCambiarCantidad={(opcionId, delta) =>
                 onCambiarCantidadBebida(grupoBebida, opcionId, delta)
               }
@@ -373,7 +490,13 @@ function FilaUpsell({
   );
 }
 
-export function ProductoFicha({ productId, onClose }: { productId: string; onClose: () => void }) {
+export function ProductoFicha({
+  productId,
+  onClose,
+}: {
+  productId: string;
+  onClose: () => void;
+}) {
   const [producto, setProducto] = useState<ProductoParaFicha | null>(null);
   const [error, setError] = useState(false);
   const [cantidad, setCantidad] = useState(1);
@@ -384,8 +507,20 @@ export function ProductoFicha({ productId, onClose }: { productId: string; onClo
   // Al quitar una bebida su entrada NO se borra, a propósito: todo lo que se envía se
   // deriva de `resultado.valor.upsells`, que solo trae las de cantidad > 0. Así, si el
   // cliente la vuelve a agregar, no pierde lo que ya había elegido.
-  const [seleccionesUpsell, setSeleccionesUpsell] = useState<Record<string, SeleccionesPorGrupo>>({});
+  const [seleccionesUpsell, setSeleccionesUpsell] = useState<
+    Record<string, SeleccionesPorGrupo>
+  >({});
   const [expandido, setExpandido] = useState<Record<string, boolean>>({});
+  /**
+   * Grupos incluidos que ya se completaron y se muestran como una línea de resumen.
+   *
+   * **Se guarda "contraído" y no "expandido" a propósito**, y eso resuelve solo el ciclo de
+   * corrección: solo se pone a `true` al completar el grupo, y a `false` al tocar el resumen. Si
+   * el cliente reabre y quita una opción, nada lo vuelve a cerrar —correcto, ahora está incompleto
+   * y el aviso de "te falta 1" tiene que verse— y al volver a elegir se contrae otra vez. Con la
+   * lógica al revés haría falta un efecto vigilando la selección.
+   */
+  const [plegados, setPlegados] = useState<Record<string, boolean>>({});
 
   const agregarConfigurado = useCarrito((s) => s.agregarConfigurado);
   const tipoPedido = useTipoPedido();
@@ -417,7 +552,12 @@ export function ProductoFicha({ productId, onClose }: { productId: string; onClo
     if (!producto) return null;
     return calcularItem(
       producto,
-      { productId: producto.id, cantidad, seleccion: construirSeleccion(selecciones), notas: null },
+      {
+        productId: producto.id,
+        cantidad,
+        seleccion: construirSeleccion(selecciones),
+        notas: null,
+      },
       tipoPedido ?? undefined,
     );
   }, [producto, cantidad, selecciones, tipoPedido]);
@@ -431,47 +571,91 @@ export function ProductoFicha({ productId, onClose }: { productId: string; onClo
     if (!producto || !resultado?.ok) return [];
 
     const seleccionesPorBebida = Object.fromEntries(
-      Object.entries(seleccionesUpsell).map(([refId, grupos]) => [refId, construirSeleccion(grupos)]),
+      Object.entries(seleccionesUpsell).map(([refId, grupos]) => [
+        refId,
+        construirSeleccion(grupos),
+      ]),
     );
 
-    return bebidasElegidas(resultado.valor.upsells, producto.productosUpsell, seleccionesPorBebida).map(
-      (bebida) => ({
-        bebida,
-        resultado: calcularItem(
-          bebida.producto,
-          {
-            productId: bebida.producto.id,
-            cantidad: bebida.cantidad,
-            seleccion: bebida.seleccion,
-            notas: null,
-          },
-          tipoPedido ?? undefined,
-        ),
-      }),
-    );
+    return bebidasElegidas(
+      resultado.valor.upsells,
+      producto.productosUpsell,
+      seleccionesPorBebida,
+    ).map((bebida) => ({
+      bebida,
+      resultado: calcularItem(
+        bebida.producto,
+        {
+          productId: bebida.producto.id,
+          cantidad: bebida.cantidad,
+          seleccion: bebida.seleccion,
+          notas: null,
+        },
+        tipoPedido ?? undefined,
+      ),
+    }));
   }, [producto, resultado, seleccionesUpsell, tipoPedido]);
 
-  function toggleOpcion(enganche: EngancheParaFicha, opcionId: string) {
-    setSelecciones((prev) => ({
-      ...prev,
-      [enganche.id]: toggleEnGrupo(prev[enganche.id] ?? {}, enganche, opcionId),
-    }));
+  /**
+   * Guarda la selección de un grupo y lo contrae si con eso quedó completo.
+   *
+   * La selección nueva se calcula **fuera** del updater, al revés que antes, porque hace falta
+   * conocerla dos veces: para guardarla y para decidir si el grupo se cierra. Es seguro aquí
+   * porque esto solo lo llaman manejadores de clic: entre dos toques React ya volvió a renderizar,
+   * así que `selecciones` no puede estar viejo. La alternativa —llamar a `setPlegados` dentro del
+   * updater— metería un efecto en una función que debe ser pura.
+   */
+  function aplicarEnGrupo(
+    enganche: EngancheParaFicha,
+    calcular: (actual: Record<string, number>) => Record<string, number>,
+  ) {
+    const nueva = calcular(selecciones[enganche.id] ?? {});
+
+    setSelecciones((prev) => ({ ...prev, [enganche.id]: nueva }));
+
+    // El criterio es "ya no cabe nada más". Por la regla 4 los incluidos tienen min === max, así
+    // que hoy equivale a "cumplió el mínimo"; si algún día hubiera un "elige hasta 3, mínimo 1",
+    // habría que decidir cuál de las dos cosas se quiere.
+    const suma = Object.values(nueva).reduce((n, c) => n + c, 0);
+    if (suma >= enganche.maxSelect) {
+      setPlegados((prev) => ({ ...prev, [enganche.id]: true }));
+    }
   }
 
-  function cambiarCantidadOpcion(enganche: EngancheParaFicha, opcionId: string, delta: number) {
-    setSelecciones((prev) => ({
-      ...prev,
-      [enganche.id]: cantidadEnGrupo(prev[enganche.id] ?? {}, enganche, opcionId, delta),
-    }));
+  function toggleOpcion(enganche: EngancheParaFicha, opcionId: string) {
+    aplicarEnGrupo(enganche, (actual) =>
+      toggleEnGrupo(actual, enganche, opcionId),
+    );
+  }
+
+  function cambiarCantidadOpcion(
+    enganche: EngancheParaFicha,
+    opcionId: string,
+    delta: number,
+  ) {
+    aplicarEnGrupo(enganche, (actual) =>
+      cantidadEnGrupo(actual, enganche, opcionId, delta),
+    );
   }
 
   // Mismos gestos, un nivel más adentro: la selección de cada bebida del upsell.
-  function toggleOpcionBebida(refId: string, enganche: EngancheParaFicha, opcionId: string) {
+  function toggleOpcionBebida(
+    refId: string,
+    enganche: EngancheParaFicha,
+    opcionId: string,
+  ) {
     setSeleccionesUpsell((prev) => {
       const grupos = prev[refId] ?? {};
       return {
         ...prev,
-        [refId]: { ...grupos, [enganche.id]: toggleEnGrupo(grupos[enganche.id] ?? {}, enganche, opcionId) },
+        [refId]: {
+          ...grupos,
+          [enganche.id]: toggleEnGrupo(
+            grupos[enganche.id] ?? {},
+            enganche,
+            opcionId,
+          ),
+        },
       };
     });
   }
@@ -488,7 +672,12 @@ export function ProductoFicha({ productId, onClose }: { productId: string; onClo
         ...prev,
         [refId]: {
           ...grupos,
-          [enganche.id]: cantidadEnGrupo(grupos[enganche.id] ?? {}, enganche, opcionId, delta),
+          [enganche.id]: cantidadEnGrupo(
+            grupos[enganche.id] ?? {},
+            enganche,
+            opcionId,
+            delta,
+          ),
         },
       };
     });
@@ -506,7 +695,10 @@ export function ProductoFicha({ productId, onClose }: { productId: string; onClo
       // Los upsells NO viajan en la selección de la línea base: van como líneas
       // propias, justo abajo (regla 8). Si fueran en los dos sitios, el checkout
       // mandaría ambos al servidor y la bebida se cobraría dos veces.
-      seleccion: seleccionSinUpsells(construirSeleccion(selecciones), producto.engancles),
+      seleccion: seleccionSinUpsells(
+        construirSeleccion(selecciones),
+        producto.engancles,
+      ),
       modificadores: resultado.valor.base.modificadores,
       avisos: resultado.valor.base.avisos,
       notas: null,
@@ -533,17 +725,23 @@ export function ProductoFicha({ productId, onClose }: { productId: string; onClo
     onClose();
   }
 
-  const enganclesSeleccion = producto?.engancles.filter((e) => e.tipo === "seleccion") ?? [];
-  const enganclesUpsell = producto?.engancles.filter((e) => e.tipo === "upsell") ?? [];
+  const enganclesSeleccion =
+    producto?.engancles.filter((e) => e.tipo === "seleccion") ?? [];
+  const enganclesUpsell =
+    producto?.engancles.filter((e) => e.tipo === "upsell") ?? [];
 
   // Se puede añadir solo si el producto Y todas sus bebidas están completos: una bebida
   // a medias produciría un 422 en el checkout, donde ya no se puede reconfigurar.
-  const todoOk = Boolean(resultado?.ok) && calculosBebida.every((c) => c.resultado.ok);
+  const todoOk =
+    Boolean(resultado?.ok) && calculosBebida.every((c) => c.resultado.ok);
 
   const precioTotal =
     resultado?.ok && todoOk
       ? resultado.valor.base.subtotal +
-        calculosBebida.reduce((n, c) => n + (c.resultado.ok ? c.resultado.valor.base.subtotal : 0), 0)
+        calculosBebida.reduce(
+          (n, c) => n + (c.resultado.ok ? c.resultado.valor.base.subtotal : 0),
+          0,
+        )
       : null;
 
   // Qué le falta al cliente, para que el botón bloqueado diga el motivo en vez de un
@@ -574,10 +772,20 @@ export function ProductoFicha({ productId, onClose }: { productId: string; onClo
   if (error) {
     return (
       <div onClick={(e) => e.stopPropagation()}>
-        <div onClick={onClose} className="fixed inset-0 z-40 bg-cafe/40" aria-hidden />
+        <div
+          onClick={onClose}
+          className="fixed inset-0 z-40 bg-cafe/40"
+          aria-hidden
+        />
         <div className="fixed inset-x-0 bottom-0 z-50 mx-auto flex w-full max-w-[520px] flex-col items-center gap-3 rounded-t-lg bg-tarjeta p-8 text-center shadow-modal lg:inset-0 lg:m-auto lg:h-fit lg:max-w-sm lg:rounded-lg">
-          <p className="text-sm text-cafe-suave">No pudimos cargar este producto.</p>
-          <button type="button" onClick={onClose} className="text-sm font-bold text-naranja">
+          <p className="text-sm text-cafe-suave">
+            No pudimos cargar este producto.
+          </p>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-sm font-bold text-naranja"
+          >
             Cerrar
           </button>
         </div>
@@ -588,19 +796,36 @@ export function ProductoFicha({ productId, onClose }: { productId: string; onClo
   if (!producto) {
     return (
       <div onClick={(e) => e.stopPropagation()}>
-        <div onClick={onClose} className="fixed inset-0 z-40 bg-cafe/40" aria-hidden />
+        <div
+          onClick={onClose}
+          className="fixed inset-0 z-40 bg-cafe/40"
+          aria-hidden
+        />
         <div className="fixed inset-x-0 bottom-0 z-50 mx-auto flex w-full max-w-[520px] items-center justify-center rounded-t-lg bg-tarjeta p-16 shadow-modal lg:inset-0 lg:m-auto lg:h-fit lg:max-w-sm lg:rounded-lg">
-          <span className="font-titulo text-sm text-cafe-tenue">Cargando...</span>
+          <span className="font-titulo text-sm text-cafe-tenue">
+            Cargando...
+          </span>
         </div>
       </div>
     );
   }
 
   // Contenido de fotos: cada layout define su propio tamaño de contenedor.
-  const carrusel = (producto.imagenes.length > 0 ? producto.imagenes : [null]).map((foto, i) => (
-    <div key={i} className="relative h-full w-full shrink-0 snap-center bg-crema-oscura">
+  const carrusel = (
+    producto.imagenes.length > 0 ? producto.imagenes : [null]
+  ).map((foto, i) => (
+    <div
+      key={i}
+      className="relative h-full w-full shrink-0 snap-center bg-crema-oscura"
+    >
       {foto ? (
-        <Image src={foto} alt={producto.nombre} fill sizes="520px" className="object-cover" />
+        <Image
+          src={foto}
+          alt={producto.nombre}
+          fill
+          sizes="520px"
+          className="object-cover"
+        />
       ) : (
         <div className="flex h-full items-center justify-center text-cafe-tenue">
           <span className="font-titulo text-sm">Cronchy</span>
@@ -613,8 +838,12 @@ export function ProductoFicha({ productId, onClose }: { productId: string; onClo
   // contenedor de scroll que lo envuelve.
   const infoContenido = (
     <>
-      <h2 className="font-titulo text-xl font-semibold text-cafe">{producto.nombre}</h2>
-      {producto.descripcion && <p className="mt-1 text-sm text-cafe-suave">{producto.descripcion}</p>}
+      <h2 className="font-titulo text-xl font-semibold text-cafe">
+        {producto.nombre}
+      </h2>
+      {producto.descripcion && (
+        <p className="mt-1 text-sm text-cafe-suave">{producto.descripcion}</p>
+      )}
 
       <div className="mt-4 flex flex-col gap-5">
         {enganclesSeleccion.map((enganche) => (
@@ -624,9 +853,20 @@ export function ProductoFicha({ productId, onClose }: { productId: string; onClo
             seleccion={selecciones[enganche.id] ?? {}}
             plegable={enganche.modo === "adicional"}
             expandido={enganche.modo === "incluido" || !!expandido[enganche.id]}
-            onToggleExpandir={() => setExpandido((prev) => ({ ...prev, [enganche.id]: !prev[enganche.id] }))}
+            plegado={!!plegados[enganche.id]}
+            onExpandir={() =>
+              setPlegados((prev) => ({ ...prev, [enganche.id]: false }))
+            }
+            onToggleExpandir={() =>
+              setExpandido((prev) => ({
+                ...prev,
+                [enganche.id]: !prev[enganche.id],
+              }))
+            }
             onToggleOpcion={(opcionId) => toggleOpcion(enganche, opcionId)}
-            onCambiarCantidad={(opcionId, delta) => cambiarCantidadOpcion(enganche, opcionId, delta)}
+            onCambiarCantidad={(opcionId, delta) =>
+              cambiarCantidadOpcion(enganche, opcionId, delta)
+            }
           />
         ))}
 
@@ -638,7 +878,8 @@ export function ProductoFicha({ productId, onClose }: { productId: string; onClo
             if (!opcion.disponible || !opcion.productoRef) return false;
             const ref = producto.productosUpsell[opcion.productoRef];
             if (!ref || !ref.activo || !ref.disponible) return false;
-            if (tipoPedido === "domicilio" && !ref.disponibleDelivery) return false;
+            if (tipoPedido === "domicilio" && !ref.disponibleDelivery)
+              return false;
             if (tipoPedido === "recoger" && !ref.disponiblePickup) return false;
             return true;
           });
@@ -647,7 +888,9 @@ export function ProductoFicha({ productId, onClose }: { productId: string; onClo
 
           return (
             <div key={enganche.id}>
-              <h3 className="font-titulo text-base font-semibold text-cafe">{enganche.nombreGrupo}</h3>
+              <h3 className="font-titulo text-base font-semibold text-cafe">
+                {enganche.nombreGrupo}
+              </h3>
               <div className="mt-2 flex flex-col gap-2">
                 {ofrecibles.map((opcion) => (
                   <FilaUpsell
@@ -655,14 +898,23 @@ export function ProductoFicha({ productId, onClose }: { productId: string; onClo
                     enganche={enganche}
                     bebida={producto.productosUpsell[opcion.productoRef!]}
                     cantidad={selecciones[enganche.id]?.[opcion.id] ?? 0}
-                    seleccionBebida={seleccionesUpsell[opcion.productoRef!] ?? {}}
+                    seleccionBebida={
+                      seleccionesUpsell[opcion.productoRef!] ?? {}
+                    }
                     onToggle={() => toggleOpcion(enganche, opcion.id)}
-                    onCambiarCantidad={(delta) => cambiarCantidadOpcion(enganche, opcion.id, delta)}
+                    onCambiarCantidad={(delta) =>
+                      cambiarCantidadOpcion(enganche, opcion.id, delta)
+                    }
                     onToggleOpcionBebida={(e, opcionId) =>
                       toggleOpcionBebida(opcion.productoRef!, e, opcionId)
                     }
                     onCambiarCantidadBebida={(e, opcionId, delta) =>
-                      cambiarCantidadOpcionBebida(opcion.productoRef!, e, opcionId, delta)
+                      cambiarCantidadOpcionBebida(
+                        opcion.productoRef!,
+                        e,
+                        opcionId,
+                        delta,
+                      )
                     }
                   />
                 ))}
@@ -676,7 +928,11 @@ export function ProductoFicha({ productId, onClose }: { productId: string; onClo
 
   const barraInferior = (
     <div className="flex shrink-0 items-center gap-3 border-t border-crema-oscura px-5 py-4">
-      <StepperCantidad valor={cantidad} onCambiar={(d) => setCantidad((c) => Math.max(1, c + d))} min={1} />
+      <StepperCantidad
+        valor={cantidad}
+        onCambiar={(d) => setCantidad((c) => Math.max(1, c + d))}
+        min={1}
+      />
       <button
         type="button"
         onClick={agregarAlCarrito}
@@ -693,7 +949,11 @@ export function ProductoFicha({ productId, onClose }: { productId: string; onClo
 
   return (
     <div onClick={(e) => e.stopPropagation()}>
-      <div onClick={onClose} className="fixed inset-0 z-40 bg-cafe/40" aria-hidden />
+      <div
+        onClick={onClose}
+        className="fixed inset-0 z-40 bg-cafe/40"
+        aria-hidden
+      />
       <div className="fixed inset-x-0 bottom-0 z-50 mx-auto flex h-[92vh] w-full max-w-[520px] flex-col overflow-hidden rounded-t-lg bg-tarjeta shadow-modal lg:inset-0 lg:m-auto lg:h-[85vh] lg:max-h-[760px] lg:max-w-4xl lg:flex-row lg:rounded-lg">
         {/* Mobile: la foto vive fija en este contenedor (que nunca hace scroll);
             el panel de info es una capa aparte encima, con su propio scroll —
@@ -713,7 +973,9 @@ export function ProductoFicha({ productId, onClose }: { productId: string; onClo
 
           <div className="absolute inset-0 overflow-y-auto">
             <div className="h-72" aria-hidden />
-            <div className="relative rounded-t-lg bg-tarjeta px-5 py-4">{infoContenido}</div>
+            <div className="relative rounded-t-lg bg-tarjeta px-5 py-4">
+              {infoContenido}
+            </div>
           </div>
         </div>
 
