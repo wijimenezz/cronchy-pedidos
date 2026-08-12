@@ -14,9 +14,9 @@ export const dynamic = "force-dynamic";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
- * Sube una foto de producto (o un banner de categoría) al bucket público y devuelve su URL.
- * El panel la guarda después con la server action correspondiente: aquí solo se deja el
- * objeto en Storage, la columna `imagenes` no se toca.
+ * Sube una foto de producto (o un banner de categoría, o el QR de pago de la tienda) al
+ * bucket público y devuelve su URL. El panel la guarda después con la server action
+ * correspondiente: aquí solo se deja el objeto en Storage, la columna no se toca.
  *
  * Es un route handler y no una server action porque el body por defecto de una server
  * action está topado en 1 MB. La foto llega ya comprimida a WebP desde el navegador y suele
@@ -26,8 +26,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
  * A diferencia de aquel, este SÍ exige sesión: subir a la carta es cosa de admin (regla 12).
  */
 export async function POST(request: Request) {
+  let sesion;
   try {
-    await exigirRol("admin");
+    sesion = await exigirRol("admin");
   } catch (error) {
     if (error instanceof NoAutenticadoError || error instanceof SinPermisoError) {
       return NextResponse.json({ error: "No tienes permiso para subir fotos." }, { status: 403 });
@@ -49,12 +50,18 @@ export async function POST(request: Request) {
 
   const productId = form?.get("productId");
   const categoryId = form?.get("categoryId");
+  // Lo que es de la tienda entera (el QR de pago) se pide con una bandera, no con un id: el
+  // `storeId` sale de la sesión. Uno que llegara en el formulario sería uno que se puede
+  // cambiar, y escribiría en la carpeta de otra tienda el día que haya más de una (regla 5).
+  const esDeLaTienda = form?.get("tienda") === "1";
   const destino =
     typeof productId === "string" && UUID.test(productId)
       ? { productId }
       : typeof categoryId === "string" && UUID.test(categoryId)
         ? { categoryId }
-        : null;
+        : esDeLaTienda
+          ? { storeId: sesion.storeId }
+          : null;
 
   if (!destino) {
     return NextResponse.json({ error: "Falta a qué producto pertenece." }, { status: 400 });

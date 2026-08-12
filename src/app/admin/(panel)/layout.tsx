@@ -33,7 +33,7 @@ export default async function PanelLayout({ children }: { children: React.ReactN
           <span className="truncate font-titulo text-lg font-bold text-cafe">{tienda.nombre}</span>
           <BotonSalir />
         </div>
-        {/* `overflow-x-auto`: son cinco pestañas y en un teléfono estrecho no caben. Antes
+        {/* `overflow-x-auto`: son seis pestañas y en un teléfono estrecho no caben. Antes
             de que se desbordaran no hacía falta. */}
         <nav className="mx-auto flex w-full max-w-contenido gap-1 overflow-x-auto px-4 pb-2">
           <Enlace href="/admin/pedidos">Pedidos</Enlace>
@@ -47,6 +47,8 @@ export default async function PanelLayout({ children }: { children: React.ReactN
               enlace. Ocultarlo es cortesía; quien corta de verdad es el `exigirRol` de la
               propia pantalla (regla 12). */}
           {sesion.rol === "admin" && <Enlace href="/admin/zonas">Zonas</Enlace>}
+          {/* Lo mismo que Zonas: la llave de pago decide a qué cuenta llega la plata. */}
+          {sesion.rol === "admin" && <Enlace href="/admin/ajustes">Ajustes</Enlace>}
         </nav>
       </header>
 

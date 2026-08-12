@@ -102,6 +102,17 @@ export function rutaBannerCategoria(categoryId: string, tipo: TipoImagen): strin
 }
 
 /**
+ * Lo que es de la tienda entera y no de un producto: hoy solo el QR de pago.
+ *
+ * Va al bucket público como las fotos —el QR se le enseña a cualquiera que vaya a pagar, no
+ * hay nada que proteger— pero en su propia carpeta, para que se distinga de un vistazo de las
+ * fotos de la carta.
+ */
+export function rutaImagenTienda(storeId: string, tipo: TipoImagen): string {
+  return `tienda/${storeId}/${crypto.randomUUID()}.${EXTENSION[tipo]}`;
+}
+
+/**
  * La lista de fotos llega desde el navegador, así que hay que comprobar que cada URL sea
  * una que produjo esta aplicación. Sin esto, un admin podría guardar el dominio de un
  * tercero y la carta pública terminaría cargando imágenes ajenas —o un pixel de rastreo—
@@ -111,7 +122,7 @@ export function rutaBannerCategoria(categoryId: string, tipo: TipoImagen): strin
  */
 const PATRON_URL = new RegExp(
   `^https://[a-z0-9]+\\.supabase\\.co/storage/v1/object/public/${BUCKET_PRODUCTOS}/` +
-    `(categorias/)?[0-9a-f-]{36}/[0-9a-f-]{36}\\.(jpg|png|webp)$`,
+    `(categorias/|tienda/)?[0-9a-f-]{36}/[0-9a-f-]{36}\\.(jpg|png|webp)$`,
 );
 
 export function esUrlDeFotoProducto(url: string): boolean {

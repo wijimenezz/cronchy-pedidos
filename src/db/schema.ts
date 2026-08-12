@@ -28,10 +28,16 @@ export const store = pgTable("store", {
 	// cinco minutos.
 	minutosEstimadoMin: integer("minutos_estimado_min").default(30).notNull(),
 	minutosEstimadoMax: integer("minutos_estimado_max").default(45).notNull(),
+	// `nequi_titular` y `nequi_numero` ya NO se muestran en el checkout: el pago se pide por
+	// llave y QR. Se conservan escritas por si hubiera que volver atrás, pero hoy no las lee
+	// nadie — no las uses como fuente de nada.
 	nequiTitular: text("nequi_titular"),
 	nequiNumero: text("nequi_numero"),
 	nequiLlave: text("nequi_llave"),
 	nequiLlaveTitular: text("nequi_llave_titular"),
+	// El QR interoperable de Bre-B, en el bucket público. Es una URL y no un archivo del repo
+	// para poder cambiarlo desde el panel: rotarlo no puede depender de un despliegue.
+	nequiQrUrl: text("nequi_qr_url"),
 	whatsappUrl: text("whatsapp_url"),
 	instagramUrl: text("instagram_url"),
 	tiktokUrl: text("tiktok_url"),

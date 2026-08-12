@@ -451,6 +451,7 @@ pueda saltar generando franjas por otro camino.
 | `admin/productos` | solo Visible↔Agotado (ni ocultar ni reactivar)               | CRUD completo, precios, fotos (de producto y de categoría), categorías, enganches |
 | `admin/opciones`  | solo switch `disponible` (sabores de la semana)              | crear/renombrar/ordenar opciones, precio propio, archivar listas  |
 | `admin/zonas`     | sin acceso (ni lectura)                                      | mapa: dibujar, editar vértices, precio, prioridad, activar/apagar |
+| `admin/ajustes`   | sin acceso (ni lectura)                                      | con qué se paga: la llave, su titular y el QR                     |
 
 Estados de un producto (independientes entre sí — no colapsarlos en un enum):
 
@@ -711,6 +712,31 @@ servidor— y el audio necesita **un gesto del usuario** antes de poder sonar: d
   los 60 días con **`pg_cron` dentro de Supabase** (no un cron de Vercel: corre en la
   base y no depende del hosting). `productos` es **público**: son las fotos de la carta,
   las ve cualquiera sin sesión. El free tier son 1 GB entre los dos.
+
+  Ese bucket público tiene **tres carpetas y ninguna más**: `<producto>/`, `categorias/` y
+  `tienda/` (el QR de pago). La lista está cerrada en el regex de `esUrlDeFotoProducto`, que
+  es el filtro con el que cada server action decide si guarda una URL — las URLs llegan del
+  navegador, y sin ese corte un admin podría escribir el dominio de un tercero. Añadir una
+  carpeta obliga a tocar `imagenes.ts`, `storage.ts` y `/api/admin/fotos`, en ese orden.
+- **El pago se pide por llave y QR, nunca por número de teléfono.** El QR es el
+  interoperable de **Bre-B**, no uno de Nequi: sirve desde la app de cualquier entidad, y por
+  eso el checkout rotula el método "Nequi o Bre-B" aunque el enum `metodo_pago` siga diciendo
+  `nequi` — el rótulo es de la pantalla, el enum es del historial ya escrito. `nequi_numero` y
+  `nequi_titular` **siguen en la base pero no las lee nadie**, y ni siquiera viajan al
+  navegador: mandar un celular que no se muestra sería filtrarlo a cambio de nada.
+
+  Dos cosas del QR que no se deducen del código:
+
+  - **No se comprime al subirlo**, al revés que todo lo demás. `comprimirImagen` recomprime a
+    WebP con pérdida, y aquí las dos cosas estorban: un QR denso pierde módulos, y el archivo
+    tiene que abrirse en el selector de imágenes de la app de un banco, donde JPG y PNG son
+    apuestas más seguras. Pesa ~124 KB; no hay nada que ahorrar. Por lo mismo se pinta con
+    `unoptimized` en las dos pantallas.
+  - **Se descarga por `/api/qr-pago` y no desde Storage**, porque el atributo `download` de un
+    `<a>` **se ignora en enlaces cross-origin**: apuntando a Supabase, el navegador abriría la
+    imagen en otra pestaña en vez de guardarla. Y guardarlo es justo el punto — el cliente
+    está mirando el checkout en el mismo teléfono con el que va a pagar, así que no puede
+    escanear su propia pantalla: guarda el QR y lo abre desde la galería en su app.
 - **Las dos cabeceras de Storage.** `src/lib/storage.ts` manda `Authorization: Bearer` **y**
   `apikey`. Las llaves nuevas de Supabase (`sb_secret_…`) no son JWT y con solo
   `Authorization` el servicio contesta `400 Invalid Compact JWS`, sin mencionar la cabecera
