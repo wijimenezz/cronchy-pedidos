@@ -7,7 +7,7 @@ import { pesos } from "@/lib/notificaciones/plantillas";
 import { useCarrito } from "@/lib/carrito";
 import { useTipoPedido } from "@/lib/tienda/tipo-pedido";
 import { precargarProducto } from "@/lib/tienda/productos-cache";
-import { calcularItem, precioEfectivoOpcion } from "@/lib/precios-calculo";
+import { calcularItem, engancheCobra, precioEfectivoOpcion } from "@/lib/precios-calculo";
 // Puro y sin dependencias de servidor: `modificadores.ts` solo tiene un `import type` —que
 // TypeScript borra al compilar— y `plantillas.ts` no importa nada. No engorda el bundle.
 import { etiquetaCorta } from "@/lib/pedidos/modificadores";
@@ -274,6 +274,7 @@ function GrupoEnganche({
     ? 0
     : Math.max(0, enganche.minSelect - recibidas);
   const agotadoEntero = sinNadaQueElegir(enganche);
+  const cobra = engancheCobra(enganche);
 
   const opciones = (
     <div className="flex flex-col gap-2">
@@ -341,9 +342,15 @@ function GrupoEnganche({
               adicionales, que era lo que producía "+ Agregar más agregar más toppings". Es la
               misma función con la que el panel dice "Toppings" en el detalle del pedido, así que
               la carta y el panel nombran el grupo igual — y da lo mismo si el enganche tiene
-              etiqueta propia o cae al nombre del grupo. */}
+              etiqueta propia o cae al nombre del grupo.
+
+              Y "adicionales" solo se dice si de verdad se cobra algo: este mismo modo sostiene
+              los grupos opcionales gratis (Azúcar y canela), donde anunciar un adicional sería
+              al revés de lo que hay dentro — quien abre "Azúcar y canela" es para quitarla. */}
           <span>
-            {`+ Agregar ${etiquetaCorta(enganche.nombreGrupo).toLowerCase()} adicionales`}
+            {cobra
+              ? `+ Agregar ${etiquetaCorta(enganche.nombreGrupo).toLowerCase()} adicionales`
+              : etiquetaCorta(enganche.nombreGrupo)}
           </span>
           <ChevronDown
             className={`size-4 transition-transform ${expandido ? "rotate-180" : ""}`}

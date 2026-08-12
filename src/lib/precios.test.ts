@@ -19,6 +19,7 @@ const PIN = { lat: 4.337, lng: -74.362 };
 import {
   calcularItem,
   calcularPedido,
+  engancheCobra,
   gruposIncompletos,
   type EngancheParaPrecio,
   type ItemSolicitado,
@@ -595,6 +596,46 @@ describe("gruposIncompletos", () => {
       engancles: [enganche({ id: "pmg-1", minSelect: 2, avisarIncompleto: true, opciones: [opcion()] })],
     });
     expect(gruposIncompletos(conAviso, [])).toEqual([]);
+  });
+});
+
+describe("engancheCobra", () => {
+  // Lo que separa "de pago" de "opcional": el modo dice cómo se elige, no si cuesta.
+  it("un adicional con precio 0 no cobra — es opcional y gratis, como Azúcar y canela", () => {
+    const azucar = enganche({
+      modo: "adicional",
+      nombreGrupo: "Azúcar y canela",
+      minSelect: 0,
+      maxSelect: 2,
+      precioUnitario: 0,
+      opciones: [opcion({ id: "op-sin-canela", nombre: "Sin canela" })],
+    });
+    expect(engancheCobra(azucar)).toBe(false);
+  });
+
+  it("un adicional sin precio propio cae al precioDelta de cada opción", () => {
+    const sinPrecioPropio = { modo: "adicional" as const, precioUnitario: null };
+
+    expect(engancheCobra({ ...sinPrecioPropio, opciones: [opcion({ precioDelta: 0 })] })).toBe(false);
+    expect(engancheCobra({ ...sinPrecioPropio, opciones: [opcion({ precioDelta: 1500 })] })).toBe(true);
+  });
+
+  it("una sola opción con precio ya hace que el grupo cobre", () => {
+    const salsasDePago = enganche({
+      modo: "adicional",
+      precioUnitario: null,
+      opciones: [opcion({ id: "op-1", precioDelta: 0 }), opcion({ id: "op-2", precioDelta: 2000 })],
+    });
+    expect(engancheCobra(salsasDePago)).toBe(true);
+  });
+
+  it("lo incluido nunca cobra, aunque sus opciones tengan precioDelta (regla 3)", () => {
+    const incluido = enganche({
+      modo: "incluido",
+      precioUnitario: 2000,
+      opciones: [opcion({ precioDelta: 2000 })],
+    });
+    expect(engancheCobra(incluido)).toBe(false);
   });
 });
 

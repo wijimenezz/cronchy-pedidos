@@ -115,10 +115,10 @@ export function Modificadores({
         />
       </Bloque>
 
-      {/* ---------- Adicionales de pago ---------- */}
+      {/* ---------- Adicionales ---------- */}
       <Bloque
-        titulo="Adicionales de pago"
-        ayuda="Sección aparte, plegada por defecto. El cliente puede saltársela."
+        titulo="Adicionales"
+        ayuda="Sección aparte, plegada por defecto. El cliente puede saltársela. Con el precio en 0 no se cobra nada: es la forma de ofrecer una elección opcional, como «Sin canela»."
       >
         {borrador.adicionales.map((ad, i) => (
           <Linea key={ad.groupId} nombre={nombre(ad.groupId)}>

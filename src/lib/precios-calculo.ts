@@ -89,6 +89,25 @@ export function precioEfectivoOpcion(
   return enganche.modo === "incluido" ? 0 : enganche.precioUnitario ?? opcion.precioDelta;
 }
 
+/**
+ * ¿Este enganche cobra algo?
+ *
+ * `modo = 'adicional'` NO es sinónimo de "de pago": un adicional a $0 es la única forma de
+ * ofrecer un grupo **opcional** (lo incluido obliga a elegirlo todo, regla 4), y así están
+ * enganchados "Azúcar y canela" o "Nivel de dulce". La carta lo necesita para no anunciar
+ * como "adicionales" unas opciones que no suman un peso.
+ *
+ * Vive aquí por la misma razón que `precioEfectivoOpcion`, del que se deriva: si el criterio
+ * se copiara a la UI, el día que cambie la regla 3 el rótulo diría una cosa y la caja otra.
+ */
+export function engancheCobra(
+  enganche: Pick<EngancheParaPrecio, "modo" | "precioUnitario"> & {
+    opciones: Pick<OpcionParaPrecio, "precioDelta">[];
+  },
+): boolean {
+  return enganche.opciones.some((opcion) => precioEfectivoOpcion(enganche, opcion) > 0);
+}
+
 // ------------------------------------------------------------
 // Errores y resultado
 // ------------------------------------------------------------
