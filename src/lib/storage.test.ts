@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { esUrlDeFotoProducto } from "@/lib/imagenes";
 import {
   borrarFotoProducto,
   descargarComprobante,
@@ -18,6 +19,7 @@ import {
 const BASE = "https://proyecto.supabase.co";
 const PRODUCTO = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const CATEGORIA = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const TIENDA = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
 let llamadas: { url: string; init: RequestInit }[] = [];
 
@@ -132,6 +134,20 @@ describe("URLs devueltas", () => {
     });
 
     expect(url).toContain(`/object/public/productos/categorias/${CATEGORIA}/`);
+  });
+
+  it("el QR de pago va bajo tienda/ y conserva su formato original", async () => {
+    responder(ok());
+    // JPG y no WebP a propósito: el QR es lo único que se sube sin comprimir, porque el
+    // cliente lo descarga y lo abre en la app de su banco.
+    const { url } = await subirFotoProducto(new ArrayBuffer(8), "image/jpeg", {
+      storeId: TIENDA,
+    });
+
+    expect(url).toContain(`/object/public/productos/tienda/${TIENDA}/`);
+    expect(url).toMatch(/\.jpg$/);
+    // Y tiene que pasar el filtro con el que la server action decide si la guarda.
+    expect(esUrlDeFotoProducto(url)).toBe(true);
   });
 
   it("el comprobante se devuelve SIN /public/, porque su bucket es privado", async () => {

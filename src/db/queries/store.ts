@@ -36,3 +36,49 @@ export async function actualizarTiempoEstimado(
 
   return filas.length > 0;
 }
+
+/**
+ * La llave con la que el cliente paga (Nequi, Bre-B, la que sea) y a nombre de quién sale.
+ *
+ * El titular se guarda porque el cliente lo ve antes de transferir: una llave suelta, sin un
+ * nombre que reconozca, es una cuenta desconocida a la que le está mandando plata.
+ */
+export async function actualizarLlaveNequi(
+  storeId: string,
+  llave: string | null,
+  titular: string | null,
+): Promise<boolean> {
+  const filas = await db
+    .update(store)
+    .set({ nequiLlave: llave, nequiLlaveTitular: titular })
+    .where(eq(store.id, storeId))
+    .returning({ id: store.id });
+
+  return filas.length > 0;
+}
+
+/**
+ * El QR de pago. Devuelve el ANTERIOR, igual que `guardarBannerCategoria`: sin él no se
+ * puede borrar el objeto viejo del bucket y cada cambio dejaría uno colgando.
+ *
+ * La lectura y la escritura van en una transacción para que dos guardados a la vez no
+ * devuelvan ambos el mismo "previo" y uno de los dos borre el QR que acaba de quedar vivo.
+ */
+export async function guardarQrPago(
+  storeId: string,
+  url: string | null,
+): Promise<{ previo: string | null } | null> {
+  return db.transaction(async (tx) => {
+    const [antes] = await tx
+      .select({ nequiQrUrl: store.nequiQrUrl })
+      .from(store)
+      .where(eq(store.id, storeId))
+      .for("update");
+
+    if (!antes) return null;
+
+    await tx.update(store).set({ nequiQrUrl: url }).where(eq(store.id, storeId));
+
+    return { previo: antes.nequiQrUrl };
+  });
+}

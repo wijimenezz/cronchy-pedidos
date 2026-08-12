@@ -53,10 +53,12 @@ export default async function CheckoutPage() {
             telefono: tienda.telefono,
             direccion: tienda.direccion,
             whatsappUrl: tienda.whatsappUrl,
-            nequiTitular: tienda.nequiTitular,
-            nequiNumero: tienda.nequiNumero,
+            // `nequiNumero` y `nequiTitular` NO viajan: el pago se pide por llave y QR, y
+            // mandar al navegador un número que ya no se muestra sería filtrar el celular
+            // de una persona a cambio de nada.
             nequiLlave: tienda.nequiLlave,
             nequiLlaveTitular: tienda.nequiLlaveTitular,
+            nequiQrUrl: tienda.nequiQrUrl,
           }}
         />
       ) : (

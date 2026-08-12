@@ -9,7 +9,15 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Bike, Loader2, MapPin, Phone, ShoppingBag, Store } from "lucide-react";
+import {
+  ArrowLeft,
+  Bike,
+  Loader2,
+  MapPin,
+  Phone,
+  ShoppingBag,
+  Store,
+} from "lucide-react";
 import { useCarrito } from "@/lib/carrito";
 import {
   useTipoPedido,
@@ -27,6 +35,7 @@ import { fueraDeCobertura, pesos } from "@/lib/notificaciones/plantillas";
 import { decidirBarrio, type MotivoConsulta } from "@/lib/barrio";
 import { Campo, claseControl } from "@/components/checkout/Campo";
 import { DatoCopiable } from "@/components/checkout/DatoCopiable";
+import { QrDePago } from "@/components/checkout/QrDePago";
 import { SelectorFecha } from "@/components/checkout/SelectorFecha";
 import { SubidaComprobante } from "@/components/checkout/SubidaComprobante";
 import {
@@ -44,11 +53,6 @@ import type { Punto } from "@/components/checkout/MapaUbicacion";
 type Errores = Record<string, string>;
 
 type Paso = 1 | 2 | 3;
-
-/** "3124914660" -> "312 491 4660". Solo para mostrar: lo que se copia son los dígitos. */
-function conEspacios(numero: string): string {
-  return numero.replace(/^(\d{3})(\d{3})(\d{4})$/, "$1 $2 $3");
-}
 
 /**
  * Domicilio o recoger, con el actual marcado.
@@ -199,10 +203,9 @@ export function CheckoutForm({
     telefono: string | null;
     direccion: string | null;
     whatsappUrl: string | null;
-    nequiTitular: string | null;
-    nequiNumero: string | null;
     nequiLlave: string | null;
     nequiLlaveTitular: string | null;
+    nequiQrUrl: string | null;
   };
 }) {
   const router = useRouter();
@@ -393,8 +396,10 @@ export function CheckoutForm({
     metodoPago === "efectivo" && Number(pagaCon) > total + costoDomicilio
       ? Number(pagaCon) - total - costoDomicilio
       : null;
-  // Si el negocio no cargó su Nequi, ofrecerlo sería mandar al cliente a un callejón sin salida.
-  const nequiDisponible = Boolean(tienda.nequiNumero);
+  // Si el negocio no cargó su llave, ofrecerlo sería mandar al cliente a un callejón sin
+  // salida. Manda la llave y no el QR: con la llave sola se puede pagar, con el QR solo no
+  // —hay que guardarlo y volver a la app del banco— y además es lo que se copia de un toque.
+  const nequiDisponible = Boolean(tienda.nequiLlave);
 
   // Nota: esta pantalla se arma en el cliente y no en el servidor, porque las dos cosas
   // que deciden qué mostrar —el carrito y el tipo de pedido— viven en localStorage. No
@@ -1224,8 +1229,12 @@ export function CheckoutForm({
                       onChange={() => setPago({ metodoPago: m })}
                       className="size-4 accent-[var(--naranja)]"
                     />
+                    {/* "Nequi o Bre-B" y no solo "Nequi": el QR y la llave son los
+                        interoperables, así que un cliente de Bancolombia o Daviplata paga
+                        igual. Llamarlo solo Nequi lo estaría echando. El enum de la base
+                        sigue siendo `nequi`; esto es el rótulo, no el modelo. */}
                     <span className="font-semibold">
-                      {m === "efectivo" ? "Efectivo" : "Nequi"}
+                      {m === "efectivo" ? "Efectivo" : "Nequi o Bre-B"}
                     </span>
                   </label>
                 ))}
@@ -1274,19 +1283,11 @@ export function CheckoutForm({
                   valor={pesos(total + costoDomicilio)}
                   aCopiar={String(total + costoDomicilio)}
                 />
-
-                {tienda.nequiNumero && (
-                  <DatoCopiable
-                    etiqueta="Puedes pagar por Nequi a este número"
-                    valor={conEspacios(tienda.nequiNumero)}
-                    aCopiar={tienda.nequiNumero}
-                    titular={tienda.nequiTitular}
-                  />
-                )}
+                {tienda.nequiQrUrl && <QrDePago url={tienda.nequiQrUrl} />}
 
                 {tienda.nequiLlave && (
                   <DatoCopiable
-                    etiqueta="O con esta llave"
+                    etiqueta=" O paga con esta llave Bre-B"
                     valor={tienda.nequiLlave}
                     aCopiar={tienda.nequiLlave}
                     titular={tienda.nequiLlaveTitular}
