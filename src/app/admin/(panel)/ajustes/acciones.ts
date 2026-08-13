@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { guardarCorrecciones } from "@/db/queries/barrios";
 import { actualizarLlaveNequi, guardarQrPago } from "@/db/queries/store";
 import { exigirRol } from "@/lib/autorizacion";
 import { esUrlDeFotoProducto } from "@/lib/imagenes";
@@ -83,6 +84,48 @@ export async function guardarQrNequi(entrada: unknown): Promise<ResultadoAjuste>
   }
 
   revalidatePath("/checkout");
+  revalidatePath("/admin/ajustes");
+
+  return { ok: true };
+}
+
+/**
+ * Los nombres de barrio que OSM devuelve mal (ver `src/lib/barrio.ts`).
+ *
+ * Solo viajan las filas que el admin tocó. `nombre` vacío se guarda como NULL: es la forma de
+ * decir "este nombre no sirve, que lo escriba el cliente".
+ *
+ * **Sin `revalidatePath("/checkout")`**, al revés que sus dos vecinas: el barrio no se
+ * renderiza en esa página, se pide a `/api/zonas/cotizar` cada vez que el pin se mueve. Ese
+ * endpoint es `force-dynamic` y consulta el diccionario en cada llamada, así que una
+ * corrección se ve en el siguiente arrastre sin revalidar nada.
+ */
+const correccionesSchema = z.object({
+  correcciones: z
+    .array(
+      z.object({
+        id: z.uuid("Barrio inválido"),
+        nombre: z
+          .string()
+          .trim()
+          .max(120, "Máximo 120 caracteres")
+          .transform((v) => v || null),
+      }),
+    )
+    .max(200, "Demasiados cambios de una vez"),
+});
+
+export async function guardarCorreccionesBarrio(entrada: unknown): Promise<ResultadoAjuste> {
+  const sesion = await exigirRol("admin");
+
+  const parsed = correccionesSchema.safeParse(entrada);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
+  }
+
+  const guardado = await guardarCorrecciones(sesion.storeId, parsed.data.correcciones);
+  if (!guardado) return { ok: false, error: "No pudimos guardar los barrios." };
+
   revalidatePath("/admin/ajustes");
 
   return { ok: true };

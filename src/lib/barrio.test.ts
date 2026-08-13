@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { barrioDeRespuesta, decidirBarrio } from "./barrio";
+import { barrioDeRespuesta, decidirBarrio, resolverNombreBarrio } from "./barrio";
 
 /**
  * Respuestas reales de Nominatim para puntos de Fusagasugá, copiadas tal cual. Los fixtures
@@ -152,5 +152,34 @@ describe("decidirBarrio", () => {
 
   it("un campo con solo espacios cuenta como vacío", () => {
     expect(decidirBarrio({ ...base, actual: "   ", motivo: "montaje" })).toBe("Manila");
+  });
+});
+
+describe("resolverNombreBarrio", () => {
+  // El caso que motivó la tabla: OSM insiste en "Managua", que no existe en Fusagasugá.
+  it("aplica la corrección cuando el nombre está en el diccionario", () => {
+    expect(resolverNombreBarrio("Managua", { nombre: "Balmoral" })).toBe("Balmoral");
+  });
+
+  it("no sugiere nada si la fila quedó sin nombre", () => {
+    // Vaciar el campo en el panel es decir "este nombre no sirve para nadie": mejor que lo
+    // escriba el cliente a proponerle algo que ya se sabe que está mal.
+    expect(resolverNombreBarrio("Managua", { nombre: null })).toBeNull();
+  });
+
+  it("deja pasar tal cual un barrio que no está en el diccionario", () => {
+    // OSM añadió un barrio después del seed. Sin fila no hay opinión, y una sugerencia sin
+    // revisar sigue siendo mejor que ninguna: el cliente la corrige si no le cuadra.
+    expect(resolverNombreBarrio("Villa Nueva", undefined)).toBe("Villa Nueva");
+  });
+
+  it("un barrio corregido a sí mismo se comporta igual que no tener fila", () => {
+    // Es el estado del seed: 90 filas que se traducen a sí mismas y no cambian nada.
+    expect(resolverNombreBarrio("Balmoral", { nombre: "Balmoral" })).toBe("Balmoral");
+  });
+
+  it("sin nombre de OSM no hay nada que traducir", () => {
+    expect(resolverNombreBarrio(null, undefined)).toBeNull();
+    expect(resolverNombreBarrio(null, { nombre: "Balmoral" })).toBeNull();
   });
 });

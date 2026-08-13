@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { correccionDeBarrio } from "@/db/queries/barrios";
 import { getStore } from "@/db/queries/store";
 import { resolverZona } from "@/lib/zonas";
-import { barrioDelPunto } from "@/lib/barrio";
+import { barrioDelPunto, resolverNombreBarrio } from "@/lib/barrio";
 
 export const dynamic = "force-dynamic";
 
@@ -39,10 +40,19 @@ export async function POST(request: Request) {
   // un servicio ajeno. Encadenarlas le sumaría su latencia al precio del domicilio, que es lo
   // que el cliente está esperando ver. Nunca lanza —devuelve null si falla—, así que la
   // cotización no puede caerse por culpa de la sugerencia.
-  const [zona, barrio] = await Promise.all([
+  const [zona, nombreOsm] = await Promise.all([
     resolverZona(tienda.id, parsed.data),
     barrioDelPunto(parsed.data),
   ]);
+
+  // Y aquí se traduce lo que dijo OSM a como se llama el barrio en la ciudad.
+  //
+  // DESPUÉS de `barrioDelPunto` y no dentro, a propósito: esa función se guarda la respuesta
+  // de OSM una hora, así que traducir antes de su caché serviría el nombre viejo durante una
+  // hora entera después de corregirlo en el panel.
+  const barrio = nombreOsm
+    ? resolverNombreBarrio(nombreOsm, await correccionDeBarrio(tienda.id, nombreOsm))
+    : null;
 
   // Fuera de cobertura igual se devuelve el barrio: el checkout ofrece cotizar por WhatsApp
   // (regla 14) y saber el barrio ayuda a que ese mensaje diga algo.

@@ -264,6 +264,39 @@ export const deliveryZone = pgTable("delivery_zone", {
 	check("delivery_zone_precio_check", sql`precio > 0`),
 ]);
 
+/**
+ * Diccionario para traducir lo que OpenStreetMap llama barrio a lo que se llama aquí.
+ *
+ * NO es una capa geográfica y no se parece a `delivery_zone`: no tiene polígono, no cubre
+ * puntos y no decide ni un peso. Es una tabla de nombres, y existe porque OSM tiene los 90
+ * barrios de Fusagasugá como nodos sueltos —ninguno con área—, así que Nominatim responde por
+ * proximidad y a veces devuelve un nombre que aquí no existe ("Managua" donde es Balmoral).
+ *
+ * El barrio del pedido sigue siendo lo que el cliente confirma en el campo (regla 14): esto
+ * solo mejora lo que se le propone.
+ */
+export const barrio = pgTable("barrio", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	storeId: uuid("store_id").notNull(),
+	/** Exactamente como lo escribe OSM. Es la llave de búsqueda, por eso no se edita. */
+	nombreOsm: text("nombre_osm").notNull(),
+	/**
+	 * Lo que se escribe en el campo del cliente. NULL = no sugerir nada y que lo escriba él.
+	 *
+	 * Nullable en vez de una columna `activo` aparte: descartar un nombre es no tener nada que
+	 * poner, y con las dos columnas habría dos maneras de decir lo mismo (y una fila que dijera
+	 * las dos cosas a la vez).
+	 */
+	nombre: text(),
+}, (table) => [
+	foreignKey({
+			columns: [table.storeId],
+			foreignColumns: [store.id],
+			name: "barrio_store_id_fkey"
+		}).onDelete("cascade"),
+	unique("barrio_store_id_nombre_osm_key").on(table.storeId, table.nombreOsm),
+]);
+
 export const customer = pgTable("customer", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	storeId: uuid("store_id").notNull(),

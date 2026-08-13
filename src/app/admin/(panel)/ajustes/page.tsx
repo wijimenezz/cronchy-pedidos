@@ -1,11 +1,14 @@
+import { listarBarrios } from "@/db/queries/barrios";
 import { getStore } from "@/db/queries/store";
 import { SinPermisoError, exigirRol } from "@/lib/autorizacion";
+import { Barrios } from "./Barrios";
 import { PagoNequi } from "./PagoNequi";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Los datos de la tienda que no son operación del turno: hoy, con qué se paga.
+ * Los datos de la tienda que no son operación del turno: con qué se paga y cómo se llaman los
+ * barrios que devuelve el mapa.
  *
  * Es una pantalla aparte y no un bloque en `/admin/pedidos` —donde sí vive el tiempo
  * estimado— porque el momento de cambiarlos es otro. El estimado se sube viendo la cola de
@@ -24,6 +27,7 @@ export default async function AjustesPage() {
   }
 
   const tienda = await getStore();
+  const barrios = await listarBarrios(tienda.id);
 
   return (
     <div className="flex flex-col gap-4">
@@ -33,6 +37,7 @@ export default async function AjustesPage() {
         titular={tienda.nequiLlaveTitular}
         qrUrl={tienda.nequiQrUrl}
       />
+      <Barrios barrios={barrios} />
     </div>
   );
 }

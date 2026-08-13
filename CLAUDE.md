@@ -388,6 +388,28 @@ del servidor colgada de `/api/zonas/cotizar`, y si falla o tarda más de 1,5 s e
 queda vacío y se escribe a mano: el precio del domicilio no puede depender de un servicio
 comunitario gratuito. Es OSM, no Google, igual que los mapas.
 
+**Esa sugerencia es imprecisa por los datos, no por el código, y conviene saberlo antes de
+intentar "arreglarla".** OSM tiene los 90 barrios de Fusagasugá como **nodos sueltos: ninguno
+tiene polígono**. Sin áreas, Nominatim no puede responder "el punto está dentro de Balmoral" y
+contesta por proximidad y peso interno, que a esta escala es casi azar. Medido sobre dos
+pedidos reales separados 60 m, devolvió **las dos veces el barrio más lejano** de los dos
+candidatos (Balmoral a 168 m vs Managua a 174 m → dijo Managua; y al revés en el otro). Cambiar
+a "el nodo más cercano" tampoco lo arreglaría, y encima uno de esos nombres —"Managua"— no
+existe en la ciudad.
+
+Por eso hay una **capa de traducción de nombres**: la tabla `barrio` (`nombre_osm` → `nombre`,
+NULL = no sugerir nada) se edita en `/admin/ajustes` y se aplica en `/api/zonas/cotizar`
+**después** de `barrioDelPunto`, nunca dentro: esa función cachea la respuesta de OSM una hora,
+y traducir antes de su caché serviría el nombre viejo una hora después de corregirlo. La parte
+que decide es `resolverNombreBarrio`, pura y testeada, y sus tres casos no son dos: **sin fila
+en la tabla** el nombre pasa tal cual (un barrio que OSM añadió luego), que no es lo mismo que
+una fila con `nombre` NULL.
+
+Lo que esa tabla **no** arregla, y por eso el campo sigue siendo editable: que el pin reciba el
+nombre de un barrio vecino que sí existe. Traducir solo puede con los nombres que están mal
+siempre. La solución de raíz sería dibujar los barrios como polígonos propios, y hasta hoy no
+se ha necesitado.
+
 **Fuera de cobertura** (el punto no cae en ninguna zona activa): el checkout se
 bloquea y muestra un botón de WhatsApp con mensaje pre-armado — resumen del carrito +
 link de Google Maps con el pin — para que la tienda cotice el domicilio. Si el cliente
@@ -451,7 +473,7 @@ pueda saltar generando franjas por otro camino.
 | `admin/productos` | solo Visible↔Agotado (ni ocultar ni reactivar)               | CRUD completo, precios, fotos (de producto y de categoría), categorías, enganches |
 | `admin/opciones`  | solo switch `disponible` (sabores de la semana)              | crear/renombrar/ordenar opciones, precio propio, archivar listas  |
 | `admin/zonas`     | sin acceso (ni lectura)                                      | mapa: dibujar, editar vértices, precio, prioridad, activar/apagar |
-| `admin/ajustes`   | sin acceso (ni lectura)                                      | con qué se paga: la llave, su titular y el QR                     |
+| `admin/ajustes`   | sin acceso (ni lectura)                                      | con qué se paga (llave, titular, QR) y los nombres de barrio que OSM devuelve mal |
 
 Estados de un producto (independientes entre sí — no colapsarlos en un enum):
 
