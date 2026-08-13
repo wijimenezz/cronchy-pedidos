@@ -747,6 +747,20 @@ servidor— y el audio necesita **un gesto del usuario** antes de poder sonar: d
   `nequi_titular` **siguen en la base pero no las lee nadie**, y ni siquiera viajan al
   navegador: mandar un celular que no se muestra sería filtrarlo a cambio de nada.
 
+  **Recoger se paga por adelantado**: ahí no se ofrece efectivo, porque ponerse a preparar un
+  pedido que nadie viene a buscar es comida a la basura. La lista de métodos la genera
+  `metodosDePago` (`src/lib/pedidos/pago.ts`, puro y testeado) y quien la hace cumplir es
+  `POST /api/pedidos` con `esMetodoOfrecido` — **es la regla 16 aplicada al dinero**, y por lo
+  mismo no vive en Zod: `crearPedidoSchema` es puro y no sabe si hay llave configurada, así que
+  la regla sería falsa justo en el caso del respaldo. **Sin llave, el efectivo vuelve** también
+  en recoger: un checkout sin ninguna forma de pagar no protege nada, solo pierde el pedido en
+  silencio.
+
+  Cuidado con un detalle que no se ve en la pantalla: `metodoPago` vive en el carrito
+  persistido y nada lo resetea al cambiar de tipo, así que el checkout **normaliza el heredado**
+  con un efecto. Sin él, quien venía de un domicilio en efectivo llegaría al paso 3 sin ningún
+  radio marcado y mandando `efectivo` igual, porque el payload sale del store y no del DOM.
+
   Dos cosas del QR que no se deducen del código:
 
   - **No se comprime al subirlo**, al revés que todo lo demás. `comprimirImagen` recomprime a

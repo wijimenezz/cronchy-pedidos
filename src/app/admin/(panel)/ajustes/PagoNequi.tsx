@@ -37,7 +37,8 @@ export function PagoNequi({
           <p className="font-cuerpo text-[13px] text-cafe-tenue">
             Es lo primero que ve el cliente al elegir «Nequi o Bre-B», con un botón para
             copiarla. Sin llave, ese método de pago desaparece del checkout y solo queda el
-            efectivo.
+            efectivo — incluso en los pedidos para recoger, que entonces dejan de cobrarse por
+            adelantado.
           </p>
         </div>
         <FormularioLlave llave={llave} titular={titular} />
