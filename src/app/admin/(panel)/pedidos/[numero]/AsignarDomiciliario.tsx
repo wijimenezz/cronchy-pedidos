@@ -115,11 +115,23 @@ export function AsignarDomiciliario({
         </p>
       )}
 
+      {/* El tono lo pone el estado, porque es lo único que el botón no decía: mientras nadie
+          lleve el pedido esto es una tarea pendiente, y en ámbar —el mismo de "Avisar al
+          cliente"— se distingue de "Llamar" y "Escribir", que antes eran idénticos. Una vez
+          asignado baja de tono: reasignar es la excepción, no la tarea.
+
+          Ámbar y no naranja lleno a propósito: ese es del botón que mueve el pedido de columna,
+          y un "Asignar" naranja al lado de "En camino" insinuaría que asignar lo avanza. No lo
+          hace (regla 18). */}
       <button
         type="button"
         onClick={() => setAbierto(true)}
         aria-haspopup="dialog"
-        className="flex min-h-11 items-center justify-center gap-2 rounded-full border border-crema-oscura px-4 font-cuerpo text-sm font-bold text-cafe transition-colors hover:bg-crema focus:outline-none focus:ring-2 focus:ring-naranja"
+        className={`flex min-h-11 items-center justify-center gap-2 rounded-full border px-4 font-cuerpo text-sm font-bold text-cafe transition-colors focus:outline-none focus:ring-2 focus:ring-naranja ${
+          asignado
+            ? "border-crema-oscura hover:bg-crema"
+            : "border-alerta bg-alerta/20 hover:bg-alerta/35"
+        }`}
       >
         <Bike className="size-4" />
         {asignado ? "Cambiar o reenviar" : "Asignar domiciliario"}

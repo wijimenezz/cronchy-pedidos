@@ -83,14 +83,19 @@ export function AccionesPedido({
 
   if (!siguiente && !avisoPendiente) {
     return (
-      <p className="rounded-md border border-crema-oscura px-4 py-3 text-center font-cuerpo text-[13px] text-cafe-tenue">
+      // Sin centrar: en una banda a todo el ancho, un cuadro con el texto en el medio se lee
+      // como un error del sistema y no como el estado normal de un pedido cerrado.
+      <p className="rounded-md border border-crema-oscura bg-tarjeta px-4 py-3 font-cuerpo text-[13px] text-cafe-tenue">
         Este pedido ya terminó.
       </p>
     );
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    // Una banda a todo el ancho bajo la cabecera, y no la última tarjeta de la columna derecha:
+    // ahí quedaba debajo del mapa y del asignador de domiciliario, así que para aceptar un pedido
+    // había que bajar hasta el fondo. Aquí está siempre en el mismo sitio, mida lo que mida.
+    <div className="flex flex-col gap-2 rounded-md border border-crema-oscura bg-tarjeta p-3">
       {error && (
         <p role="alert" className="font-cuerpo text-[13px] font-semibold text-error">
           {error}
@@ -110,67 +115,71 @@ export function AccionesPedido({
         </a>
       )}
 
-      {siguiente && (
-        <button
-          type="button"
-          onClick={() => avanzar(siguiente)}
-          disabled={pendiente}
-          className="min-h-11 rounded-full bg-naranja px-6 py-3 font-cuerpo text-base font-bold text-crema transition-colors hover:bg-naranja-osc focus:outline-none focus:ring-2 focus:ring-naranja focus:ring-offset-2 disabled:opacity-50"
-        >
-          {estado === "nuevo" ? "Aceptar pedido" : ETIQUETA_ESTADO[siguiente]}
-        </button>
-      )}
+      <div className="flex flex-wrap items-center gap-2">
+        {siguiente && (
+          <button
+            type="button"
+            onClick={() => avanzar(siguiente)}
+            disabled={pendiente}
+            className="min-h-11 rounded-full bg-naranja px-6 py-3 font-cuerpo text-base font-bold text-crema transition-colors hover:bg-naranja-osc focus:outline-none focus:ring-2 focus:ring-naranja focus:ring-offset-2 disabled:opacity-50"
+          >
+            {estado === "nuevo" ? "Aceptar pedido" : ETIQUETA_ESTADO[siguiente]}
+          </button>
+        )}
 
-      {/* Ámbar, igual que en la tarjeta del tablero: es el segundo toque de la operación y
-          el que se olvida. */}
-      {avisoPendiente && (
-        <button
-          type="button"
-          onClick={avisar}
-          disabled={pendiente}
-          className="min-h-11 rounded-full border border-alerta bg-alerta/20 px-6 py-3 font-cuerpo text-sm font-bold text-cafe transition-colors hover:bg-alerta/35 focus:outline-none focus:ring-2 focus:ring-naranja disabled:opacity-50"
-        >
-          Avisar al cliente
-        </button>
-      )}
+        {/* Ámbar, igual que en la tarjeta del tablero: es el segundo toque de la operación y
+            el que se olvida. */}
+        {avisoPendiente && (
+          <button
+            type="button"
+            onClick={avisar}
+            disabled={pendiente}
+            className="min-h-11 rounded-full border border-alerta bg-alerta/20 px-6 py-3 font-cuerpo text-sm font-bold text-cafe transition-colors hover:bg-alerta/35 focus:outline-none focus:ring-2 focus:ring-naranja disabled:opacity-50"
+          >
+            Avisar al cliente
+          </button>
+        )}
 
-      {/* Cancelar sí pregunta, a diferencia de los avances: es la única acción de esta
-          pantalla que no tiene vuelta atrás (`cancelado` es terminal). */}
-      {siguiente &&
-        (confirmando ? (
-          <div className="flex flex-col gap-2 rounded-md border border-error/40 bg-error/5 p-3">
-            <p className="font-cuerpo text-[13px] font-bold text-cafe">
-              ¿Cancelar el pedido #{numero}? No se puede deshacer.
-            </p>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => avanzar("cancelado")}
-                disabled={pendiente}
-                className="min-h-11 flex-1 rounded-full bg-error px-4 font-cuerpo text-sm font-bold text-crema transition-opacity hover:opacity-90 disabled:opacity-50"
-              >
-                Sí, cancelar
-              </button>
-              <button
-                type="button"
-                onClick={() => setConfirmando(false)}
-                disabled={pendiente}
-                className="min-h-11 flex-1 rounded-full border border-crema-oscura px-4 font-cuerpo text-sm font-bold text-cafe transition-colors hover:bg-crema disabled:opacity-50"
-              >
-                No
-              </button>
-            </div>
-          </div>
-        ) : (
+        {/* Al otro extremo de la barra: es la única acción de esta pantalla sin vuelta atrás,
+            y no puede quedar pegada al botón que se pulsa cien veces al día. */}
+        {siguiente && !confirmando && (
           <button
             type="button"
             onClick={() => setConfirmando(true)}
             disabled={pendiente}
-            className="min-h-11 rounded-full px-6 font-cuerpo text-sm font-bold text-cafe-tenue transition-colors hover:text-error focus:outline-none focus:ring-2 focus:ring-naranja disabled:opacity-50"
+            className="ml-auto min-h-11 rounded-full px-6 font-cuerpo text-sm font-bold text-cafe-tenue transition-colors hover:text-error focus:outline-none focus:ring-2 focus:ring-naranja disabled:opacity-50"
           >
             Cancelar pedido
           </button>
-        ))}
+        )}
+      </div>
+
+      {/* Cancelar sí pregunta, a diferencia de los avances: `cancelado` es terminal. */}
+      {siguiente && confirmando && (
+        <div className="flex flex-col gap-2 rounded-md border border-error/40 bg-error/5 p-3 lg:max-w-sm">
+          <p className="font-cuerpo text-[13px] font-bold text-cafe">
+            ¿Cancelar el pedido #{numero}? No se puede deshacer.
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => avanzar("cancelado")}
+              disabled={pendiente}
+              className="min-h-11 flex-1 rounded-full bg-error px-4 font-cuerpo text-sm font-bold text-crema transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              Sí, cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmando(false)}
+              disabled={pendiente}
+              className="min-h-11 flex-1 rounded-full border border-crema-oscura px-4 font-cuerpo text-sm font-bold text-cafe transition-colors hover:bg-crema disabled:opacity-50"
+            >
+              No
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
