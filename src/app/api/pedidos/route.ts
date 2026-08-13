@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { crearPedidoSchema } from "@/lib/validaciones";
 import { calcularPedido } from "@/lib/precios";
 import { esFranjaOfrecida, opcionesDeEntrega } from "@/lib/pedidos/entrega";
+import { esMetodoOfrecido } from "@/lib/pedidos/pago";
 import { getStore } from "@/db/queries/store";
 import { crearPedidoEnDB } from "@/db/queries/pedidos";
 import { enviarPushPedidoNuevo } from "@/lib/notificaciones/push";
@@ -49,6 +50,26 @@ export async function POST(request: Request) {
   }
 
   const tienda = await getStore();
+
+  // Y el "con qué" se valida igual que el "cuándo", unas líneas más arriba: el servidor genera
+  // los métodos que ofrece y solo acepta uno de los suyos. Recoger se paga por adelantado, así
+  // que esconder el radio del efectivo en el checkout no basta — el payload se arma a mano en
+  // treinta segundos, y `crearPedidoEnDB` escribe `metodoPago` tal como llega.
+  if (
+    !esMetodoOfrecido(input.metodoPago, input.tipo, {
+      llaveDisponible: Boolean(tienda.nequiLlave),
+    })
+  ) {
+    return NextResponse.json(
+      {
+        error:
+          input.tipo === "recoger"
+            ? "Los pedidos para recoger se pagan por adelantado. Elige Nequi o Bre-B."
+            : "Ese método de pago no está disponible.",
+      },
+      { status: 422 },
+    );
+  }
 
   // Todo el dinero se calcula aquí, en servidor (regla 1 de CLAUDE.md) — nunca se
   // confía en un total que venga del cliente. El descuento es siempre 0 al crear el

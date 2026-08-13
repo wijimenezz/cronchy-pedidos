@@ -72,6 +72,44 @@ export function barrioDeRespuesta(datos: unknown): string | null {
 }
 
 /**
+ * Lo que la tienda dice de un nombre de OSM: cómo se llama aquí, o `null` para no sugerirlo.
+ * `undefined` es "ese nombre no está en el diccionario", que no es lo mismo (ver abajo).
+ */
+export type CorreccionBarrio = { nombre: string | null } | undefined;
+
+/**
+ * Del nombre que devuelve OSM al que se le enseña al cliente.
+ *
+ * Existe porque **OSM tiene los 90 barrios de Fusagasugá como nodos sueltos, ninguno con
+ * polígono**. Sin áreas, Nominatim no puede decir "este punto está dentro de Balmoral" y
+ * responde por proximidad y peso interno, que a esta escala es casi azar: medido sobre dos
+ * pedidos reales separados 60 m, devolvió las dos veces el barrio **más lejano** de los dos
+ * candidatos, y uno de esos nombres —"Managua"— no existe en la ciudad.
+ *
+ * Traducir nombres arregla los que están mal *siempre*, que son los que no existen. NO
+ * arregla que un pin reciba el nombre de un barrio vecino que sí existe; eso lo sigue
+ * corrigiendo el cliente sobre el campo, que por eso se queda editable (regla 14).
+ *
+ * Los tres casos, que no son dos:
+ *
+ * - **hay fila con nombre** → se muestra el corregido;
+ * - **hay fila con `nombre` NULL** → alguien decidió que ese nombre no sirve: campo vacío y lo
+ *   escribe el cliente;
+ * - **no hay fila** → un barrio que OSM añadió después del seed. Se pasa tal cual, que es el
+ *   comportamiento de siempre: una sugerencia sin revisar es mejor que ninguna, y el cliente
+ *   la corrige si no le cuadra.
+ */
+export function resolverNombreBarrio(
+  nombreOsm: string | null,
+  correccion: CorreccionBarrio,
+): string | null {
+  if (!nombreOsm) return null;
+  if (correccion === undefined) return nombreOsm;
+
+  return correccion.nombre;
+}
+
+/**
  * Por qué se está consultando el barrio. **La decisión de escribirlo o no depende de esto**,
  * y no de quién escribió lo que ya hay.
  *
