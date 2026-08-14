@@ -119,6 +119,13 @@ export type OpcionParaFicha = OpcionParaPrecio & {
 
 export type EngancheParaFicha = Omit<EngancheParaPrecio, "opciones"> & {
   colapsado: boolean;
+  /**
+   * Qué explicarle al cliente sobre esta sección, o `null` si se entiende sola.
+   *
+   * Sale del grupo y **no** de `EngancheParaPrecio`: es texto de pantalla y el motor de precios
+   * no tiene nada que hacer con él.
+   */
+  ayudaGrupo: string | null;
   opciones: OpcionParaFicha[];
 };
 
@@ -175,6 +182,7 @@ type FilaEngancheFicha = {
   modifierGroup: {
     nombre: string;
     tipo: "seleccion" | "upsell";
+    ayuda: string | null;
     permiteCantidad: boolean;
     maxPorOpcion: number | null;
     modifierOptions: {
@@ -204,6 +212,9 @@ function mapEngancheParaFicha(pmg: FilaEngancheFicha): EngancheParaFicha {
     modo: pmg.modo,
     tipo: pmg.modifierGroup.tipo,
     nombreGrupo: pmg.etiqueta ?? pmg.modifierGroup.nombre,
+    // Del grupo y no del enganche: la explicación es de la lista, no de cómo la engancha cada
+    // producto. Por eso no cae al `etiqueta` como sí hace el nombre.
+    ayudaGrupo: pmg.modifierGroup.ayuda,
     minSelect: pmg.minSelect,
     maxSelect: pmg.maxSelect,
     precioUnitario: pmg.precioUnitario,

@@ -7,7 +7,12 @@ import { pesos } from "@/lib/notificaciones/plantillas";
 import { useCarrito } from "@/lib/carrito";
 import { useTipoPedido } from "@/lib/tienda/tipo-pedido";
 import { precargarProducto } from "@/lib/tienda/productos-cache";
-import { calcularItem, engancheCobra, precioEfectivoOpcion } from "@/lib/precios-calculo";
+import {
+  calcularItem,
+  engancheCobra,
+  esVariante,
+  precioEfectivoOpcion,
+} from "@/lib/precios-calculo";
 // Puro y sin dependencias de servidor: `modificadores.ts` solo tiene un `import type` —que
 // TypeScript borra al compilar— y `plantillas.ts` no importa nada. No engorda el bundle.
 import { etiquetaCorta } from "@/lib/pedidos/modificadores";
@@ -276,6 +281,20 @@ function GrupoEnganche({
   const agotadoEntero = sinNadaQueElegir(enganche);
   const cobra = engancheCobra(enganche);
 
+  /**
+   * Qué significa esta sección, cuando no se entiende sola.
+   *
+   * Va **fuera del pliegue** a propósito. "Azúcar y canela" nace plegada porque casi nadie
+   * necesita tocarla, pero entonces lo único que se lee es el rótulo: no se sabe si hay que
+   * elegir algo, ni qué llega si no se toca nada, ni que lo de dentro sirve para quitar. Metido
+   * dentro, el texto solo lo vería quien ya lo había entendido.
+   */
+  const ayuda = enganche.ayudaGrupo ? (
+    <p className={`text-cafe-suave ${compacto ? "text-[11px]" : "text-[13px]"}`}>
+      {enganche.ayudaGrupo}
+    </p>
+  ) : null;
+
   const opciones = (
     <div className="flex flex-col gap-2">
       {enganche.opciones.map((opcion) => (
@@ -356,6 +375,8 @@ function GrupoEnganche({
             className={`size-4 transition-transform ${expandido ? "rotate-180" : ""}`}
           />
         </button>
+        {/* Alineado con el `px-3` del botón de arriba, para que se lea como su subtítulo. */}
+        {ayuda && <div className="mt-1 px-3">{ayuda}</div>}
         {expandido && <div className="mt-2">{opciones}</div>}
       </div>
     );
@@ -384,6 +405,8 @@ function GrupoEnganche({
           {recibidas} de {enganche.maxSelect}
         </span>
       </div>
+      {/* Pegado al título: el `mb` del bloque de arriba ya separó, así que aquí se recupera. */}
+      {ayuda && <div className={compacto ? "-mt-1 mb-1.5" : "-mt-1 mb-2"}>{ayuda}</div>}
       {opciones}
       {faltan > 0 && (
         <p
@@ -393,6 +416,14 @@ function GrupoEnganche({
         >
           {agotadoEntero ? (
             <>Hoy no hay {enganche.nombreGrupo.toLowerCase()}.</>
+          ) : esVariante(enganche) ? (
+            // Un tamaño NO viene incluido en el precio: lo pone. Decirle a alguien que su
+            // "Mediano $8.000" ya está pagado dentro de un producto que vale $0 de base es
+            // justo al revés de lo que va a pasar en la caja.
+            <>
+              Te {faltan === 1 ? "falta" : "faltan"} {faltan} por elegir. El precio depende de{" "}
+              {faltan === 1 ? "cuál elijas" : "cuáles elijas"}.
+            </>
           ) : (
             <>
               Te {faltan === 1 ? "falta" : "faltan"} {faltan} por elegir. Ya{" "}
@@ -697,6 +728,9 @@ export function ProductoFicha({
       productoId: producto.id,
       nombre: producto.nombre,
       precioBase: producto.precioBase,
+      // Viajan al carrito para poder retirar la línea si el cliente cambia de canal.
+      disponibleDelivery: producto.disponibleDelivery,
+      disponiblePickup: producto.disponiblePickup,
       precioUnitarioEstimado: resultado.valor.base.precioUnitario,
       cantidad: resultado.valor.base.cantidad,
       // Los upsells NO viajan en la selección de la línea base: van como líneas
@@ -720,6 +754,10 @@ export function ProductoFicha({
         productoId: bebida.producto.id,
         nombre: bebida.producto.nombre,
         precioBase: bebida.producto.precioBase,
+        // Los suyos, no los del churro: una bebida puede venderse por canales distintos que el
+        // producto desde el que se añadió, y como línea propia se retira por su cuenta.
+        disponibleDelivery: bebida.producto.disponibleDelivery,
+        disponiblePickup: bebida.producto.disponiblePickup,
         precioUnitarioEstimado: calculo.valor.base.precioUnitario,
         cantidad: bebida.cantidad,
         seleccion: bebida.seleccion,
@@ -853,12 +891,17 @@ export function ProductoFicha({
       )}
 
       <div className="mt-4 flex flex-col gap-5">
+        {/* Un tamaño va en modo 'adicional' —es la única forma de que el precio de cada opción
+            cuente— pero no es un extra: hay que elegirlo para poder añadir el producto. Por eso
+            `plegable` lo excluye y se pinta como lo incluido, abierto y sin pliegue, en vez de
+            como un "+ Agregar tamaño adicionales" que además sería absurdo de leer. Al elegir
+            uno se contrae a su línea de resumen, igual que las salsas. */}
         {enganclesSeleccion.map((enganche) => (
           <GrupoEnganche
             key={enganche.id}
             enganche={enganche}
             seleccion={selecciones[enganche.id] ?? {}}
-            plegable={enganche.modo === "adicional"}
+            plegable={enganche.modo === "adicional" && !esVariante(enganche)}
             expandido={enganche.modo === "incluido" || !!expandido[enganche.id]}
             plegado={!!plegados[enganche.id]}
             onExpandir={() =>

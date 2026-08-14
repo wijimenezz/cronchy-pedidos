@@ -108,6 +108,26 @@ export function engancheCobra(
   return enganche.opciones.some((opcion) => precioEfectivoOpcion(enganche, opcion) > 0);
 }
 
+/**
+ * ¿Este enganche es un tamaño o presentación —"Porción de helado: pequeña $4.000, mediana
+ * $8.000"— en vez de un extra?
+ *
+ * Lo que lo define es **obligatorio y de pago a la vez**, que ninguna de las dos formas
+ * anteriores podía dar: lo incluido obliga pero vale 0 sin mirar el `precioDelta` (regla 3), y
+ * lo adicional cobra pero se puede saltar. Un tamaño va en modo `adicional` para que el precio
+ * de cada opción cuente, con `minSelect >= 1` para que haya que elegir uno.
+ *
+ * Vive aquí junto a `engancheCobra` y no en la carta ni en el panel porque los dos lo
+ * necesitan: la ficha para pintarlo abierto en vez de como "+ Agregar … adicionales", y la
+ * tarjeta de la carta para decir "desde $4.000". Duplicado, el día que el criterio cambie una
+ * pantalla diría una cosa y la otra otra.
+ */
+export function esVariante(
+  enganche: Pick<EngancheParaPrecio, "modo" | "tipo" | "minSelect">,
+): boolean {
+  return enganche.tipo === "seleccion" && enganche.modo === "adicional" && enganche.minSelect > 0;
+}
+
 // ------------------------------------------------------------
 // Errores y resultado
 // ------------------------------------------------------------

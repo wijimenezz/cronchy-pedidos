@@ -20,6 +20,7 @@ import {
   calcularItem,
   calcularPedido,
   engancheCobra,
+  esVariante,
   gruposIncompletos,
   type EngancheParaPrecio,
   type ItemSolicitado,
@@ -636,6 +637,138 @@ describe("engancheCobra", () => {
       opciones: [opcion({ precioDelta: 2000 })],
     });
     expect(engancheCobra(incluido)).toBe(false);
+  });
+});
+
+/**
+ * Un producto con varios precios según el tamaño: "Porción de helado" a $4.000 en pequeña y
+ * $8.000 en mediana.
+ *
+ * No hay tabla de variantes ni columna nueva: es un grupo en modo `adicional` —para que el
+ * `precioDelta` de cada opción cuente, cosa que en `incluido` no pasa (regla 3)— con
+ * `minSelect = maxSelect = 1`, que es lo que lo vuelve obligatorio y de a uno. El precio base
+ * del producto es el del tamaño más barato y cada opción suma su diferencia.
+ */
+describe("tamaños: obligatorio y con precio propio", () => {
+  const PEQUENO = "op-peq";
+  const MEDIANO = "op-med";
+
+  function helado(): ProductoParaPrecio {
+    return producto({
+      id: "helado",
+      nombre: "Porción de helado",
+      precioBase: 4000,
+      engancles: [
+        enganche({
+          id: "pmg-tamano",
+          modo: "adicional",
+          nombreGrupo: "Tamaño",
+          minSelect: 1,
+          maxSelect: 1,
+          // NULL: cada opción cobra la suya. Un número aquí le pondría el mismo precio a los
+          // dos tamaños, que es justo lo contrario de lo que se quiere.
+          precioUnitario: null,
+          opciones: [
+            opcion({ id: PEQUENO, nombre: "Pequeño", precioDelta: 0 }),
+            opcion({ id: MEDIANO, nombre: "Mediano", precioDelta: 4000 }),
+          ],
+        }),
+      ],
+    });
+  }
+
+  function conTamano(opcionId: string) {
+    return item({
+      productId: "helado",
+      seleccion: [
+        { productModifierGroupId: "pmg-tamano", opciones: [{ modifierOptionId: opcionId, cantidad: 1 }] },
+      ],
+    });
+  }
+
+  it("sin elegir tamaño no se puede añadir al carrito", () => {
+    const r = calcularItem(helado(), item({ productId: "helado" }));
+
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.tipo).toBe("seleccion_incompleta");
+  });
+
+  it("el pequeño cuesta el precio base", () => {
+    const r = calcularItem(helado(), conTamano(PEQUENO));
+
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.valor.base.precioUnitario).toBe(4000);
+  });
+
+  it("el mediano cuesta el doble sin tocar el precio base del producto", () => {
+    const r = calcularItem(helado(), conTamano(MEDIANO));
+
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.valor.base.precioUnitario).toBe(8000);
+  });
+
+  it("el tamaño elegido viaja al snapshot con su precio (regla 2)", () => {
+    const r = calcularItem(helado(), conTamano(MEDIANO));
+
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    // Es lo que hace que el panel, el WhatsApp de cocina y el XLSX digan "Tamaño: Mediano"
+    // sin enterarse de que esto existe.
+    expect(r.valor.base.modificadores).toEqual([
+      {
+        modifierOptionId: MEDIANO,
+        grupo: "Tamaño",
+        nombre: "Mediano",
+        cantidad: 1,
+        precioUnitario: 4000,
+      },
+    ]);
+  });
+
+  it("no se pueden elegir dos tamaños a la vez", () => {
+    const r = calcularItem(
+      helado(),
+      item({
+        productId: "helado",
+        seleccion: [
+          {
+            productModifierGroupId: "pmg-tamano",
+            opciones: [
+              { modifierOptionId: PEQUENO, cantidad: 1 },
+              { modifierOptionId: MEDIANO, cantidad: 1 },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.tipo).toBe("seleccion_excedida");
+  });
+
+  it("dos porciones medianas son 16.000", () => {
+    const r = calcularItem(helado(), { ...conTamano(MEDIANO), cantidad: 2 });
+
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.valor.base.subtotal).toBe(16000);
+  });
+});
+
+describe("esVariante", () => {
+  it("un adicional obligatorio es un tamaño", () => {
+    expect(esVariante(enganche({ modo: "adicional", minSelect: 1 }))).toBe(true);
+  });
+
+  it("un adicional que se puede saltar es un extra, no un tamaño", () => {
+    expect(esVariante(enganche({ modo: "adicional", minSelect: 0 }))).toBe(false);
+  });
+
+  it("lo incluido no es un tamaño: obliga, pero no cobra (regla 3)", () => {
+    expect(esVariante(enganche({ modo: "incluido", minSelect: 1 }))).toBe(false);
+  });
+
+  it("un upsell no es un tamaño aunque llegara con mínimo", () => {
+    expect(esVariante(enganche({ tipo: "upsell", modo: "adicional", minSelect: 1 }))).toBe(false);
   });
 });
 

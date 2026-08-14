@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { useCarrito, type ItemCarrito } from "@/lib/carrito";
 
 export type TipoPedido = "domicilio" | "recoger";
 
@@ -92,6 +93,32 @@ export function useTipoPedido(): TipoPedido | null {
 export function elegirTipoPedido(nuevo: TipoPedido) {
   guardar(nuevo);
   window.dispatchEvent(new Event(EVENTO_CAMBIO));
+}
+
+/**
+ * Cambia el tipo **y limpia el carrito** de lo que ese canal no vende, devolviendo lo retirado
+ * para que quien llame pueda decirlo.
+ *
+ * Existe porque el tipo se cambia desde dos sitios —el modal del encabezado y el paso 1 del
+ * checkout— y los dos tienen que depurar. Con la depuración suelta en cada componente, el
+ * segundo que se escribiera se olvidaría, y el síntoma sería un pedido que revienta al
+ * confirmar: el peor momento posible para descubrirlo.
+ *
+ * `elegirTipoPedido` se queda debajo y sin tocar: hay un caso que no debe depurar —la primera
+ * respuesta del modal, cuando el carrito está vacío por definición— y sobre todo separar las dos
+ * deja claro cuál es la operación con efectos.
+ *
+ * Ojo a la dirección de la dependencia: este módulo pasa a conocer el carrito. Es lo que se
+ * quiso, porque la alternativa era duplicar la regla.
+ */
+export function cambiarTipoPedido(nuevo: TipoPedido): ItemCarrito[] {
+  const anterior = getSnapshot();
+  elegirTipoPedido(nuevo);
+
+  // Reelegir el mismo tipo no puede retirar nada: el carrito ya cumple ese canal.
+  if (anterior === nuevo) return [];
+
+  return useCarrito.getState().depurarPorTipo(nuevo);
 }
 
 /**

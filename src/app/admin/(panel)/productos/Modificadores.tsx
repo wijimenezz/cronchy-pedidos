@@ -16,6 +16,11 @@ import { guardarModificadores } from "./acciones";
  * `modo`, con `min_select = max_select` en una y `min_select = 0` en la otra, no aparece
  * por ningún lado. La traducción la hace `planificarEngancles` en el servidor.
  *
+ * Son tres formas de enganchar un grupo, y se distinguen por lo que significan para el cliente:
+ * lo **incluido** hay que elegirlo y ya está pagado; un **tamaño** hay que elegirlo y cambia el
+ * precio; un **adicional** se puede saltar y se cobra aparte. En la base las dos últimas son el
+ * mismo `modo` y solo las separa el `min_select`, pero eso es asunto de `engancles.ts`.
+ *
  * Lo que este componente NO hace es crear grupos ni opciones: añadir una salsa nueva o un
  * sabor de la semana es `/admin/opciones`. Aquí solo se engancha lo que ya existe.
  */
@@ -74,6 +79,19 @@ export function Modificadores({
 
   const nombre = (id: string) => porId.get(id)?.nombre ?? "Grupo desconocido";
 
+  /**
+   * Si el grupo ya está puesto como tamaño, como adicional o como upsell.
+   *
+   * Los tres se guardan con `modo = 'adicional'`, así que ofrecer el mismo grupo dos veces
+   * entre ellos daría dos filas con la misma clave y chocaría contra el UNIQUE de la base. Lo
+   * incluido no entra en la cuenta: ese es el otro modo, y el mismo grupo en los dos a la vez
+   * es justo lo que hace la regla 3 con las salsas.
+   */
+  const enUso = (groupId: string) =>
+    borrador.variantes.some((v) => v.groupId === groupId) ||
+    borrador.adicionales.some((a) => a.groupId === groupId) ||
+    borrador.upsells.includes(groupId);
+
   return (
     <div className="flex min-h-0 flex-col gap-5 overflow-y-auto lg:max-h-[calc(100vh-20rem)]">
       {/* ---------- Incluido ---------- */}
@@ -112,6 +130,30 @@ export function Modificadores({
           onElegir={(groupId) =>
             set({ incluidos: [...borrador.incluidos, { groupId, cantidad: 1 }] })
           }
+        />
+      </Bloque>
+
+      {/* ---------- Tamaños ---------- */}
+      <Bloque
+        titulo="Tamaños y presentaciones"
+        ayuda="El cliente elige uno sí o sí, y cada opción cuesta lo suyo. El precio de cada tamaño lo pones en Opciones, y es lo que se SUMA al precio del producto: si el producto vale $4.000, un mediano de $8.000 lleva $4.000."
+      >
+        {borrador.variantes.map((v, i) => (
+          // Sin campos numéricos: la cantidad es siempre una y el precio vive en cada opción.
+          // Un "$ c/u" aquí les pondría el mismo precio a todos los tamaños.
+          <Linea key={v.groupId} nombre={nombre(v.groupId)}>
+            <span className="font-cuerpo text-[13px] text-cafe-tenue">Elige 1</span>
+            <BotonQuitar
+              etiqueta={`Quitar ${nombre(v.groupId)} de los tamaños`}
+              onClick={() => set({ variantes: borrador.variantes.filter((_, j) => j !== i) })}
+            />
+          </Linea>
+        ))}
+
+        <Anadir
+          etiqueta="Añadir un grupo de tamaños"
+          opciones={seleccionables.filter((g) => !enUso(g.id))}
+          onElegir={(groupId) => set({ variantes: [...borrador.variantes, { groupId }] })}
         />
       </Bloque>
 
@@ -172,9 +214,7 @@ export function Modificadores({
 
         <Anadir
           etiqueta="Añadir un adicional"
-          opciones={seleccionables.filter(
-            (g) => !borrador.adicionales.some((a) => a.groupId === g.id),
-          )}
+          opciones={seleccionables.filter((g) => !enUso(g.id))}
           onElegir={(groupId) =>
             set({
               adicionales: [...borrador.adicionales, { groupId, hasta: 1, precio: 2000 }],
