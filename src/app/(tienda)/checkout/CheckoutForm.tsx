@@ -21,7 +21,7 @@ import {
 import { useCarrito } from "@/lib/carrito";
 import {
   useTipoPedido,
-  elegirTipoPedido,
+  cambiarTipoPedido,
   renovarTipoPedido,
   type TipoPedido,
 } from "@/lib/tienda/tipo-pedido";
@@ -68,29 +68,47 @@ type Paso = 1 | 2 | 3;
  * se reconozca que es la misma pregunta.
  */
 function BotonesTipoPedido({ actual }: { actual: TipoPedido | null }) {
-  return (
-    <div className="flex gap-3">
-      {(["domicilio", "recoger"] as TipoPedido[]).map((t) => {
-        const elegido = actual === t;
-        const Icono = t === "domicilio" ? Bike : ShoppingBag;
+  const [retirados, setRetirados] = useState<string[]>([]);
 
-        return (
-          <button
-            key={t}
-            type="button"
-            onClick={() => elegirTipoPedido(t)}
-            aria-pressed={elegido}
-            className={`flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full px-4 py-3 font-cuerpo text-sm font-bold transition-colors ${
-              elegido
-                ? "bg-naranja text-crema"
-                : "border border-crema-oscura text-cafe-suave hover:bg-crema"
-            }`}
-          >
-            <Icono className="size-4" />
-            {t === "domicilio" ? "Domicilio" : "Recoger"}
-          </button>
-        );
-      })}
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex gap-3">
+        {(["domicilio", "recoger"] as TipoPedido[]).map((t) => {
+          const elegido = actual === t;
+          const Icono = t === "domicilio" ? Bike : ShoppingBag;
+
+          return (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setRetirados(cambiarTipoPedido(t).map((i) => i.nombre))}
+              aria-pressed={elegido}
+              className={`flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full px-4 py-3 font-cuerpo text-sm font-bold transition-colors ${
+                elegido
+                  ? "bg-naranja text-crema"
+                  : "border border-crema-oscura text-cafe-suave hover:bg-crema"
+              }`}
+            >
+              <Icono className="size-4" />
+              {t === "domicilio" ? "Domicilio" : "Recoger"}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Aquí y no en un aviso flotante: el cliente está mirando justo este bloque, y el resumen
+          del pedido que tiene debajo acaba de cambiar de importe. */}
+      {retirados.length > 0 && (
+        <p
+          role="status"
+          className="rounded-sm bg-alerta/15 px-3 py-2 font-cuerpo text-[13px] text-cafe"
+        >
+          <span className="font-bold">Quitamos del pedido: </span>
+          {retirados.join(", ")}.{" "}
+          {retirados.length === 1 ? "No se vende" : "No se venden"} para{" "}
+          {actual === "domicilio" ? "domicilio" : "recoger"}.
+        </p>
+      )}
     </div>
   );
 }

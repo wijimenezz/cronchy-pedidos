@@ -8,6 +8,7 @@ import type { ListaDelPanel, OpcionDelPanel } from "@/db/queries/opciones";
 import { pesos } from "@/lib/notificaciones/plantillas";
 import {
   crearOpcionNueva,
+  guardarAyudaDeLista,
   guardarOpcion,
   marcarOpcionDisponible,
   reordenarOpcionesDeLista,
@@ -99,6 +100,8 @@ export function ColumnaOpciones({
         </p>
       )}
 
+      {esAdmin && <EditorAyuda key={lista.id} lista={lista} />}
+
       {error && (
         <p role="alert" className="px-3 py-2 font-cuerpo text-[13px] font-semibold text-error">
           {error}
@@ -170,6 +173,86 @@ export function ColumnaOpciones({
         )}
       </ol>
     </section>
+  );
+}
+
+/**
+ * Lo que el cliente lee bajo el título de esta sección en la ficha.
+ *
+ * Casi ninguna lista lo necesita —"Salsas" con cinco salsas dentro se entiende sola— así que el
+ * campo arranca vacío y en tono discreto. El caso que lo justifica es "Azúcar y canela", donde
+ * las opciones QUITAN algo que el churro ya trae: sin una frase, nadie sabe qué le llega si no
+ * toca nada.
+ *
+ * El borrador es local y se monta con `key={lista.id}`, así que cambiar de lista lo resetea sin
+ * un efecto que vigile la prop.
+ */
+function EditorAyuda({ lista }: { lista: ListaDelPanel }) {
+  const [pendiente, iniciar] = useTransition();
+  const [texto, setTexto] = useState(lista.ayuda ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [guardado, setGuardado] = useState(false);
+
+  const sucio = texto.trim() !== (lista.ayuda ?? "");
+
+  function guardar() {
+    setError(null);
+    setGuardado(false);
+    iniciar(async () => {
+      const resultado = await guardarAyudaDeLista({ id: lista.id, ayuda: texto });
+      if (resultado.ok) setGuardado(true);
+      else setError(resultado.error);
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-1 border-b border-crema-oscura px-3 py-2">
+      <label
+        htmlFor={`ayuda-${lista.id}`}
+        className="font-cuerpo text-[13px] font-bold text-cafe-suave"
+      >
+        Qué explicarle al cliente
+      </label>
+      <textarea
+        id={`ayuda-${lista.id}`}
+        rows={2}
+        maxLength={200}
+        value={texto}
+        onChange={(e) => {
+          setTexto(e.target.value);
+          setGuardado(false);
+        }}
+        placeholder="Ej.: Tus churros van con azúcar y canela. Marca aquí solo si quieres quitar algo."
+        className="w-full rounded-sm border border-crema-oscura bg-tarjeta px-2 py-1.5 font-cuerpo text-[13px] text-cafe placeholder:text-cafe-tenue focus:outline-none focus:ring-2 focus:ring-naranja"
+      />
+
+      {error && (
+        <p role="alert" className="font-cuerpo text-[13px] font-semibold text-error">
+          {error}
+        </p>
+      )}
+
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={guardar}
+          disabled={pendiente || !sucio}
+          className="min-h-11 rounded-full border border-crema-oscura px-4 font-cuerpo text-sm font-bold text-cafe transition-colors hover:bg-crema disabled:opacity-40"
+        >
+          {pendiente ? "Guardando…" : "Guardar texto"}
+        </button>
+        {guardado && !sucio && (
+          <span role="status" className="font-cuerpo text-[13px] font-semibold text-exito">
+            Guardado. Ya se ve en la carta.
+          </span>
+        )}
+        {!lista.ayuda && !sucio && (
+          <span className="font-cuerpo text-[13px] text-cafe-tenue">
+            Vacío: no se muestra nada.
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 

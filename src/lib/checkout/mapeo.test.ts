@@ -16,6 +16,8 @@ function linea(overrides: Partial<ItemCarrito> = {}): ItemCarrito {
     productoId: "prod-1",
     nombre: "Churro clásico",
     precioBase: 5000,
+    disponibleDelivery: true,
+    disponiblePickup: true,
     precioUnitarioEstimado: 5000,
     cantidad: 1,
     seleccion: [],

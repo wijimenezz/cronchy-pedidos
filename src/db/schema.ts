@@ -158,6 +158,11 @@ export const modifierGroup = pgTable("modifier_group", {
 	storeId: uuid("store_id").notNull(),
 	nombre: text().notNull(),
 	tipo: tipoGrupo().default('seleccion').notNull(),
+	// Lo que hay que explicarle al cliente sobre esta sección, editable desde /admin/opciones.
+	// NULL = no hace falta explicar nada, que es el caso de casi todas: una lista de salsas se
+	// entiende sola. "Azúcar y canela" no, porque sus opciones QUITAN algo que el churro ya
+	// trae, y sin decirlo nadie sabe qué pasa si no toca nada.
+	ayuda: text(),
 	permiteCantidad: boolean("permite_cantidad").default(false).notNull(),
 	maxPorOpcion: integer("max_por_opcion"),
 	// Archivar y no borrar (regla 9): una lista con `activo = false` no se puede enganchar a

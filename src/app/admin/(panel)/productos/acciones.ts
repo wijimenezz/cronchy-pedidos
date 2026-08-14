@@ -412,6 +412,9 @@ const modificadoresSchema = z
         }),
       )
       .max(20, DEMASIADOS),
+    // Un tamaño no lleva ni cantidad ni precio: es siempre uno, y lo que cobra sale del
+    // `precio_delta` de cada opción, que es lo que hace que el mediano valga más.
+    variantes: z.array(z.object({ groupId: idSchema })).max(20, DEMASIADOS),
     adicionales: z
       .array(
         z.object({
@@ -431,9 +434,21 @@ const modificadoresSchema = z
   .superRefine((v, ctx) => {
     // Dos filas del mismo grupo y el mismo modo colisionarían contra el UNIQUE de la base.
     // No se puede llegar aquí desde la UI, pero el mensaje es mejor que un 500.
+    //
+    // Las variantes entran en el mismo saco que los adicionales y los upsell: los tres se
+    // guardan con `modo = 'adicional'`, así que un grupo puesto como tamaño Y como adicional
+    // son dos filas con la misma clave. Aquí se dice con palabras en vez de dejar que reviente
+    // el índice.
     for (const [lista, etiqueta] of [
       [v.incluidos.map((i) => i.groupId), "incluidos"],
-      [[...v.adicionales.map((a) => a.groupId), ...v.upsells], "adicionales"],
+      [
+        [
+          ...v.variantes.map((t) => t.groupId),
+          ...v.adicionales.map((a) => a.groupId),
+          ...v.upsells,
+        ],
+        "tamaños y adicionales",
+      ],
     ] as const) {
       if (new Set(lista).size !== lista.length) {
         ctx.addIssue({ code: "custom", message: `Hay un grupo repetido en ${etiqueta}.` });
