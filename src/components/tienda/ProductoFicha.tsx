@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import { ChevronDown, Minus, Plus, X } from "lucide-react";
+import { Check, ChevronDown, Minus, Plus, X } from "lucide-react";
 import { pesos } from "@/lib/notificaciones/plantillas";
 import { useCarrito } from "@/lib/carrito";
 import { useTipoPedido } from "@/lib/tienda/tipo-pedido";
@@ -10,7 +10,9 @@ import { precargarProducto } from "@/lib/tienda/productos-cache";
 import {
   calcularItem,
   engancheCobra,
+  esCasilla,
   esVariante,
+  precioDesde,
   precioEfectivoOpcion,
 } from "@/lib/precios-calculo";
 // Puro y sin dependencias de servidor: `modificadores.ts` solo tiene un `import type` —que
@@ -128,6 +130,20 @@ function sinOpcion(
   );
 }
 
+/**
+ * ¿Esta sección nace plegada detrás de un "+ Agregar …"?
+ *
+ * Los adicionales sí, porque son una lista larga que no debe estorbarle a quien solo quiere su
+ * churro. Las dos excepciones son las que no tienen lista que abrir: un **tamaño** hay que elegirlo
+ * para poder añadir el producto, y una **casilla** es una pregunta de sí o no que se responde
+ * marcándola. Plegada, cualquiera de las dos escondería justo lo que hay que ver.
+ */
+function sePliega(enganche: EngancheParaFicha): boolean {
+  return (
+    enganche.modo === "adicional" && !esVariante(enganche) && !esCasilla(enganche)
+  );
+}
+
 function StepperCantidad({
   valor,
   onCambiar,
@@ -203,7 +219,27 @@ function FilaOpcion({
     </>
   );
 
-  // Sin stepper: la fila COMPLETA es el botón — nombre, precio y círculo
+  // Redondo para elegir entre varias, cuadrado con check para marcar la única que hay: el
+  // control dice de qué tipo de decisión se trata antes de leer nada.
+  const indicador = esCasilla(enganche) ? (
+    <span
+      className={`flex size-6 shrink-0 items-center justify-center rounded-md border-2 ${
+        seleccionada ? "border-naranja bg-naranja" : "border-crema-oscura"
+      }`}
+    >
+      {seleccionada && <Check className="size-4 text-crema" strokeWidth={3} />}
+    </span>
+  ) : (
+    <span
+      className={`flex size-6 shrink-0 items-center justify-center rounded-full border-2 ${
+        seleccionada ? "border-naranja bg-naranja" : "border-crema-oscura"
+      }`}
+    >
+      {seleccionada && <span className="size-2 rounded-full bg-crema" />}
+    </span>
+  );
+
+  // Sin stepper: la fila COMPLETA es el botón — nombre, precio e indicador
   // son una sola zona táctil.
   if (!enganche.permiteCantidad) {
     return (
@@ -214,13 +250,7 @@ function FilaOpcion({
         className={`${claseFila} w-full`}
       >
         {nombreYPrecio}
-        <span
-          className={`flex size-6 shrink-0 items-center justify-center rounded-full border-2 ${
-            seleccionada ? "border-naranja bg-naranja" : "border-crema-oscura"
-          }`}
-        >
-          {seleccionada && <span className="size-2 rounded-full bg-crema" />}
-        </span>
+        {indicador}
       </button>
     );
   }
@@ -397,13 +427,17 @@ function GrupoEnganche({
           {enganche.nombreGrupo}
           {esRequerido && <span className="text-error"> *</span>}
         </h4>
-        <span
-          className={`${compacto ? "text-[11px]" : "text-xs"} ${
-            faltan > 0 ? "font-bold text-alerta" : "text-cafe-tenue"
-          }`}
-        >
-          {recibidas} de {enganche.maxSelect}
-        </span>
+        {/* En una casilla no hay nada que completar, y un "0 de 1" al lado de una pregunta se lee
+            como una tarea pendiente. */}
+        {!esCasilla(enganche) && (
+          <span
+            className={`${compacto ? "text-[11px]" : "text-xs"} ${
+              faltan > 0 ? "font-bold text-alerta" : "text-cafe-tenue"
+            }`}
+          >
+            {recibidas} de {enganche.maxSelect}
+          </span>
+        )}
       </div>
       {/* Pegado al título: el `mb` del bloque de arriba ya separó, así que aquí se recupera. */}
       {ayuda && <div className={compacto ? "-mt-1 mb-1.5" : "-mt-1 mb-2"}>{ayuda}</div>}
@@ -438,9 +472,10 @@ function GrupoEnganche({
 }
 
 /**
- * Una bebida sugerida. Al elegirla se despliegan sus propias opciones (gas, sabor,
- * dulzor) aquí mismo: si viajara al carrito sin ellas, el servidor rechazaría el pedido
- * en el checkout, donde el cliente ya no puede reconfigurarla.
+ * Algo sugerido al final de la ficha: una bebida, una porción de helado. Al elegirlo se
+ * despliegan sus propias opciones (gas, sabor, tamaño) aquí mismo: si viajara al carrito sin
+ * ellas, el servidor rechazaría el pedido en el checkout, donde el cliente ya no puede
+ * reconfigurarlo.
  */
 function FilaUpsell({
   enganche,
@@ -469,6 +504,15 @@ function FilaUpsell({
   const elegida = cantidad > 0;
   // Los grupos upsell de una bebida no se pintan (invariante: llevan minSelect 0).
   const gruposBebida = bebida.engancles.filter((e) => e.tipo === "seleccion");
+  // El precio de aquí NO es `precioBase`: la porción de helado vale $0 de base y lleva el
+  // precio entero en cada tamaño, así que pintarlo a secas ofrecía un helado por $0.
+  const { minimo, hayRango } = precioDesde(bebida);
+  // Mismo pliegue que en la ficha propia del producto, y por el mismo motivo: el helado trae
+  // catorce toppings adicionales, y expandidos aquí dentro sepultan el resto del churro. Nace
+  // como diga su `colapsado`, igual que arriba.
+  const [expandido, setExpandido] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(gruposBebida.map((g) => [g.id, !g.colapsado])),
+  );
 
   return (
     <div className="rounded-md border border-crema-oscura">
@@ -486,7 +530,10 @@ function FilaUpsell({
         </div>
         <div className="flex-1">
           <p className="text-sm font-semibold text-cafe">{bebida.nombre}</p>
-          <p className="text-xs text-cafe-suave">{pesos(bebida.precioBase)}</p>
+          <p className="text-xs text-cafe-suave">
+            {hayRango && <span className="mr-1">desde</span>}
+            {pesos(minimo)}
+          </p>
         </div>
         {enganche.permiteCantidad ? (
           <StepperCantidad valor={cantidad} onCambiar={onCambiarCantidad} />
@@ -514,6 +561,16 @@ function FilaUpsell({
               compacto
               enganche={grupoBebida}
               seleccion={seleccionBebida[grupoBebida.id] ?? {}}
+              // Mismo criterio que arriba: un tamaño es obligatorio y no se puede plegar, o el
+              // cliente no vería por qué el botón no lo deja añadir.
+              plegable={sePliega(grupoBebida)}
+              expandido={!!expandido[grupoBebida.id]}
+              onToggleExpandir={() =>
+                setExpandido((prev) => ({
+                  ...prev,
+                  [grupoBebida.id]: !prev[grupoBebida.id],
+                }))
+              }
               onToggleOpcion={(opcionId) =>
                 onToggleOpcionBebida(grupoBebida, opcionId)
               }
@@ -654,8 +711,12 @@ export function ProductoFicha({
     // El criterio es "ya no cabe nada más". Por la regla 4 los incluidos tienen min === max, así
     // que hoy equivale a "cumplió el mínimo"; si algún día hubiera un "elige hasta 3, mínimo 1",
     // habría que decidir cuál de las dos cosas se quiere.
+    //
+    // **Una casilla nunca se contrae**: desaparecería en el mismo toque que la marca, y
+    // desmarcarla costaría dos. El resumen de una línea ahorra espacio cuando hay una lista
+    // debajo; con una sola opción no ahorra nada y esconde el check recién puesto.
     const suma = Object.values(nueva).reduce((n, c) => n + c, 0);
-    if (suma >= enganche.maxSelect) {
+    if (suma >= enganche.maxSelect && !esCasilla(enganche)) {
       setPlegados((prev) => ({ ...prev, [enganche.id]: true }));
     }
   }
@@ -891,17 +952,18 @@ export function ProductoFicha({
       )}
 
       <div className="mt-4 flex flex-col gap-5">
-        {/* Un tamaño va en modo 'adicional' —es la única forma de que el precio de cada opción
-            cuente— pero no es un extra: hay que elegirlo para poder añadir el producto. Por eso
-            `plegable` lo excluye y se pinta como lo incluido, abierto y sin pliegue, en vez de
-            como un "+ Agregar tamaño adicionales" que además sería absurdo de leer. Al elegir
-            uno se contrae a su línea de resumen, igual que las salsas. */}
+        {/* Un tamaño y una casilla van en modo 'adicional' —es la única forma de que el precio
+            cuente— pero ninguno de los dos es un extra: el tamaño hay que elegirlo para poder
+            añadir el producto, y la casilla es la pregunta entera. Por eso `sePliega` los excluye
+            y se pintan abiertos, en vez de como un "+ Agregar tamaño adicionales" que además
+            sería absurdo de leer. El tamaño, al elegirlo, se contrae a su línea de resumen igual
+            que las salsas; la casilla no (ver `aplicarEnGrupo`). */}
         {enganclesSeleccion.map((enganche) => (
           <GrupoEnganche
             key={enganche.id}
             enganche={enganche}
             seleccion={selecciones[enganche.id] ?? {}}
-            plegable={enganche.modo === "adicional" && !esVariante(enganche)}
+            plegable={sePliega(enganche)}
             expandido={enganche.modo === "incluido" || !!expandido[enganche.id]}
             plegado={!!plegados[enganche.id]}
             onExpandir={() =>

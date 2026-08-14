@@ -20,8 +20,10 @@ import {
   calcularItem,
   calcularPedido,
   engancheCobra,
+  esCasilla,
   esVariante,
   gruposIncompletos,
+  precioDesde,
   type EngancheParaPrecio,
   type ItemSolicitado,
   type OpcionParaPrecio,
@@ -769,6 +771,190 @@ describe("esVariante", () => {
 
   it("un upsell no es un tamaño aunque llegara con mínimo", () => {
     expect(esVariante(enganche({ tipo: "upsell", modo: "adicional", minSelect: 1 }))).toBe(false);
+  });
+});
+
+describe("esCasilla", () => {
+  it("un adicional opcional de una sola opción es una casilla", () => {
+    const agrandar = enganche({
+      modo: "adicional",
+      minSelect: 0,
+      maxSelect: 1,
+      precioUnitario: 8000,
+      nombreGrupo: "¿Quieres agrandar tus churros?",
+      opciones: [opcion({ nombre: "Sí, +5 churros" })],
+    });
+    expect(esCasilla(agrandar)).toBe(true);
+  });
+
+  it("una casilla gratis sigue siendo una casilla: lo que la define es que no haya lista", () => {
+    const p = enganche({
+      modo: "adicional",
+      minSelect: 0,
+      maxSelect: 1,
+      precioUnitario: 0,
+      opciones: [opcion()],
+    });
+    expect(esCasilla(p)).toBe(true);
+  });
+
+  it("con dos opciones ya hay lista que abrir: «Azúcar y canela» sigue plegada", () => {
+    const azucarYCanela = enganche({
+      modo: "adicional",
+      minSelect: 0,
+      maxSelect: 2,
+      precioUnitario: 0,
+      nombreGrupo: "Azúcar y canela",
+      opciones: [opcion({ id: "op-1", nombre: "Sin canela" }), opcion({ id: "op-2", nombre: "Sin azúcar" })],
+    });
+    expect(esCasilla(azucarYCanela)).toBe(false);
+  });
+
+  it("un adicional obligatorio es un tamaño, no una casilla", () => {
+    const tamano = enganche({
+      modo: "adicional",
+      minSelect: 1,
+      maxSelect: 1,
+      opciones: [opcion()],
+    });
+    expect(esCasilla(tamano)).toBe(false);
+  });
+
+  it("lo incluido no es una casilla: hay que elegirlo y ya está pagado", () => {
+    const incluido = enganche({
+      modo: "incluido",
+      minSelect: 1,
+      maxSelect: 1,
+      opciones: [opcion()],
+    });
+    expect(esCasilla(incluido)).toBe(false);
+  });
+
+  it("un upsell de una sola bebida no es una casilla: se pinta con su propia fila", () => {
+    const bebida = enganche({
+      tipo: "upsell",
+      modo: "adicional",
+      minSelect: 0,
+      maxSelect: 1,
+      opciones: [opcion({ productoRef: "prod-bebida" })],
+    });
+    expect(esCasilla(bebida)).toBe(false);
+  });
+
+  it("una opción agotada no cambia la forma de la sección", () => {
+    const agrandar = enganche({
+      modo: "adicional",
+      minSelect: 0,
+      maxSelect: 1,
+      precioUnitario: 8000,
+      opciones: [opcion({ disponible: false })],
+    });
+    expect(esCasilla(agrandar)).toBe(true);
+  });
+});
+
+describe("precioDesde", () => {
+  /** Un grupo de tamaños: adicional y obligatorio, con el precio en cada opción. */
+  function tamanos(precios: { precio: number; disponible?: boolean }[], id = "pmg-tam") {
+    return enganche({
+      id,
+      modo: "adicional",
+      minSelect: 1,
+      maxSelect: 1,
+      nombreGrupo: "Tamaño Helado",
+      opciones: precios.map((p, i) =>
+        opcion({ id: `${id}-op-${i}`, precioDelta: p.precio, disponible: p.disponible ?? true }),
+      ),
+    });
+  }
+
+  it("sin engancles, el mínimo es el precio base y no hay nada que anunciar", () => {
+    expect(precioDesde(producto({ precioBase: 11500 }))).toEqual({
+      minimo: 11500,
+      hayRango: false,
+    });
+  });
+
+  it("con el precio entero en los tamaños, el mínimo es el tamaño más barato", () => {
+    const p = producto({
+      precioBase: 0,
+      engancles: [tamanos([{ precio: 4000 }, { precio: 8000 }])],
+    });
+    expect(precioDesde(p)).toEqual({ minimo: 4000, hayRango: true });
+  });
+
+  it("con el precio repartido, el mínimo suma el base y el tamaño más barato", () => {
+    const p = producto({
+      precioBase: 4000,
+      engancles: [tamanos([{ precio: 0 }, { precio: 4000 }])],
+    });
+    expect(precioDesde(p)).toEqual({ minimo: 4000, hayRango: true });
+  });
+
+  it("si todos los tamaños cuestan lo mismo no hay rango: 'desde' sería ruido", () => {
+    const p = producto({
+      precioBase: 0,
+      engancles: [tamanos([{ precio: 6000 }, { precio: 6000 }])],
+    });
+    expect(precioDesde(p)).toEqual({ minimo: 6000, hayRango: false });
+  });
+
+  it("un tamaño agotado no cuenta: prometería un precio que nadie puede pedir", () => {
+    const p = producto({
+      precioBase: 0,
+      engancles: [tamanos([{ precio: 4000, disponible: false }, { precio: 8000 }])],
+    });
+    expect(precioDesde(p)).toEqual({ minimo: 8000, hayRango: false });
+  });
+
+  it("lo incluido no suma aunque su opción traiga precioDelta (regla 3)", () => {
+    const p = producto({
+      precioBase: 5000,
+      engancles: [
+        enganche({
+          modo: "incluido",
+          minSelect: 1,
+          maxSelect: 1,
+          opciones: [opcion({ precioDelta: 1500 })],
+        }),
+      ],
+    });
+    expect(precioDesde(p)).toEqual({ minimo: 5000, hayRango: false });
+  });
+
+  it("un adicional que se puede saltar no suma: es un extra, no un tamaño", () => {
+    const p = producto({
+      precioBase: 5000,
+      engancles: [
+        enganche({
+          modo: "adicional",
+          minSelect: 0,
+          maxSelect: 8,
+          precioUnitario: 2000,
+          opciones: [opcion({ precioDelta: 2000 })],
+        }),
+      ],
+    });
+    expect(precioDesde(p)).toEqual({ minimo: 5000, hayRango: false });
+  });
+
+  it("con dos grupos obligatorios se suman los dos mínimos", () => {
+    const p = producto({
+      precioBase: 0,
+      engancles: [
+        tamanos([{ precio: 4000 }, { precio: 8000 }], "pmg-tam"),
+        tamanos([{ precio: 1000 }, { precio: 1000 }], "pmg-presentacion"),
+      ],
+    });
+    expect(precioDesde(p)).toEqual({ minimo: 5000, hayRango: true });
+  });
+
+  it("un grupo obligatorio con todo agotado se salta en vez de contar 0", () => {
+    const p = producto({
+      precioBase: 0,
+      engancles: [tamanos([{ precio: 4000, disponible: false }, { precio: 8000, disponible: false }])],
+    });
+    expect(precioDesde(p)).toEqual({ minimo: 0, hayRango: false });
   });
 });
 

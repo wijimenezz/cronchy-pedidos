@@ -162,6 +162,27 @@
       "when": 1786652760707,
       "tag": "0022_ayuda_grupo",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1786725647653,
+      "tag": "0023_helado_upsell",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1786727939800,
+      "tag": "0024_agrandar_churros",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1786728824509,
+      "tag": "0025_orden_helado",
+      "breakpoints": true
     }
   ]
 }

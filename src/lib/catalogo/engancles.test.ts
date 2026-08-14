@@ -11,6 +11,7 @@ const SALSAS = "11111111-1111-1111-1111-111111111111";
 const TOPPINGS = "22222222-2222-2222-2222-222222222222";
 const BEBIDAS = "33333333-3333-3333-3333-333333333333";
 const TAMANO = "44444444-4444-4444-4444-444444444444";
+const AGRANDAR = "55555555-5555-5555-5555-555555555555";
 
 const VACIA: ConfiguracionModificadores = {
   incluidos: [],
@@ -441,6 +442,53 @@ describe("ida y vuelta", () => {
 
     const tamano = engancles.find((e) => e.groupId === TAMANO);
     expect(tamano).toMatchObject({ minSelect: 1, maxSelect: 1, precioUnitario: null });
+  });
+
+  /**
+   * "¿Quieres agrandar tus churros?": una sola opción, opcional y de pago.
+   *
+   * En la ficha se pinta como una casilla con check, pero para el panel es un **adicional** de
+   * toda la vida —"Hasta 1 · $8.000 c/u"— y ese es justo el punto: el precio se edita ahí, en la
+   * Carta, sin que nadie tenga que volver a tocar SQL. Que la ficha la dibuje distinta lo decide
+   * `esCasilla`, y esto comprueba que esa decisión no se le coló a la traducción del panel.
+   */
+  const CON_CASILLA: EngancheConTipo[] = [
+    {
+      id: "pmg-agrandar",
+      groupId: AGRANDAR,
+      tipoGrupo: "seleccion",
+      modo: "adicional",
+      minSelect: 0,
+      maxSelect: 1,
+      precioUnitario: 8000,
+      colapsado: false,
+    },
+  ];
+
+  it("una casilla llega al panel como un adicional con su tope y su precio", () => {
+    const config = configuracionDesde(CON_CASILLA);
+
+    expect(config.adicionales).toEqual([{ groupId: AGRANDAR, hasta: 1, precio: 8000 }]);
+    expect(config.variantes).toEqual([]);
+    expect(config.incluidos).toEqual([]);
+  });
+
+  it("cambiarle el precio a una casilla desde el panel no la convierte en otra cosa", () => {
+    const plan = planificarEngancles(CON_CASILLA, {
+      ...configuracionDesde(CON_CASILLA),
+      adicionales: [{ groupId: AGRANDAR, hasta: 1, precio: 9500 }],
+    });
+
+    expect(plan.borrar).toEqual([]);
+    expect(plan.guardar).toHaveLength(1);
+    // Sigue siendo opcional y de una sola marca: si `min_select` se moviera, la casilla pasaría a
+    // ser obligatoria y nadie podría añadir el producto sin agrandarlo.
+    expect(plan.guardar[0]).toMatchObject({
+      modo: "adicional",
+      minSelect: 0,
+      maxSelect: 1,
+      precioUnitario: 9500,
+    });
   });
 
   it("subir las salsas incluidas de 1 a 2 solo toca esa fila", () => {
