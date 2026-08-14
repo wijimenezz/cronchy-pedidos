@@ -114,6 +114,25 @@ describe("pedidoParaMensaje", () => {
   it("un pedido sin barrio no inventa ninguno", () => {
     expect(pedidoParaMensaje(pedidoPublico({ barrio: null })).barrio).toBeNull();
   });
+
+  /**
+   * Un comprobante cargado es la única prueba de pago que maneja este negocio: en efectivo nunca
+   * hay comprobante, así que el mensaje dirá "Pendiente" — que es justo lo correcto.
+   *
+   * Es el mismo criterio con el que el domiciliario decide si cobra, y por eso se prueba aquí:
+   * el día que discrepen, uno de los dos le estará mintiendo al cliente.
+   */
+  it("el pago se da por hecho solo si hay comprobante", () => {
+    expect(pedidoParaMensaje(pedidoPublico()).pagado).toBe(false);
+    expect(pedidoParaMensaje(pedidoPublico({ tieneComprobante: true })).pagado).toBe(true);
+  });
+
+  // La propina todavía no existe en ningún sitio. Viaja en 0 para que el recibo ya tenga su
+  // renglón; el día que el checkout la pida, se cambia aquí y el mensaje no se entera.
+  it("la propina llega en cero mientras el checkout no la pida", () => {
+    expect(pedidoParaMensaje(pedidoPublico()).propina).toBe(0);
+    expect(pedidoParaMensaje(pedidoPublico({ descuento: 2000 })).descuento).toBe(2000);
+  });
 });
 
 describe("avisoNuevoPedido", () => {

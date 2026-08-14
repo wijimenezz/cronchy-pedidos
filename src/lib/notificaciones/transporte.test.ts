@@ -20,8 +20,10 @@ function pedido(overrides: Partial<PedidoParaMensaje> = {}): PedidoParaMensaje {
     items: [{ nombre: "Churro clásico", cantidad: 1, subtotal: 5000, modificadores: [] }],
     subtotal: 5000,
     costoDomicilio: 0,
+    descuento: 0,
     total: 5000,
     metodoPago: "efectivo",
+    pagado: false,
     ...overrides,
   };
 }
