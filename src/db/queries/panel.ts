@@ -53,6 +53,13 @@ export type PedidoPanel = {
   /** Con cuánto paga, si lo dijo. La devuelta se calcula, no se guarda. */
   pagaCon: number | null;
   comprobanteUrl: string | null;
+  /**
+   * Si el pedido cuenta como pagado. Un comprobante cargado es la única prueba de pago que
+   * maneja este negocio, así que es exactamente `comprobanteUrl != null` — pero se deriva aquí
+   * y no en cada sitio que lo necesite, porque ese criterio decide dos cosas que no pueden
+   * discrepar: lo que el cliente lee como "Estado del Pago" y si el domiciliario cobra.
+   */
+  tieneComprobante: boolean;
   notas: string | null;
   items: ItemSnapshot[];
   subtotal: number;
@@ -291,6 +298,7 @@ export async function obtenerPedidoPorNumero(
       metodoPago: fila.metodoPago,
       pagaCon: fila.pagaCon,
       comprobanteUrl: fila.comprobanteUrl,
+      tieneComprobante: fila.comprobanteUrl !== null,
       notas: fila.notas,
       items: aItems(fila.orderItems),
       subtotal: fila.subtotal,
