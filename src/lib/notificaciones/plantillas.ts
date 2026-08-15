@@ -335,9 +335,13 @@ function lineaLlegada(
   pedido: PedidoParaMensaje,
   estimado: EstimadoEntrega,
   etiqueta: string,
+  ahora: Date,
 ): string {
   if (pedido.horaEntregaEstimada) {
-    return `*${etiqueta}:* ${cuandoCorto(pedido.horaEntregaEstimada)}`;
+    // El mismo `ahora` con el que se escribió la fecha de entrega dos líneas más arriba: si uno
+    // mirara el reloj y el otro no, el mensaje podría decir "mañana 7:00 pm" bajo una fecha de
+    // hoy. Y de paso deja de depender del día en que se corran los tests.
+    return `*${etiqueta}:* ${cuandoCorto(pedido.horaEntregaEstimada, ahora)}`;
   }
 
   return `*${etiqueta}:* lo antes posible (${estimado.min}-${estimado.max} min)`;
@@ -527,7 +531,7 @@ export function cambioEstado(
       "",
       ...bloqueRecibo(pedido),
       SEP,
-      lineaLlegada(pedido, estimado, pedido.tipo === "recoger" ? "Listo" : "Llega"),
+      lineaLlegada(pedido, estimado, pedido.tipo === "recoger" ? "Listo" : "Llega", ahora),
       "",
       "Sigue tu pedido en tiempo real aquí:",
       "",
@@ -788,4 +792,159 @@ export function fueraDeCobertura(
     "",
     "¿Me pueden cotizar el domicilio?",
   ].join("\n");
+}
+
+// ------------------------------------------------------------
+// Mensaje 7 — el pedido nuevo por Telegram (canal interno)
+// ------------------------------------------------------------
+
+/**
+ * Lo que hace falta para contar un pedido recién entrado.
+ *
+ * Tiene su propio tipo, como el del domiciliario, porque este mensaje mezcla dos mundos que los
+ * avisos al cliente mantienen separados: la caja (con cuánto paga, si ya pagó) y la cocina (qué
+ * lleva cada plato). Es el único que puede, porque no sale del local.
+ */
+export type PedidoParaTelegram = {
+  numero: number;
+  tipo: TipoPedido;
+  /** La hora que pidió el cliente, o `null` si lo quiere lo antes posible. */
+  programadoPara?: Date | null;
+  clienteNombre: string;
+  clienteTelefono: string;
+  /** Primera vez que pide. Es cuándo vale la pena meter un detalle extra en la bolsa. */
+  esClienteNuevo: boolean;
+  direccion?: string | null;
+  barrio?: string | null;
+  indicaciones?: string | null;
+  /** La zona que cobró el domicilio. Va al lado del costo para poder cuadrarlo de una ojeada. */
+  zonaNombre?: string | null;
+  items: ItemSnapshot[];
+  costoDomicilio: number;
+  total: number;
+  metodoPago: string;
+  pagaCon?: number | null;
+  pagado: boolean;
+  notas?: string | null;
+  creadoEn: Date;
+};
+
+/**
+ * Telegram corta el mensaje en 4.096 caracteres y responde con error si te pasas, o sea que un
+ * pedido enorme no llegaría en absoluto. Se recorta antes, con margen.
+ */
+const TOPE_TELEGRAM = 4000;
+
+/**
+ * El nombre, la dirección y las notas los escribe el cliente, y este mensaje va con
+ * `parse_mode: HTML`. Un `<` suelto en "casa <esquina>" no se ve raro: Telegram **rechaza el
+ * mensaje entero**, así que el aviso no llega y nadie se entera de por qué.
+ */
+function escaparHtml(texto: string): string {
+  return texto.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** Los modificadores de un item en una línea: "con Arequipe, Oreo ×2". */
+function modificadoresEnLinea(item: ItemSnapshot): string {
+  if (item.modificadores.length === 0) return "";
+
+  const nombres = item.modificadores.map((m) =>
+    m.cantidad > 1 ? `${m.nombre} ×${m.cantidad}` : m.nombre,
+  );
+
+  return ` con ${escaparHtml(nombres.join(", "))}`;
+}
+
+/**
+ * Cómo se paga, en una línea. **Es la segunda del mensaje a propósito**: junto con la primera es
+ * todo lo que se lee en la pantalla bloqueada, y con eso quien está en la freidora ya sabe si
+ * tiene que preparar la devuelta o si el pedido viene pagado.
+ *
+ * Un método que no es efectivo y llega sin comprobante no dice "contra entrega": recoger se paga
+ * por adelantado, así que ahí hay un pago que perseguir y el mensaje tiene que decirlo.
+ */
+function lineaPago(pedido: PedidoParaTelegram): string {
+  const metodo = etiquetaMetodo(pedido.metodoPago).toUpperCase();
+
+  if (pedido.pagado) return `✅ ${metodo} — comprobante adjunto`;
+
+  if (pedido.metodoPago === "efectivo") {
+    if (pedido.pagaCon && pedido.pagaCon > pedido.total) {
+      return `💵 ${metodo} — paga con ${pesos(pedido.pagaCon)}, devolver ${pesos(pedido.pagaCon - pedido.total)}`;
+    }
+    return `💵 ${metodo} — contra entrega`;
+  }
+
+  return `⚠️ ${metodo} — SIN comprobante`;
+}
+
+/**
+ * El pedido nuevo, para el chat interno del equipo.
+ *
+ * **Lo que manda el orden es la pantalla bloqueada**: ahí solo se leen las dos primeras líneas,
+ * así que arriba va lo que permite decidir sin abrir el chat —tipo de entrega, número, total y
+ * cómo se paga— y ni un dato del cliente, que es la misma doctrina del payload del Web Push. Lo
+ * que hay que leer para preparar el pedido viene después, y lo que solo sirve para llegar a la
+ * puerta, al final.
+ *
+ * Un pedido programado antepone su línea, sola: es lo único que impide que alguien fría veinte
+ * churros a las ocho de la noche para una entrega de mañana.
+ *
+ * Devuelve el texto y la URL del panel por separado porque el botón no viaja dentro del mensaje:
+ * es un `inline_keyboard` de la Bot API, y armarlo es cosa de quien envía.
+ */
+export function pedidoNuevoTelegram(
+  pedido: PedidoParaTelegram,
+  tienda: Tienda,
+  ahora: Date = new Date(),
+): { texto: string; urlPanel: string } {
+  const lineas: string[] = [];
+
+  if (pedido.programadoPara) {
+    lineas.push(`⏰ <b>PROGRAMADO — ${cuandoCorto(pedido.programadoPara, ahora)}</b>`);
+  }
+
+  const cabecera = pedido.tipo === "domicilio" ? "🛵 DOMICILIO" : "🏪 RECOGE EN TIENDA";
+  lineas.push(`<b>${cabecera} · #${pedido.numero} · ${pesos(pedido.total)}</b>`);
+  lineas.push(lineaPago(pedido));
+
+  lineas.push("");
+  pedido.items.forEach((item, i) => {
+    const sangria = i === 0 ? "🧾 " : "   ";
+    lineas.push(
+      `${sangria}${item.cantidad}× ${escaparHtml(item.nombre)}${modificadoresEnLinea(item)}`,
+    );
+    // La nota va debajo de SU item y no toda junta al final, que es donde se pierde. El checkout
+    // todavía no las pide, así que hoy no aparece nunca; el día que las pida, ya está.
+    if (item.notas) lineas.push(`      ↳ ${escaparHtml(item.notas)}`);
+  });
+
+  if (pedido.notas) {
+    lineas.push("", `📝 "${escaparHtml(pedido.notas)}"`);
+  }
+
+  // En recoger no hay nada que ubicar: el cliente viene.
+  if (pedido.tipo === "domicilio") {
+    lineas.push("", `📍 ${escaparHtml(pedido.direccion ?? "sin dirección")}`);
+
+    // Barrio y zona son cosas distintas (regla 14) y van juntas justamente para poder cuadrarlas:
+    // el barrio lo escribió el cliente y la zona es la que cobró.
+    const ubicacion = [
+      pedido.barrio ? escaparHtml(pedido.barrio) : null,
+      pedido.zonaNombre ? `${escaparHtml(pedido.zonaNombre)} (${pesos(pedido.costoDomicilio)})` : null,
+    ].filter(Boolean);
+
+    if (ubicacion.length > 0) lineas.push(`   ${ubicacion.join(" · ")}`);
+    if (pedido.indicaciones) lineas.push(`   Ref: ${escaparHtml(pedido.indicaciones)}`);
+  }
+
+  lineas.push("", `👤 ${escaparHtml(pedido.clienteNombre)} · ${escaparHtml(pedido.clienteTelefono)}`);
+  lineas.push(
+    `🕐 ${horaCorta(pedido.creadoEn)}${pedido.esClienteNuevo ? " · Cliente nuevo" : ""}`,
+  );
+
+  return {
+    texto: lineas.join("\n").slice(0, TOPE_TELEGRAM),
+    urlPanel: `${tienda.baseUrl}/admin/pedidos/${pedido.numero}`,
+  };
 }

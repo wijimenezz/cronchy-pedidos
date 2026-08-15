@@ -6,6 +6,7 @@ import { esMetodoOfrecido } from "@/lib/pedidos/pago";
 import { getStore } from "@/db/queries/store";
 import { crearPedidoEnDB } from "@/db/queries/pedidos";
 import { enviarPushPedidoNuevo } from "@/lib/notificaciones/push";
+import { avisarPedidoNuevo } from "@/lib/notificaciones/telegram";
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
@@ -91,13 +92,18 @@ export async function POST(request: Request) {
 
   const pedido = await crearPedidoEnDB(tienda.id, input, resultado.valor);
 
-  // El aviso al panel, y va DESPUÉS de crear el pedido y sin poder tumbarlo: el cliente ya compró,
-  // así que un fallo empujando la notificación no puede convertirse en un error de su checkout.
+  // Los avisos al negocio, DESPUÉS de crear el pedido y sin poder tumbarlo: el cliente ya compró,
+  // así que un fallo notificando no puede convertirse en un error de su checkout.
   //
-  // Se espera (`await`) a propósito, igual que al borrar fotos huérfanas: en una función
-  // serverless, disparar sin esperar mata la instancia antes de que salga la petición.
+  // Se esperan (`await`) a propósito, igual que al borrar fotos huérfanas: en una función
+  // serverless, disparar sin esperar mata la instancia antes de que salgan las peticiones. Van en
+  // paralelo porque son canales independientes —el push despierta al panel, Telegram cuenta el
+  // pedido— y encadenarlos le sumaría al cliente la espera de los dos.
   try {
-    await enviarPushPedidoNuevo(tienda.id, pedido.numero);
+    await Promise.all([
+      enviarPushPedidoNuevo(tienda.id, pedido.numero),
+      avisarPedidoNuevo(input, resultado.valor, pedido, tienda),
+    ]);
   } catch (error) {
     console.error("No se pudo avisar al panel del pedido nuevo:", error);
   }
