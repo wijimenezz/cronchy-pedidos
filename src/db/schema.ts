@@ -28,10 +28,16 @@ export const store = pgTable("store", {
 	// cinco minutos.
 	minutosEstimadoMin: integer("minutos_estimado_min").default(30).notNull(),
 	minutosEstimadoMax: integer("minutos_estimado_max").default(45).notNull(),
+	// `nequi_titular` y `nequi_numero` ya NO se muestran en el checkout: el pago se pide por
+	// llave y QR. Se conservan escritas por si hubiera que volver atrás, pero hoy no las lee
+	// nadie — no las uses como fuente de nada.
 	nequiTitular: text("nequi_titular"),
 	nequiNumero: text("nequi_numero"),
 	nequiLlave: text("nequi_llave"),
 	nequiLlaveTitular: text("nequi_llave_titular"),
+	// El QR interoperable de Bre-B, en el bucket público. Es una URL y no un archivo del repo
+	// para poder cambiarlo desde el panel: rotarlo no puede depender de un despliegue.
+	nequiQrUrl: text("nequi_qr_url"),
 	whatsappUrl: text("whatsapp_url"),
 	instagramUrl: text("instagram_url"),
 	tiktokUrl: text("tiktok_url"),
@@ -152,6 +158,11 @@ export const modifierGroup = pgTable("modifier_group", {
 	storeId: uuid("store_id").notNull(),
 	nombre: text().notNull(),
 	tipo: tipoGrupo().default('seleccion').notNull(),
+	// Lo que hay que explicarle al cliente sobre esta sección, editable desde /admin/opciones.
+	// NULL = no hace falta explicar nada, que es el caso de casi todas: una lista de salsas se
+	// entiende sola. "Azúcar y canela" no, porque sus opciones QUITAN algo que el churro ya
+	// trae, y sin decirlo nadie sabe qué pasa si no toca nada.
+	ayuda: text(),
 	permiteCantidad: boolean("permite_cantidad").default(false).notNull(),
 	maxPorOpcion: integer("max_por_opcion"),
 	// Archivar y no borrar (regla 9): una lista con `activo = false` no se puede enganchar a
@@ -256,6 +267,39 @@ export const deliveryZone = pgTable("delivery_zone", {
 	unique("delivery_zone_store_id_nombre_key").on(table.storeId, table.nombre),
 	// Regla 13: no existe zona a $0. El domicilio lo ejecuta un courier externo y siempre se cobra.
 	check("delivery_zone_precio_check", sql`precio > 0`),
+]);
+
+/**
+ * Diccionario para traducir lo que OpenStreetMap llama barrio a lo que se llama aquí.
+ *
+ * NO es una capa geográfica y no se parece a `delivery_zone`: no tiene polígono, no cubre
+ * puntos y no decide ni un peso. Es una tabla de nombres, y existe porque OSM tiene los 90
+ * barrios de Fusagasugá como nodos sueltos —ninguno con área—, así que Nominatim responde por
+ * proximidad y a veces devuelve un nombre que aquí no existe ("Managua" donde es Balmoral).
+ *
+ * El barrio del pedido sigue siendo lo que el cliente confirma en el campo (regla 14): esto
+ * solo mejora lo que se le propone.
+ */
+export const barrio = pgTable("barrio", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	storeId: uuid("store_id").notNull(),
+	/** Exactamente como lo escribe OSM. Es la llave de búsqueda, por eso no se edita. */
+	nombreOsm: text("nombre_osm").notNull(),
+	/**
+	 * Lo que se escribe en el campo del cliente. NULL = no sugerir nada y que lo escriba él.
+	 *
+	 * Nullable en vez de una columna `activo` aparte: descartar un nombre es no tener nada que
+	 * poner, y con las dos columnas habría dos maneras de decir lo mismo (y una fila que dijera
+	 * las dos cosas a la vez).
+	 */
+	nombre: text(),
+}, (table) => [
+	foreignKey({
+			columns: [table.storeId],
+			foreignColumns: [store.id],
+			name: "barrio_store_id_fkey"
+		}).onDelete("cascade"),
+	unique("barrio_store_id_nombre_osm_key").on(table.storeId, table.nombreOsm),
 ]);
 
 export const customer = pgTable("customer", {

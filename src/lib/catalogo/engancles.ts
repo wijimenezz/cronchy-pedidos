@@ -37,6 +37,20 @@ export type ConfiguracionModificadores = {
   /** Lo que el producto ya trae y el cliente elige sí o sí (regla 4). */
   incluidos: { groupId: string; cantidad: number }[];
   /**
+   * Tamaños y presentaciones: elegir uno es **obligatorio** y cada opción cobra su propio
+   * `precio_delta`. Es la tercera forma de enganchar un grupo, y la que faltaba.
+   *
+   * Lo incluido es obligatorio pero gratis (`precioEfectivoOpcion` devuelve 0 en ese modo sin
+   * mirar nada) y lo adicional cobra pero es opcional. Una "Porción de helado" de $4.000 en
+   * pequeño y $8.000 en mediano necesita las dos cosas a la vez, así que va en modo
+   * `adicional` —para que el precio de cada opción cuente— con `min_select = 1`.
+   *
+   * Por eso aquí no hay ni cantidad ni precio: la cantidad es siempre 1 y el precio vive en
+   * cada `modifier_option`, que es lo que hace que dos opciones del mismo grupo valgan
+   * distinto.
+   */
+  variantes: { groupId: string }[];
+  /**
    * Lo que se cobra aparte: opcional, con tope y precio por unidad (regla 3).
    *
    * `precio` en `null` significa "cada opción cobra el suyo": el motor cae entonces al
@@ -62,15 +76,27 @@ export type EngancheConTipo = EngancheActual & { tipoGrupo: "seleccion" | "upsel
  *
  * Un grupo de tipo `upsell` sale como upsell aunque esté enganchado en modo 'adicional',
  * que es como está en la base: lo que lo define es el tipo del grupo, no el modo.
+ *
+ * Y entre los que sí son 'seleccion' + 'adicional', lo que separa una variante de un adicional
+ * de toda la vida es el `min_select`: si hay que elegir uno, es un tamaño; si se puede saltar,
+ * es un extra. **Ese reparto tiene que estar de acuerdo con `planificarEngancles` o el primer
+ * guardado inocente convierte un tamaño obligatorio en opcional** — y un helado sin tamaño se
+ * cobraría al precio del pequeño.
  */
 export function configuracionDesde(engancles: EngancheConTipo[]): ConfiguracionModificadores {
+  const seleccionables = engancles.filter((e) => e.tipoGrupo === "seleccion");
+
   return {
-    incluidos: engancles
-      .filter((e) => e.modo === "incluido" && e.tipoGrupo === "seleccion")
+    incluidos: seleccionables
+      .filter((e) => e.modo === "incluido")
       .map((e) => ({ groupId: e.groupId, cantidad: e.minSelect })),
 
-    adicionales: engancles
-      .filter((e) => e.modo === "adicional" && e.tipoGrupo === "seleccion")
+    variantes: seleccionables
+      .filter((e) => e.modo === "adicional" && e.minSelect > 0)
+      .map((e) => ({ groupId: e.groupId })),
+
+    adicionales: seleccionables
+      .filter((e) => e.modo === "adicional" && e.minSelect === 0)
       .map((e) => ({ groupId: e.groupId, hasta: e.maxSelect, precio: e.precioUnitario })),
 
     upsells: engancles.filter((e) => e.tipoGrupo === "upsell").map((e) => e.groupId),
@@ -149,9 +175,37 @@ export function planificarEngancles(
     });
   });
 
-  // 2. Los adicionales de pago. Opcionales (min 0) y plegados por defecto: son una sección
+  // 2. Los tamaños. Modo 'adicional' para que el precio de cada opción cuente (regla 3), pero
+  //    con min = max = 1: hay que elegir uno, y solo uno. `precioUnitario` en NULL es lo que
+  //    hace que cada opción cobre su `precio_delta`, que es justo el punto — un precio fijo
+  //    aquí les pondría el mismo a todos los tamaños.
+  //
+  //    `colapsado: false` porque una elección obligatoria no puede nacer plegada: el cliente
+  //    no podría añadir el producto al carrito y no vería por qué.
+  //
+  //    **Los números se escriben siempre, no se conservan del enganche previo**, al revés que
+  //    en los upsell. Ahí conservar es lo correcto porque el panel no expone esos controles y
+  //    los puso el seed; aquí los define el propio cubo: estar en "Tamaños" *significa* elegir
+  //    uno con el precio de cada opción. Conservarlos rompería el caso que más se va a dar —
+  //    mover un grupo de Adicionales a Tamaños—, porque el enganche viejo trae `min_select = 0`
+  //    y el tamaño se quedaría siendo opcional sin que nada lo dijera.
+  const baseVariantes = config.incluidos.length;
+  config.variantes.forEach((v, i) => {
+    agregar({
+      groupId: v.groupId,
+      modo: "adicional",
+      minSelect: 1,
+      maxSelect: 1,
+      precioUnitario: null,
+      avisarIncompleto: false,
+      colapsado: false,
+      orden: baseVariantes + i,
+    });
+  });
+
+  // 3. Los adicionales de pago. Opcionales (min 0) y plegados por defecto: son una sección
   //    aparte que no debe estorbar a quien solo quiere su churro.
-  const base = config.incluidos.length;
+  const base = baseVariantes + config.variantes.length;
   config.adicionales.forEach((ad, i) => {
     agregar({
       groupId: ad.groupId,
@@ -165,7 +219,7 @@ export function planificarEngancles(
     });
   });
 
-  // 3. Los upsell. El panel solo los enciende y los apaga, así que si el enganche ya
+  // 4. Los upsell. El panel solo los enciende y los apaga, así que si el enganche ya
   //    existía se le respetan min, max y precio tal como estaban: la invariante
   //    `minSelect = 0` de estos grupos la fijó el seed y no hay control que la exponga.
   //    Lo único que se recalcula es el orden, para que la bebida quede al final.

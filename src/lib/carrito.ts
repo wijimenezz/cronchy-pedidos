@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import type { TipoPedido } from "@/lib/tienda/tipo-pedido";
 
 export type ModificadorCarrito = {
   modifierOptionId: string;
@@ -28,6 +29,17 @@ export type ItemCarrito = {
   productoId: string;
   nombre: string;
   precioBase: number;
+  /**
+   * Por qué canales se vendía este producto al añadirlo.
+   *
+   * Es un dato **de UI**, como `precioUnitarioEstimado`: sirve para sacar del carrito lo que
+   * dejó de poder venderse al cambiar de domicilio a recoger, y nada más. Quien decide de
+   * verdad sigue siendo el servidor al confirmar (regla 1), así que si el admin cambia el canal
+   * mientras alguien tiene el carrito abierto, lo peor que pasa es lo que pasaba antes: el
+   * pedido se rechaza al crearlo.
+   */
+  disponibleDelivery: boolean;
+  disponiblePickup: boolean;
   /** Estimado de UI (precioBase + modificadores). El precio real siempre se
    * recalcula en `POST /api/pedidos` (regla 1 de CLAUDE.md). */
   precioUnitarioEstimado: number;
@@ -62,7 +74,21 @@ type EstadoCarrito = {
   /** Paso del checkout, para volver donde estaba y no al principio. */
   paso: 1 | 2 | 3;
   /** Producto sin modificadores: agrega directo, igual que hoy. */
-  agregarSimple: (producto: { id: string; nombre: string; precioBase: number }) => void;
+  agregarSimple: (producto: {
+    id: string;
+    nombre: string;
+    precioBase: number;
+    disponibleDelivery: boolean;
+    disponiblePickup: boolean;
+  }) => void;
+  /**
+   * Saca del carrito lo que no se puede vender por ese canal y **devuelve lo que sacó**.
+   *
+   * Devuelve las líneas en vez de solo quitarlas porque quitar en silencio es peor que el bug
+   * que arregla: el cliente vuelve al carrito y falta algo sin explicación. Quien la llama
+   * necesita los nombres para poder decirlo.
+   */
+  depurarPorTipo: (tipo: TipoPedido) => ItemCarrito[];
   /** Producto configurado desde la ficha (con o sin modificadores/upsells):
    * siempre crea una línea nueva, no intenta fusionar configuraciones. */
   agregarConfigurado: (item: Omit<ItemCarrito, "lineId">) => void;
@@ -101,7 +127,9 @@ const PERSISTIDO_VACIO: CarritoPersistido = {
  */
 export const useCarrito = create<EstadoCarrito>()(
   persist(
-    (set) => ({
+    // `get` y no `useCarrito.getState()`: referirse al store desde dentro de su propio creador
+    // es una referencia circular que deja a TypeScript sin poder inferir `EstadoCarrito`.
+    (set, get) => ({
       items: [],
       notas: "",
       metodoPago: "efectivo",
@@ -128,6 +156,8 @@ export const useCarrito = create<EstadoCarrito>()(
                 productoId: producto.id,
                 nombre: producto.nombre,
                 precioBase: producto.precioBase,
+                disponibleDelivery: producto.disponibleDelivery,
+                disponiblePickup: producto.disponiblePickup,
                 precioUnitarioEstimado: producto.precioBase,
                 cantidad: 1,
                 seleccion: [],
@@ -153,6 +183,21 @@ export const useCarrito = create<EstadoCarrito>()(
         })),
       eliminar: (lineId) =>
         set((estado) => ({ items: estado.items.filter((i) => i.lineId !== lineId) })),
+      depurarPorTipo: (tipo) => {
+        // `!== false` y no el valor a secas: solo un `false` explícito retira una línea. Una
+        // guardada sin estos campos —`migrate` las normaliza, pero esto es lo único que borra
+        // sin que el cliente lo pida— se queda, que es como se comportaba antes de existir el
+        // dato. Equivocarse hacia el otro lado es vaciarle el carrito a alguien en silencio.
+        const sobreviven = (i: ItemCarrito) =>
+          tipo === "domicilio" ? i.disponibleDelivery !== false : i.disponiblePickup !== false;
+
+        const retiradas = get().items.filter((i) => !sobreviven(i));
+        if (retiradas.length > 0) {
+          set((estado) => ({ items: estado.items.filter(sobreviven) }));
+        }
+
+        return retiradas;
+      },
       setNotas: (notas) => set({ notas }),
       setPago: (pago) => set(pago),
       setPaso: (paso) => set({ paso }),
@@ -203,7 +248,13 @@ export const useCarrito = create<EstadoCarrito>()(
       //
       // v3: `notas` dejó de persistirse. Una nota guardada por una versión anterior
       // sigue en localStorage, así que hay que descartarla explícitamente.
-      version: 3,
+      //
+      // v4: cada línea guarda por qué canales se vende su producto. **Aquí NO se descarta el
+      // carrito**, al revés que en v1 y v2: allí faltaban datos sin los que la UI reventaba o
+      // el servidor rechazaba el pedido, y perder el carrito era el mal menor. Un canal que
+      // falta se puede suponer —`true`/`true` es exactamente como se comportaba antes— y tirarle
+      // el carrito a alguien por un campo informativo sería un castigo desproporcionado.
+      version: 4,
       migrate: (persistedState, version) => {
         if (version < 2) return PERSISTIDO_VACIO;
 
@@ -212,7 +263,11 @@ export const useCarrito = create<EstadoCarrito>()(
         // atrás al fusionarse con el estado inicial.
         const guardado = persistedState as Partial<CarritoPersistido>;
         return {
-          items: guardado.items ?? [],
+          items: (guardado.items ?? []).map((item) => ({
+            ...item,
+            disponibleDelivery: item.disponibleDelivery ?? true,
+            disponiblePickup: item.disponiblePickup ?? true,
+          })),
           metodoPago: guardado.metodoPago ?? "efectivo",
           comprobanteUrl: guardado.comprobanteUrl ?? null,
           pagoConfirmado: guardado.pagoConfirmado ?? false,

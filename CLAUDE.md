@@ -388,6 +388,28 @@ del servidor colgada de `/api/zonas/cotizar`, y si falla o tarda más de 1,5 s e
 queda vacío y se escribe a mano: el precio del domicilio no puede depender de un servicio
 comunitario gratuito. Es OSM, no Google, igual que los mapas.
 
+**Esa sugerencia es imprecisa por los datos, no por el código, y conviene saberlo antes de
+intentar "arreglarla".** OSM tiene los 90 barrios de Fusagasugá como **nodos sueltos: ninguno
+tiene polígono**. Sin áreas, Nominatim no puede responder "el punto está dentro de Balmoral" y
+contesta por proximidad y peso interno, que a esta escala es casi azar. Medido sobre dos
+pedidos reales separados 60 m, devolvió **las dos veces el barrio más lejano** de los dos
+candidatos (Balmoral a 168 m vs Managua a 174 m → dijo Managua; y al revés en el otro). Cambiar
+a "el nodo más cercano" tampoco lo arreglaría, y encima uno de esos nombres —"Managua"— no
+existe en la ciudad.
+
+Por eso hay una **capa de traducción de nombres**: la tabla `barrio` (`nombre_osm` → `nombre`,
+NULL = no sugerir nada) se edita en `/admin/ajustes` y se aplica en `/api/zonas/cotizar`
+**después** de `barrioDelPunto`, nunca dentro: esa función cachea la respuesta de OSM una hora,
+y traducir antes de su caché serviría el nombre viejo una hora después de corregirlo. La parte
+que decide es `resolverNombreBarrio`, pura y testeada, y sus tres casos no son dos: **sin fila
+en la tabla** el nombre pasa tal cual (un barrio que OSM añadió luego), que no es lo mismo que
+una fila con `nombre` NULL.
+
+Lo que esa tabla **no** arregla, y por eso el campo sigue siendo editable: que el pin reciba el
+nombre de un barrio vecino que sí existe. Traducir solo puede con los nombres que están mal
+siempre. La solución de raíz sería dibujar los barrios como polígonos propios, y hasta hoy no
+se ha necesitado.
+
 **Fuera de cobertura** (el punto no cae en ninguna zona activa): el checkout se
 bloquea y muestra un botón de WhatsApp con mensaje pre-armado — resumen del carrito +
 link de Google Maps con el pin — para que la tienda cotice el domicilio. Si el cliente
@@ -451,6 +473,7 @@ pueda saltar generando franjas por otro camino.
 | `admin/productos` | solo Visible↔Agotado (ni ocultar ni reactivar)               | CRUD completo, precios, fotos (de producto y de categoría), categorías, enganches |
 | `admin/opciones`  | solo switch `disponible` (sabores de la semana)              | crear/renombrar/ordenar opciones, precio propio, archivar listas  |
 | `admin/zonas`     | sin acceso (ni lectura)                                      | mapa: dibujar, editar vértices, precio, prioridad, activar/apagar |
+| `admin/ajustes`   | sin acceso (ni lectura)                                      | con qué se paga (llave, titular, QR) y los nombres de barrio que OSM devuelve mal |
 
 Estados de un producto (independientes entre sí — no colapsarlos en un enum):
 
@@ -711,6 +734,45 @@ servidor— y el audio necesita **un gesto del usuario** antes de poder sonar: d
   los 60 días con **`pg_cron` dentro de Supabase** (no un cron de Vercel: corre en la
   base y no depende del hosting). `productos` es **público**: son las fotos de la carta,
   las ve cualquiera sin sesión. El free tier son 1 GB entre los dos.
+
+  Ese bucket público tiene **tres carpetas y ninguna más**: `<producto>/`, `categorias/` y
+  `tienda/` (el QR de pago). La lista está cerrada en el regex de `esUrlDeFotoProducto`, que
+  es el filtro con el que cada server action decide si guarda una URL — las URLs llegan del
+  navegador, y sin ese corte un admin podría escribir el dominio de un tercero. Añadir una
+  carpeta obliga a tocar `imagenes.ts`, `storage.ts` y `/api/admin/fotos`, en ese orden.
+- **El pago se pide por llave y QR, nunca por número de teléfono.** El QR es el
+  interoperable de **Bre-B**, no uno de Nequi: sirve desde la app de cualquier entidad, y por
+  eso el checkout rotula el método "Nequi o Bre-B" aunque el enum `metodo_pago` siga diciendo
+  `nequi` — el rótulo es de la pantalla, el enum es del historial ya escrito. `nequi_numero` y
+  `nequi_titular` **siguen en la base pero no las lee nadie**, y ni siquiera viajan al
+  navegador: mandar un celular que no se muestra sería filtrarlo a cambio de nada.
+
+  **Recoger se paga por adelantado**: ahí no se ofrece efectivo, porque ponerse a preparar un
+  pedido que nadie viene a buscar es comida a la basura. La lista de métodos la genera
+  `metodosDePago` (`src/lib/pedidos/pago.ts`, puro y testeado) y quien la hace cumplir es
+  `POST /api/pedidos` con `esMetodoOfrecido` — **es la regla 16 aplicada al dinero**, y por lo
+  mismo no vive en Zod: `crearPedidoSchema` es puro y no sabe si hay llave configurada, así que
+  la regla sería falsa justo en el caso del respaldo. **Sin llave, el efectivo vuelve** también
+  en recoger: un checkout sin ninguna forma de pagar no protege nada, solo pierde el pedido en
+  silencio.
+
+  Cuidado con un detalle que no se ve en la pantalla: `metodoPago` vive en el carrito
+  persistido y nada lo resetea al cambiar de tipo, así que el checkout **normaliza el heredado**
+  con un efecto. Sin él, quien venía de un domicilio en efectivo llegaría al paso 3 sin ningún
+  radio marcado y mandando `efectivo` igual, porque el payload sale del store y no del DOM.
+
+  Dos cosas del QR que no se deducen del código:
+
+  - **No se comprime al subirlo**, al revés que todo lo demás. `comprimirImagen` recomprime a
+    WebP con pérdida, y aquí las dos cosas estorban: un QR denso pierde módulos, y el archivo
+    tiene que abrirse en el selector de imágenes de la app de un banco, donde JPG y PNG son
+    apuestas más seguras. Pesa ~124 KB; no hay nada que ahorrar. Por lo mismo se pinta con
+    `unoptimized` en las dos pantallas.
+  - **Se descarga por `/api/qr-pago` y no desde Storage**, porque el atributo `download` de un
+    `<a>` **se ignora en enlaces cross-origin**: apuntando a Supabase, el navegador abriría la
+    imagen en otra pestaña en vez de guardarla. Y guardarlo es justo el punto — el cliente
+    está mirando el checkout en el mismo teléfono con el que va a pagar, así que no puede
+    escanear su propia pantalla: guarda el QR y lo abre desde la galería en su app.
 - **Las dos cabeceras de Storage.** `src/lib/storage.ts` manda `Authorization: Bearer` **y**
   `apikey`. Las llaves nuevas de Supabase (`sb_secret_…`) no son JWT y con solo
   `Authorization` el servicio contesta `400 Invalid Compact JWS`, sin mencionar la cabecera

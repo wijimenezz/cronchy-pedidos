@@ -3,7 +3,11 @@
 import { useState, useSyncExternalStore } from "react";
 import Image from "next/image";
 import { Bike, ChevronDown, ShoppingBag } from "lucide-react";
-import { elegirTipoPedido, useTipoPedido, type TipoPedido } from "@/lib/tienda/tipo-pedido";
+import {
+  cambiarTipoPedido,
+  useTipoPedido,
+  type TipoPedido,
+} from "@/lib/tienda/tipo-pedido";
 
 // A nivel de módulo para que su identidad no cambie entre renders: si no, React se
 // resuscribiría en cada uno.
@@ -30,6 +34,13 @@ function useHidratado(): boolean {
 export function SelectorTipoPedido() {
   const tipo = useTipoPedido();
   const [reabierto, setReabierto] = useState(false);
+  /**
+   * Lo que se cayó del carrito al cambiar de canal.
+   *
+   * Se guardan los nombres y no un contador: "quitamos 2 productos" obliga a ir al carrito a
+   * ver cuáles, y quien acaba de cambiar de canal está mirando esta pantalla, no aquella.
+   */
+  const [retirados, setRetirados] = useState<string[]>([]);
   // El modal NO puede decidirse en el servidor: su única fuente de verdad es
   // localStorage, que ahí no existe. Sin esta espera, el HTML estático (ISR) llega
   // siempre con el modal puesto —en el servidor el tipo es null— y el navegador lo
@@ -40,19 +51,45 @@ export function SelectorTipoPedido() {
   const mostrarModal = hidratado && (reabierto || tipo === null);
 
   function elegir(nuevo: TipoPedido) {
-    elegirTipoPedido(nuevo);
+    setRetirados(cambiarTipoPedido(nuevo).map((i) => i.nombre));
     setReabierto(false);
   }
 
   return (
     <>
+      {/* Fuera del modal a propósito: el modal se cierra al elegir, y el aviso tiene que
+          sobrevivirle — si viviera dentro, se iría con él sin que nadie lo leyera. */}
+      {retirados.length > 0 && (
+        <div
+          role="status"
+          className="fixed inset-x-4 bottom-4 z-50 rounded-md bg-cafe px-4 py-3 text-sm text-crema shadow-modal sm:inset-x-auto sm:right-4 sm:max-w-sm"
+        >
+          <p>
+            {retirados.length === 1
+              ? `Quitamos ${retirados[0]} del carrito: no se vende para ${tipo === "domicilio" ? "domicilio" : "recoger"}.`
+              : `Quitamos del carrito ${retirados.join(", ")}: no se venden para ${tipo === "domicilio" ? "domicilio" : "recoger"}.`}
+          </p>
+          <button
+            type="button"
+            onClick={() => setRetirados([])}
+            className="mt-1 min-h-11 font-bold text-crema underline underline-offset-2"
+          >
+            Entendido
+          </button>
+        </div>
+      )}
+
       {tipo && (
         <button
           type="button"
           onClick={() => setReabierto(true)}
           className="flex items-center gap-1.5 rounded-full bg-crema-oscura px-3 py-1 text-sm font-medium text-cafe"
         >
-          {tipo === "domicilio" ? <Bike className="size-4" /> : <ShoppingBag className="size-4" />}
+          {tipo === "domicilio" ? (
+            <Bike className="size-4" />
+          ) : (
+            <ShoppingBag className="size-4" />
+          )}
           {tipo === "domicilio" ? "Domicilio" : "Recoger"}
           <ChevronDown className="size-3.5" />
         </button>
@@ -70,7 +107,13 @@ export function SelectorTipoPedido() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex justify-center">
-              <Image src="/churro-gorra.png" alt="" width={318} height={456} className="h-24 w-auto" />
+              <Image
+                src="/Churro_musical_opciones.png"
+                alt=""
+                width={318}
+                height={456}
+                className="h-24 w-auto"
+              />
             </div>
             <h2 className="mt-2 text-center font-titulo text-xl font-semibold text-cafe">
               ¿Cómo quieres tu pedido?

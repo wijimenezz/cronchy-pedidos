@@ -4,6 +4,7 @@ import {
   nuevoPedidoNegocio,
   pedidoParaDomiciliario,
   type EstadoPedido,
+  type EstimadoEntrega,
   type PedidoParaMensaje,
   type Tienda,
 } from "./plantillas";
@@ -22,13 +23,29 @@ export function tiendaParaMensaje(store: { nombre: string }): Tienda {
 }
 
 /**
+ * Lo que se le promete al cliente en "lo antes posible".
+ *
+ * Se lee de la tienda en cada aviso y no se congela en el pedido: si la cocina sube el estimado
+ * a mitad de tarde, lo que se prometa a partir de ahí tiene que ser lo nuevo.
+ */
+function estimadoDeEntrega(store: {
+  minutosEstimadoMin: number;
+  minutosEstimadoMax: number;
+}): EstimadoEntrega {
+  return { min: store.minutosEstimadoMin, max: store.minutosEstimadoMax };
+}
+
+/**
  * Lo que necesita cualquier aviso para armarse. Se declara una vez porque estaba escrito
  * literal en dos firmas, y añadir `programadoPara` a una y no a la otra rompió el build: los
  * campos que cambian de nombre al cruzar a las plantillas no los descubre la intersección.
  */
 export type PedidoParaAviso = Pick<
   PedidoPublico,
-  (keyof PedidoParaMensaje & keyof PedidoPublico) | "punto" | "programadoPara"
+  | (keyof PedidoParaMensaje & keyof PedidoPublico)
+  | "punto"
+  | "programadoPara"
+  | "tieneComprobante"
 >;
 
 /**
@@ -66,8 +83,16 @@ export function pedidoParaMensaje(pedido: PedidoParaAviso): PedidoParaMensaje {
     items: pedido.items,
     subtotal: pedido.subtotal,
     costoDomicilio: pedido.costoDomicilio,
+    descuento: pedido.descuento,
+    // Todavía no existe: ni el checkout la pide ni la base la guarda. Se manda en 0 para que el
+    // recibo del cliente ya tenga su renglón; el día que el checkout tenga propina, se cambia
+    // esta línea y nada más.
+    propina: 0,
     total: pedido.total,
     metodoPago: pedido.metodoPago,
+    // Un comprobante cargado es la única prueba de pago que maneja este negocio. En efectivo
+    // nunca hay comprobante, así que el pago sale "Pendiente" — que es justo lo correcto.
+    pagado: pedido.tieneComprobante,
     notas: pedido.notas,
   };
 }
@@ -128,12 +153,14 @@ export async function avisoDomiciliario(
       barrio: pedido.barrio,
       indicaciones: pedido.indicaciones,
       ubicacion: pedido.punto,
+      subtotal: pedido.subtotal,
+      costoDomicilio: pedido.costoDomicilio,
       total: pedido.total,
       metodoPago: pedido.metodoPago,
       pagaCon: pedido.pagaCon,
       // Un comprobante cargado es la única prueba de pago que maneja este negocio. En efectivo
       // nunca hay comprobante, así que siempre toca cobrar — que es justo lo correcto.
-      pagado: Boolean(pedido.comprobanteUrl),
+      pagado: pedido.tieneComprobante,
       tokenEntrega: pedido.tokenEntrega,
     },
     tiendaParaMensaje(store),
@@ -165,9 +192,14 @@ export function puedeAvisarse(estado: EstadoPedido): boolean {
 export async function avisoCambioEstado(
   estado: EstadoPedido,
   pedido: PedidoParaAviso,
-  store: { nombre: string },
+  store: { nombre: string; minutosEstimadoMin: number; minutosEstimadoMax: number },
 ): Promise<ResultadoEnvio | null> {
-  const texto = cambioEstado(estado, pedidoParaMensaje(pedido), tiendaParaMensaje(store));
+  const texto = cambioEstado(
+    estado,
+    pedidoParaMensaje(pedido),
+    tiendaParaMensaje(store),
+    estimadoDeEntrega(store),
+  );
   if (!texto) return null;
 
   return obtenerTransporte().preparar(pedido.clienteTelefono, texto);

@@ -9,11 +9,19 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Bike, Loader2, MapPin, Phone, ShoppingBag, Store } from "lucide-react";
+import {
+  ArrowLeft,
+  Bike,
+  Loader2,
+  MapPin,
+  Phone,
+  ShoppingBag,
+  Store,
+} from "lucide-react";
 import { useCarrito } from "@/lib/carrito";
 import {
   useTipoPedido,
-  elegirTipoPedido,
+  cambiarTipoPedido,
   renovarTipoPedido,
   type TipoPedido,
 } from "@/lib/tienda/tipo-pedido";
@@ -25,8 +33,10 @@ import {
 import { crearPedidoSchema, REQUERIDO } from "@/lib/validaciones";
 import { fueraDeCobertura, pesos } from "@/lib/notificaciones/plantillas";
 import { decidirBarrio, type MotivoConsulta } from "@/lib/barrio";
+import { metodosDePago } from "@/lib/pedidos/pago";
 import { Campo, claseControl } from "@/components/checkout/Campo";
 import { DatoCopiable } from "@/components/checkout/DatoCopiable";
+import { QrDePago } from "@/components/checkout/QrDePago";
 import { SelectorFecha } from "@/components/checkout/SelectorFecha";
 import { SubidaComprobante } from "@/components/checkout/SubidaComprobante";
 import {
@@ -45,11 +55,6 @@ type Errores = Record<string, string>;
 
 type Paso = 1 | 2 | 3;
 
-/** "3124914660" -> "312 491 4660". Solo para mostrar: lo que se copia son los dígitos. */
-function conEspacios(numero: string): string {
-  return numero.replace(/^(\d{3})(\d{3})(\d{4})$/, "$1 $2 $3");
-}
-
 /**
  * Domicilio o recoger, con el actual marcado.
  *
@@ -63,29 +68,47 @@ function conEspacios(numero: string): string {
  * se reconozca que es la misma pregunta.
  */
 function BotonesTipoPedido({ actual }: { actual: TipoPedido | null }) {
-  return (
-    <div className="flex gap-3">
-      {(["domicilio", "recoger"] as TipoPedido[]).map((t) => {
-        const elegido = actual === t;
-        const Icono = t === "domicilio" ? Bike : ShoppingBag;
+  const [retirados, setRetirados] = useState<string[]>([]);
 
-        return (
-          <button
-            key={t}
-            type="button"
-            onClick={() => elegirTipoPedido(t)}
-            aria-pressed={elegido}
-            className={`flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full px-4 py-3 font-cuerpo text-sm font-bold transition-colors ${
-              elegido
-                ? "bg-naranja text-crema"
-                : "border border-crema-oscura text-cafe-suave hover:bg-crema"
-            }`}
-          >
-            <Icono className="size-4" />
-            {t === "domicilio" ? "Domicilio" : "Recoger"}
-          </button>
-        );
-      })}
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex gap-3">
+        {(["domicilio", "recoger"] as TipoPedido[]).map((t) => {
+          const elegido = actual === t;
+          const Icono = t === "domicilio" ? Bike : ShoppingBag;
+
+          return (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setRetirados(cambiarTipoPedido(t).map((i) => i.nombre))}
+              aria-pressed={elegido}
+              className={`flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full px-4 py-3 font-cuerpo text-sm font-bold transition-colors ${
+                elegido
+                  ? "bg-naranja text-crema"
+                  : "border border-crema-oscura text-cafe-suave hover:bg-crema"
+              }`}
+            >
+              <Icono className="size-4" />
+              {t === "domicilio" ? "Domicilio" : "Recoger"}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Aquí y no en un aviso flotante: el cliente está mirando justo este bloque, y el resumen
+          del pedido que tiene debajo acaba de cambiar de importe. */}
+      {retirados.length > 0 && (
+        <p
+          role="status"
+          className="rounded-sm bg-alerta/15 px-3 py-2 font-cuerpo text-[13px] text-cafe"
+        >
+          <span className="font-bold">Quitamos del pedido: </span>
+          {retirados.join(", ")}.{" "}
+          {retirados.length === 1 ? "No se vende" : "No se venden"} para{" "}
+          {actual === "domicilio" ? "domicilio" : "recoger"}.
+        </p>
+      )}
     </div>
   );
 }
@@ -199,10 +222,9 @@ export function CheckoutForm({
     telefono: string | null;
     direccion: string | null;
     whatsappUrl: string | null;
-    nequiTitular: string | null;
-    nequiNumero: string | null;
     nequiLlave: string | null;
     nequiLlaveTitular: string | null;
+    nequiQrUrl: string | null;
   };
 }) {
   const router = useRouter();
@@ -393,8 +415,54 @@ export function CheckoutForm({
     metodoPago === "efectivo" && Number(pagaCon) > total + costoDomicilio
       ? Number(pagaCon) - total - costoDomicilio
       : null;
-  // Si el negocio no cargó su Nequi, ofrecerlo sería mandar al cliente a un callejón sin salida.
-  const nequiDisponible = Boolean(tienda.nequiNumero);
+  // Si el negocio no cargó su llave, ofrecerlo sería mandar al cliente a un callejón sin
+  // salida. Manda la llave y no el QR: con la llave sola se puede pagar, con el QR solo no
+  // —hay que guardarlo y volver a la app del banco— y además es lo que se copia de un toque.
+  const nequiDisponible = Boolean(tienda.nequiLlave);
+  /**
+   * Los métodos que se pueden ofrecer, con la MISMA función que usa `POST /api/pedidos` para
+   * aceptarlos o rechazarlos. Aquí se pinta, allá se decide: si divergieran, el cliente vería
+   * una opción que el servidor le va a rechazar al confirmar.
+   *
+   * `tipoPedido` puede ser null mientras caduca la elección, pero este bloque no llega a
+   * pintarse: más arriba hay un early return que primero pregunta domicilio o recoger.
+   */
+  const metodosPermitidos = metodosDePago(tipoPedido ?? "domicilio", {
+    llaveDisponible: nequiDisponible,
+  });
+  const pagoPorAdelantado = !esDomicilio && !metodosPermitidos.includes("efectivo");
+
+  /**
+   * Corrige el método heredado cuando deja de estar permitido.
+   *
+   * Hace falta porque `metodoPago` vive en el carrito persistido y **nada lo resetea al
+   * cambiar de tipo**: quien pidió a domicilio con efectivo y vuelve a elegir "Recoger"
+   * llegaría al paso 3 con ningún radio marcado y el payload mandando `efectivo` igual —
+   * `construirPayload` lee del store, no de qué radio está pintado. El servidor lo rechazaría
+   * con un 422 correcto y un cliente perplejo.
+   *
+   * Va aquí y no en el `onClick` de `BotonesTipoPedido` porque también tiene que correr al
+   * montar: el paso se guarda, así que se puede recargar directamente en el 3. Es el simétrico
+   * del efecto de la cobertura, que existe por lo mismo al revés.
+   */
+  useEffect(() => {
+    if (!hidratado || !tipoPedido) return;
+
+    // Se recalcula aquí dentro en vez de depender de `metodosPermitidos`: ese array es nuevo
+    // en cada render y como dependencia haría correr el efecto siempre. `metodosDePago` es
+    // pura y trivial, así que llamarla dos veces no cuesta nada.
+    const permitidos = metodosDePago(tipoPedido, { llaveDisponible: nequiDisponible });
+    if (permitidos.includes(metodoPago)) return;
+
+    // Cambiar de método invalida lo del anterior: un comprobante subido para el pedido a
+    // domicilio no vale como pago de este, y dejar `pagoConfirmado` en true saltaría el paso
+    // de "Ya realicé mi pago" enseñando un adjunto que no se pidió.
+    setPago(
+      permitidos[0] === "efectivo"
+        ? { metodoPago: "efectivo", comprobanteUrl: null, pagoConfirmado: false }
+        : { metodoPago: permitidos[0] },
+    );
+  }, [hidratado, tipoPedido, metodoPago, nequiDisponible, setPago]);
 
   // Nota: esta pantalla se arma en el cliente y no en el servidor, porque las dos cosas
   // que deciden qué mostrar —el carrito y el tipo de pedido— viven en localStorage. No
@@ -1204,31 +1272,49 @@ export function CheckoutForm({
             <h3 className="font-titulo text-base font-semibold text-cafe">
               Métodos de pago
             </h3>
+
+            {/* Va ENCIMA de la lista: explica por qué no está el efectivo antes de que el
+                cliente lo busque, no después de que se pregunte si la app se rompió. */}
+            {pagoPorAdelantado && (
+              <div className="flex flex-col gap-2 rounded-sm bg-crema p-3 font-cuerpo text-[13px] text-cafe-suave">
+                <p>
+                  Como elegiste recoger tu pedido, el pago debe realizarse antes de preparar tu
+                  pedido.
+                </p>
+                <p>
+                  Puedes pagar fácilmente por Llave o Nequi. Una vez confirmado el pago,
+                  ¡comenzaremos a preparar tu pedido! 😊
+                </p>
+              </div>
+            )}
+
             <div className="flex flex-col gap-2">
-              {(["efectivo", "nequi"] as const)
-                .filter((m) => m === "efectivo" || nequiDisponible)
-                .map((m) => (
-                  <label
-                    key={m}
-                    className={`flex min-h-11 cursor-pointer items-center gap-3 rounded-sm border px-3 py-2 font-cuerpo text-[15px] ${
-                      metodoPago === m
-                        ? "border-naranja bg-naranja/8 text-cafe"
-                        : "border-crema-oscura text-cafe-suave"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="metodoPago"
-                      value={m}
-                      checked={metodoPago === m}
-                      onChange={() => setPago({ metodoPago: m })}
-                      className="size-4 accent-[var(--naranja)]"
-                    />
-                    <span className="font-semibold">
-                      {m === "efectivo" ? "Efectivo" : "Nequi"}
-                    </span>
-                  </label>
-                ))}
+              {metodosPermitidos.map((m) => (
+                <label
+                  key={m}
+                  className={`flex min-h-11 cursor-pointer items-center gap-3 rounded-sm border px-3 py-2 font-cuerpo text-[15px] ${
+                    metodoPago === m
+                      ? "border-naranja bg-naranja/8 text-cafe"
+                      : "border-crema-oscura text-cafe-suave"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="metodoPago"
+                    value={m}
+                    checked={metodoPago === m}
+                    onChange={() => setPago({ metodoPago: m })}
+                    className="size-4 accent-[var(--naranja)]"
+                  />
+                  {/* "Nequi o Bre-B" y no solo "Nequi": el QR y la llave son los
+                      interoperables, así que un cliente de Bancolombia o Daviplata paga
+                      igual. Llamarlo solo Nequi lo estaría echando. El enum de la base
+                      sigue siendo `nequi`; esto es el rótulo, no el modelo. */}
+                  <span className="font-semibold">
+                    {m === "efectivo" ? "Efectivo" : "Nequi o Bre-B"}
+                  </span>
+                </label>
+              ))}
             </div>
 
             {/* Para que el domiciliario salga con la devuelta contada. Opcional: quien no lo
@@ -1274,19 +1360,11 @@ export function CheckoutForm({
                   valor={pesos(total + costoDomicilio)}
                   aCopiar={String(total + costoDomicilio)}
                 />
-
-                {tienda.nequiNumero && (
-                  <DatoCopiable
-                    etiqueta="Puedes pagar por Nequi a este número"
-                    valor={conEspacios(tienda.nequiNumero)}
-                    aCopiar={tienda.nequiNumero}
-                    titular={tienda.nequiTitular}
-                  />
-                )}
+                {tienda.nequiQrUrl && <QrDePago url={tienda.nequiQrUrl} />}
 
                 {tienda.nequiLlave && (
                   <DatoCopiable
-                    etiqueta="O con esta llave"
+                    etiqueta=" O paga con esta llave Bre-B"
                     valor={tienda.nequiLlave}
                     aCopiar={tienda.nequiLlave}
                     titular={tienda.nequiLlaveTitular}

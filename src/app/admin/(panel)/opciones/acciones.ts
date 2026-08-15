@@ -7,6 +7,7 @@ import {
   cambiarActivaLista,
   crearLista,
   crearOpcion,
+  guardarAyudaLista,
   listaDeOpcion,
   nombresDeListas,
   nombresDeOpciones,
@@ -86,6 +87,36 @@ export async function renombrarListaExistente(entrada: unknown): Promise<Resulta
   }
 
   const cambiada = await renombrarLista(sesion.storeId, parsed.data.id, parsed.data.nombre);
+  if (!cambiada) return { ok: false, error: "Esa lista ya no existe." };
+
+  revalidar();
+  return { ok: true };
+}
+
+/**
+ * Lo que el cliente lee bajo el título de la sección en la ficha.
+ *
+ * Vacío se guarda como `null` —"esta lista se entiende sola"—, que es el estado de casi todas.
+ * El tope de 200 es de forma, no de dominio: esto es un subtítulo de una línea, y si hace falta
+ * más párrafo el sitio es la descripción del producto.
+ */
+export async function guardarAyudaDeLista(entrada: unknown): Promise<ResultadoOpciones> {
+  const sesion = await exigirRol("admin");
+
+  const parsed = z
+    .object({
+      id: idSchema,
+      ayuda: z
+        .string()
+        .max(200, "Máximo 200 caracteres: es un subtítulo, no un párrafo")
+        .transform((v) => v.trim() || null),
+    })
+    .safeParse(entrada);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
+  }
+
+  const cambiada = await guardarAyudaLista(sesion.storeId, parsed.data.id, parsed.data.ayuda);
   if (!cambiada) return { ok: false, error: "Esa lista ya no existe." };
 
   revalidar();

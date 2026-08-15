@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import { crearPedidoSchema } from "@/lib/validaciones";
 import { calcularPedido } from "@/lib/precios";
 import { esFranjaOfrecida, opcionesDeEntrega } from "@/lib/pedidos/entrega";
+import { esMetodoOfrecido } from "@/lib/pedidos/pago";
 import { getStore } from "@/db/queries/store";
 import { crearPedidoEnDB } from "@/db/queries/pedidos";
 import { enviarPushPedidoNuevo } from "@/lib/notificaciones/push";
+import { avisarPedidoNuevo } from "@/lib/notificaciones/telegram";
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
@@ -50,6 +52,26 @@ export async function POST(request: Request) {
 
   const tienda = await getStore();
 
+  // Y el "con qué" se valida igual que el "cuándo", unas líneas más arriba: el servidor genera
+  // los métodos que ofrece y solo acepta uno de los suyos. Recoger se paga por adelantado, así
+  // que esconder el radio del efectivo en el checkout no basta — el payload se arma a mano en
+  // treinta segundos, y `crearPedidoEnDB` escribe `metodoPago` tal como llega.
+  if (
+    !esMetodoOfrecido(input.metodoPago, input.tipo, {
+      llaveDisponible: Boolean(tienda.nequiLlave),
+    })
+  ) {
+    return NextResponse.json(
+      {
+        error:
+          input.tipo === "recoger"
+            ? "Los pedidos para recoger se pagan por adelantado. Elige Nequi o Bre-B."
+            : "Ese método de pago no está disponible.",
+      },
+      { status: 422 },
+    );
+  }
+
   // Todo el dinero se calcula aquí, en servidor (regla 1 de CLAUDE.md) — nunca se
   // confía en un total que venga del cliente. El descuento es siempre 0 al crear el
   // pedido: es un ajuste manual del negocio, no algo que el cliente controle.
@@ -70,13 +92,18 @@ export async function POST(request: Request) {
 
   const pedido = await crearPedidoEnDB(tienda.id, input, resultado.valor);
 
-  // El aviso al panel, y va DESPUÉS de crear el pedido y sin poder tumbarlo: el cliente ya compró,
-  // así que un fallo empujando la notificación no puede convertirse en un error de su checkout.
+  // Los avisos al negocio, DESPUÉS de crear el pedido y sin poder tumbarlo: el cliente ya compró,
+  // así que un fallo notificando no puede convertirse en un error de su checkout.
   //
-  // Se espera (`await`) a propósito, igual que al borrar fotos huérfanas: en una función
-  // serverless, disparar sin esperar mata la instancia antes de que salga la petición.
+  // Se esperan (`await`) a propósito, igual que al borrar fotos huérfanas: en una función
+  // serverless, disparar sin esperar mata la instancia antes de que salgan las peticiones. Van en
+  // paralelo porque son canales independientes —el push despierta al panel, Telegram cuenta el
+  // pedido— y encadenarlos le sumaría al cliente la espera de los dos.
   try {
-    await enviarPushPedidoNuevo(tienda.id, pedido.numero);
+    await Promise.all([
+      enviarPushPedidoNuevo(tienda.id, pedido.numero),
+      avisarPedidoNuevo(input, resultado.valor, pedido, tienda),
+    ]);
   } catch (error) {
     console.error("No se pudo avisar al panel del pedido nuevo:", error);
   }

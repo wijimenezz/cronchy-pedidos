@@ -37,6 +37,8 @@ export type ListaDelPanel = {
   id: string;
   nombre: string;
   tipo: "seleccion" | "upsell";
+  /** Lo que se le explica al cliente en la ficha, o `null` si la lista se entiende sola. */
+  ayuda: string | null;
   activo: boolean;
   /** En cuántos PRODUCTOS se usa. Es lo que el admin necesita saber antes de archivarla. */
   usadaEn: number;
@@ -73,6 +75,7 @@ export async function listarListasDelPanel(storeId: string): Promise<ListaDelPan
     id: g.id,
     nombre: g.nombre,
     tipo: g.tipo,
+    ayuda: g.ayuda,
     activo: g.activo,
     // El Set no es decorativo: un mismo grupo se engancha DOS veces al mismo producto —una
     // incluida y una de pago (regla 3)—, así que contar filas diría "2 productos" donde hay
@@ -144,6 +147,26 @@ export async function renombrarLista(
   const filas = await db
     .update(modifierGroup)
     .set({ nombre })
+    .where(and(eq(modifierGroup.storeId, storeId), eq(modifierGroup.id, groupId)))
+    .returning({ id: modifierGroup.id });
+
+  return filas.length > 0;
+}
+
+/**
+ * El texto que explica la lista en la ficha del cliente.
+ *
+ * `null` borra la explicación, y es lo que llega cuando el campo se deja vacío: así "sin texto"
+ * es un solo valor y no dos —la cadena vacía pintaría un párrafo de cero altura con su margen.
+ */
+export async function guardarAyudaLista(
+  storeId: string,
+  groupId: string,
+  ayuda: string | null,
+): Promise<boolean> {
+  const filas = await db
+    .update(modifierGroup)
+    .set({ ayuda })
     .where(and(eq(modifierGroup.storeId, storeId), eq(modifierGroup.id, groupId)))
     .returning({ id: modifierGroup.id });
 

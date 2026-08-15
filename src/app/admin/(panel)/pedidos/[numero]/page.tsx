@@ -3,27 +3,35 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   ArrowLeft,
+  Banknote,
   Bike,
   MapPin,
   MessageCircle,
   Phone,
   Plus,
   ShoppingBag,
+  Smartphone,
 } from "lucide-react";
 import { getStore } from "@/db/queries/store";
-import { obtenerPedidoPorNumero } from "@/db/queries/panel";
+import { obtenerPedidoPorNumero, type PedidoPanel } from "@/db/queries/panel";
 import { historialDelCliente, type HistorialCliente } from "@/db/queries/customers";
 import { listarDomiciliarios } from "@/db/queries/domiciliarios";
 import { exigirRol } from "@/lib/autorizacion";
 import { cuandoCorto, pesos, type ItemSnapshot } from "@/lib/notificaciones/plantillas";
 import { normalizarTelefono } from "@/lib/notificaciones/transporte";
 import { puedeAvisarse } from "@/lib/notificaciones/avisos";
-import { ETIQUETA_ESTADO, siguienteEstado, toneDeEstado } from "@/lib/pedidos/estados";
+import {
+  ETIQUETA_ESTADO,
+  METODO_PAGO_ETIQUETA,
+  siguienteEstado,
+  toneDeEstado,
+} from "@/lib/pedidos/estados";
 import { agruparModificadores, contarPreparacion } from "@/lib/pedidos/modificadores";
 import { urlMapa } from "@/lib/zonas";
-import { MapaPedido } from "@/components/pedido/MapaPedido";
 import { AccionesPedido } from "./AccionesPedido";
 import { AsignarDomiciliario } from "./AsignarDomiciliario";
+import { MapaPlegable } from "./MapaPlegable";
+import { VisorComprobante } from "./VisorComprobante";
 
 export const dynamic = "force-dynamic";
 
@@ -107,18 +115,31 @@ export default async function DetallePedidoPage({
           {esDomicilio ? <Bike className="size-4" /> : <ShoppingBag className="size-4" />}
           {esDomicilio ? "Domicilio" : "Recoge en tienda"}
         </span>
-        {pedido.metodoPago === "nequi" && !pedido.comprobanteUrl && (
-          <span className="rounded-full bg-error/12 px-3 py-1 font-cuerpo text-sm font-bold text-error">
-            Pago pendiente
+
+        <ChipPago pedido={pedido} />
+
+        {/* El total y la hora se van al otro extremo: la izquierda es qué es este pedido, la
+            derecha cuánto y cuándo. Al envolverse caen juntos a la línea siguiente. */}
+        <span className="ml-auto flex items-baseline gap-3">
+          <span className="font-titulo text-xl font-bold text-cafe">{pesos(pedido.total)}</span>
+          <span className="font-cuerpo text-[13px] text-cafe-tenue">
+            {fechaHora(pedido.creadoEn)}
           </span>
-        )}
-        <span className="font-cuerpo text-[13px] text-cafe-tenue">
-          {fechaHora(pedido.creadoEn)}
         </span>
       </header>
 
+      {/* Los botones, antes de las columnas: son la razón por la que se abre esta pantalla y
+          antes había que bajar hasta el fondo de la derecha para encontrarlos. */}
+      <AccionesPedido
+        pedidoId={pedido.id}
+        numero={pedido.numero}
+        estado={pedido.estado}
+        siguiente={siguiente}
+        avisoPendiente={avisoPendiente}
+      />
+
       {/* Dos columnas en la tablet del mostrador y en escritorio; apiladas por debajo. La
-          izquierda es qué preparar, la derecha a quién entregárselo y qué cobrar. */}
+          izquierda es qué preparar y cuánto suma, la derecha a quién entregárselo. */}
       <div className="grid gap-4 lg:grid-cols-[1fr_360px] lg:items-start">
         <div className="flex flex-col gap-4">
           <Seccion titulo="Qué preparar">
@@ -142,10 +163,29 @@ export default async function DetallePedidoPage({
                 {pedido.notas}
               </p>
             )}
+
+            {/* El desglose va al pie de los ítems y no en una tarjeta aparte: cada línea ya
+                trae su precio a la derecha, así que la suma se lee en la misma columna donde
+                se formó. Lo que decide —cómo paga y si el comprobante llegó— está arriba. */}
+            <dl className="mt-3 border-t border-crema-oscura pt-3">
+              <Total etiqueta="Subtotal" valor={pesos(pedido.subtotal)} />
+              {esDomicilio && (
+                <Total etiqueta="Domicilio" valor={pesos(pedido.costoDomicilio)} />
+              )}
+              {pedido.descuento > 0 && (
+                <Total etiqueta="Descuento" valor={`− ${pesos(pedido.descuento)}`} />
+              )}
+              <Total etiqueta="Total" valor={pesos(pedido.total)} destacado />
+            </dl>
           </Seccion>
 
-          <Seccion titulo="Historial">
-            <ol className="flex flex-col gap-2">
+          {/* Plegado y con `<details>` nativo: es consulta, no operación, y aquí no hay nada
+              que medir —a diferencia del mapa, que sí necesita montarse para dimensionarse. */}
+          <details className="rounded-md border border-crema-oscura bg-tarjeta px-4 py-1">
+            <summary className="cursor-pointer py-2.5 font-titulo text-base font-bold text-cafe">
+              Historial · {historial.length} {historial.length === 1 ? "cambio" : "cambios"}
+            </summary>
+            <ol className="flex flex-col gap-2 pb-3">
               {historial.map((evento, i) => (
                 <li key={i} className="flex justify-between gap-3 font-cuerpo text-[13px]">
                   <span className="font-bold text-cafe">{ETIQUETA_ESTADO[evento.estado]}</span>
@@ -156,180 +196,160 @@ export default async function DetallePedidoPage({
                 </li>
               ))}
             </ol>
-          </Seccion>
+          </details>
         </div>
 
-        <div className="flex flex-col gap-4">
-          <Seccion titulo={esDomicilio ? "Entrega" : "Recoge"}>
-            {/* Lo primero: es lo que cambia cuándo hay que empezar a freír. */}
-            <Dato
-              etiqueta={esDomicilio ? "Entregar" : "Recoge"}
-              valor={
-                pedido.programadoPara
-                  ? cuandoCorto(pedido.programadoPara)
-                  : "lo más pronto posible"
-              }
-            />
-
-            <FichaCliente nombre={pedido.clienteNombre} cliente={cliente} />
-
-            <div className="my-2 flex gap-2">
-              {/* `tel:` para cuando el domiciliario no encuentra la dirección; el WhatsApp
-                  es para escribir. Los avisos con plantilla salen del botón de avisar, que
-                  es quien respeta la idempotencia (regla 11). */}
-              <a
-                href={`tel:${pedido.clienteTelefono}`}
-                className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full border border-crema-oscura font-cuerpo text-sm font-bold text-cafe transition-colors hover:bg-crema"
-              >
-                <Phone className="size-4" />
-                Llamar
-              </a>
-              <a
-                href={`https://wa.me/${telefono}`}
-                target="_blank"
-                rel="noopener"
-                className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full border border-crema-oscura font-cuerpo text-sm font-bold text-cafe transition-colors hover:bg-crema"
-              >
-                <MessageCircle className="size-4" />
-                Escribir
-              </a>
-            </div>
-
-            {pedido.recibeNombre && (
-              <Dato
-                etiqueta="Recibe"
-                valor={`${pedido.recibeNombre} · ${pedido.recibeTelefono ?? ""}`}
-              />
-            )}
-
-            {esDomicilio ? (
-              <>
-                <Dato etiqueta="Dirección" valor={pedido.direccion ?? "—"} />
-                {pedido.barrio && <Dato etiqueta="Barrio" valor={pedido.barrio} />}
-                {pedido.indicaciones && (
-                  <Dato etiqueta="Indicaciones" valor={pedido.indicaciones} />
-                )}
-                {/* La zona va con su nombre real y no disfrazada de barrio: no es una
-                    dirección, es la respuesta a por qué el domicilio costó lo que costó. */}
-                {pedido.zonaNombre && (
-                  <Dato etiqueta="Zona de cobertura" valor={pedido.zonaNombre} />
-                )}
-                {pedido.punto && (
-                  <>
-                    <div className="my-2">
-                      <MapaPedido punto={pedido.punto} />
-                    </div>
-                    {/* El pin que fijó el precio: la dirección escrita es referencia, esto
-                        es la coordenada exacta que el domiciliario abre (regla 14). */}
-                    <a
-                      href={urlMapa(pedido.punto)}
-                      target="_blank"
-                      rel="noopener"
-                      className="flex min-h-11 items-center justify-center gap-2 rounded-full bg-crema font-cuerpo text-sm font-bold text-cafe transition-colors hover:bg-crema-oscura"
-                    >
-                      <MapPin className="size-4" />
-                      Abrir en Google Maps
-                    </a>
-                  </>
-                )}
-              </>
-            ) : (
-              tienda.direccion && <Dato etiqueta="En" valor={tienda.direccion} />
-            )}
-
-            {/* Solo en domicilios: un pedido para recoger no tiene a quién asignar. Y solo
-                mientras el pedido siga vivo — mandarle un domicilio a alguien por un pedido ya
-                entregado o cancelado no es un caso, es un error. */}
-            {esDomicilio && pedido.estado !== "entregado" && pedido.estado !== "cancelado" && (
-              <div className="mt-3">
-                <AsignarDomiciliario
-                  pedidoId={pedido.id}
-                  numero={pedido.numero}
-                  domiciliarios={domiciliarios}
-                  asignado={
-                    pedido.domiciliarioNombre
-                      ? {
-                          nombre: pedido.domiciliarioNombre,
-                          telefono: pedido.domiciliarioTelefono ?? "",
-                        }
-                      : null
-                  }
-                />
-              </div>
-            )}
-          </Seccion>
-
-          <Seccion titulo="Cobro">
-            <dl>
-              <Total etiqueta="Subtotal" valor={pesos(pedido.subtotal)} />
-              {esDomicilio && (
-                <Total etiqueta="Domicilio" valor={pesos(pedido.costoDomicilio)} />
-              )}
-              {pedido.descuento > 0 && (
-                <Total etiqueta="Descuento" valor={`− ${pesos(pedido.descuento)}`} />
-              )}
-              <Total etiqueta="Total" valor={pesos(pedido.total)} destacado />
-            </dl>
-
-            <div className="mt-3 border-t border-crema-oscura pt-3">
-              <Dato
-                etiqueta="Método"
-                valor={pedido.metodoPago === "nequi" ? "Nequi" : "Efectivo"}
-              />
-              {/* Lo que el domiciliario necesita saber antes de salir. La devuelta se calcula
-                  contra el total real y solo si da positivo: si el cliente escribió menos de
-                  lo que cuesta, se enseña lo que puso y ya, sin inventarle una cuenta. */}
-              {pedido.pagaCon !== null && (
-                <Dato
-                  etiqueta="Paga con"
-                  valor={
-                    <>
-                      {pesos(pedido.pagaCon)}
-                      {pedido.pagaCon > pedido.total && (
-                        <span className="font-bold text-cafe">
-                          {" "}
-                          · devuelta {pesos(pedido.pagaCon - pedido.total)}
-                        </span>
-                      )}
-                    </>
-                  }
-                />
-              )}
-              {pedido.metodoPago === "nequi" &&
-                (pedido.comprobanteUrl ? (
-                  // El bucket es privado: el link solo abre para quien tenga la service key,
-                  // así que se sirve por nuestro endpoint, ya con la sesión validada.
-                  <Dato
-                    etiqueta="Comprobante"
-                    valor={
-                      <a
-                        href={`/api/admin/comprobante/${pedido.numero}`}
-                        target="_blank"
-                        rel="noopener"
-                        className="font-bold text-naranja-osc underline-offset-2 hover:underline"
-                      >
-                        Ver comprobante
-                      </a>
-                    }
-                  />
-                ) : (
-                  <p className="font-cuerpo text-[13px] font-bold text-error">
-                    Sin comprobante: este pedido no puede aceptarse todavía.
-                  </p>
-                ))}
-            </div>
-          </Seccion>
-
-          <AccionesPedido
-            pedidoId={pedido.id}
-            numero={pedido.numero}
-            estado={pedido.estado}
-            siguiente={siguiente}
-            avisoPendiente={avisoPendiente}
+        <Seccion titulo={esDomicilio ? "Entrega" : "Recoge"}>
+          {/* Lo primero: es lo que cambia cuándo hay que empezar a freír. */}
+          <Dato
+            etiqueta={esDomicilio ? "Entregar" : "Recoge"}
+            valor={
+              pedido.programadoPara
+                ? cuandoCorto(pedido.programadoPara)
+                : "lo más pronto posible"
+            }
           />
-        </div>
+
+          {/* Justo debajo de cuándo sale, y no al final de la tarjeta: se lee en el orden del
+              despacho —cuándo sale, quién lo lleva, a quién y dónde—, y así deja de depender de
+              cuánto midan la ficha del cliente o la dirección, que es lo que lo empujaba fuera
+              de la pantalla en la tablet.
+
+              Solo en domicilios: un pedido para recoger no tiene a quién asignar. Y solo
+              mientras el pedido siga vivo — mandarle un domicilio a alguien por un pedido ya
+              entregado o cancelado no es un caso, es un error. */}
+          {esDomicilio && pedido.estado !== "entregado" && pedido.estado !== "cancelado" && (
+            <div className="my-3">
+              <AsignarDomiciliario
+                pedidoId={pedido.id}
+                numero={pedido.numero}
+                domiciliarios={domiciliarios}
+                asignado={
+                  pedido.domiciliarioNombre
+                    ? {
+                        nombre: pedido.domiciliarioNombre,
+                        telefono: pedido.domiciliarioTelefono ?? "",
+                      }
+                    : null
+                }
+              />
+            </div>
+          )}
+
+          <FichaCliente nombre={pedido.clienteNombre} cliente={cliente} />
+
+          <div className="my-2 flex gap-2">
+            {/* `tel:` para cuando el domiciliario no encuentra la dirección; el WhatsApp
+                es para escribir. Los avisos con plantilla salen del botón de avisar, que
+                es quien respeta la idempotencia (regla 11). */}
+            <a
+              href={`tel:${pedido.clienteTelefono}`}
+              className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full border border-crema-oscura font-cuerpo text-sm font-bold text-cafe transition-colors hover:bg-crema"
+            >
+              <Phone className="size-4" />
+              Llamar
+            </a>
+            <a
+              href={`https://wa.me/${telefono}`}
+              target="_blank"
+              rel="noopener"
+              className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full border border-crema-oscura font-cuerpo text-sm font-bold text-cafe transition-colors hover:bg-crema"
+            >
+              <MessageCircle className="size-4" />
+              Escribir
+            </a>
+          </div>
+
+          {pedido.recibeNombre && (
+            <Dato
+              etiqueta="Recibe"
+              valor={`${pedido.recibeNombre} · ${pedido.recibeTelefono ?? ""}`}
+            />
+          )}
+
+          {esDomicilio ? (
+            <>
+              <Dato etiqueta="Dirección" valor={pedido.direccion ?? "—"} />
+              {pedido.barrio && <Dato etiqueta="Barrio" valor={pedido.barrio} />}
+              {pedido.indicaciones && (
+                <Dato etiqueta="Indicaciones" valor={pedido.indicaciones} />
+              )}
+              {/* La zona va con su nombre real y no disfrazada de barrio: no es una
+                  dirección, es la respuesta a por qué el domicilio costó lo que costó. */}
+              {pedido.zonaNombre && (
+                <Dato etiqueta="Zona de cobertura" valor={pedido.zonaNombre} />
+              )}
+              {pedido.punto && (
+                <>
+                  <MapaPlegable punto={pedido.punto} />
+                  {/* El pin que fijó el precio: la dirección escrita es referencia, esto
+                      es la coordenada exacta que el domiciliario abre (regla 14). Va fuera
+                      del plegable porque es lo que de verdad se pulsa. */}
+                  <a
+                    href={urlMapa(pedido.punto)}
+                    target="_blank"
+                    rel="noopener"
+                    className="flex min-h-11 items-center justify-center gap-2 rounded-full bg-crema font-cuerpo text-sm font-bold text-cafe transition-colors hover:bg-crema-oscura"
+                  >
+                    <MapPin className="size-4" />
+                    Abrir en Google Maps
+                  </a>
+                </>
+              )}
+            </>
+          ) : (
+            tienda.direccion && <Dato etiqueta="En" valor={tienda.direccion} />
+          )}
+        </Seccion>
       </div>
     </div>
+  );
+}
+
+/**
+ * Cómo se paga este pedido, al lado del chip de Domicilio/Recoge.
+ *
+ * Junta en uno solo las tres cosas que deciden si el pedido se puede aceptar y con cuánto sale
+ * el domiciliario: el método, con cuánto paga el cliente y —si es Nequi— si el comprobante
+ * llegó. Vivían al final de la sección "Cobro", debajo del mapa: en la tablet del mostrador eso
+ * eran unos 750 px de scroll para responder "¿es efectivo o es Nequi?", que es lo primero que
+ * hay que saber, porque un Nequi sin comprobante ni siquiera puede avanzar
+ * (`validarCambioEstado`, motivo `nequi_sin_comprobante`).
+ *
+ * La etiqueta sale de `METODO_PAGO_ETIQUETA` y no de un ternario sobre "nequi", que es lo que
+ * había: el enum de la base admite además `transferencia` y `datafono`, y los dos se pintaban
+ * como "Efectivo".
+ */
+function ChipPago({ pedido }: { pedido: PedidoPanel }) {
+  const esNequi = pedido.metodoPago === "nequi";
+  const faltaComprobante = esNequi && !pedido.comprobanteUrl;
+
+  return (
+    <span
+      className={`flex items-center gap-2 rounded-full py-1 pl-3 font-cuerpo text-sm font-bold ${
+        pedido.comprobanteUrl ? "pr-1" : "pr-3"
+      } ${faltaComprobante ? "bg-error/12 text-error" : "bg-crema text-cafe-suave"}`}
+    >
+      {esNequi ? <Smartphone className="size-4" /> : <Banknote className="size-4" />}
+      {METODO_PAGO_ETIQUETA[pedido.metodoPago] ?? pedido.metodoPago}
+
+      {/* Lo que el domiciliario necesita saber antes de salir. La devuelta se calcula contra el
+          total real y solo si da positivo: si el cliente escribió menos de lo que cuesta, se
+          enseña lo que puso y ya, sin inventarle una cuenta. */}
+      {pedido.pagaCon !== null && (
+        <span className="font-normal">
+          · paga con {pesos(pedido.pagaCon)}
+          {pedido.pagaCon > pedido.total &&
+            ` · devuelta ${pesos(pedido.pagaCon - pedido.total)}`}
+        </span>
+      )}
+
+      {/* Reemplaza al badge suelto "Pago pendiente", que decía esto mismo con otras palabras
+          y a dos badges de distancia del método al que se refería. */}
+      {faltaComprobante && <span className="font-normal">· sin comprobante</span>}
+
+      {pedido.comprobanteUrl && <VisorComprobante numero={pedido.numero} />}
+    </span>
   );
 }
 

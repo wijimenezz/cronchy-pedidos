@@ -134,6 +134,55 @@
       "when": 1786401081531,
       "tag": "0018_push",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786536610198,
+      "tag": "0019_azucar_y_canela",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1786555580222,
+      "tag": "0020_qr_pago",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1786558737405,
+      "tag": "0021_barrios",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1786652760707,
+      "tag": "0022_ayuda_grupo",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1786725647653,
+      "tag": "0023_helado_upsell",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1786727939800,
+      "tag": "0024_agrandar_churros",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1786728824509,
+      "tag": "0025_orden_helado",
+      "breakpoints": true
     }
   ]
 }

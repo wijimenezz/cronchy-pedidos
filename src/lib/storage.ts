@@ -3,6 +3,7 @@ import {
   BUCKET_PRODUCTOS,
   rutaBannerCategoria,
   rutaFotoProducto,
+  rutaImagenTienda,
   type TipoImagen,
 } from "@/lib/imagenes";
 
@@ -62,12 +63,14 @@ export async function subirComprobante(
 export async function subirFotoProducto(
   bytes: ArrayBuffer,
   tipo: TipoImagen,
-  destino: { productId: string } | { categoryId: string },
+  destino: { productId: string } | { categoryId: string } | { storeId: string },
 ): Promise<{ url: string }> {
   const ruta =
     "productId" in destino
       ? rutaFotoProducto(destino.productId, tipo)
-      : rutaBannerCategoria(destino.categoryId, tipo);
+      : "categoryId" in destino
+        ? rutaBannerCategoria(destino.categoryId, tipo)
+        : rutaImagenTienda(destino.storeId, tipo);
 
   return subir(BUCKET_PRODUCTOS, ruta, bytes, tipo, { publico: true });
 }

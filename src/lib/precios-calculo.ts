@@ -89,6 +89,116 @@ export function precioEfectivoOpcion(
   return enganche.modo === "incluido" ? 0 : enganche.precioUnitario ?? opcion.precioDelta;
 }
 
+/**
+ * ¿Este enganche cobra algo?
+ *
+ * `modo = 'adicional'` NO es sinónimo de "de pago": un adicional a $0 es la única forma de
+ * ofrecer un grupo **opcional** (lo incluido obliga a elegirlo todo, regla 4), y así están
+ * enganchados "Azúcar y canela" o "Nivel de dulce". La carta lo necesita para no anunciar
+ * como "adicionales" unas opciones que no suman un peso.
+ *
+ * Vive aquí por la misma razón que `precioEfectivoOpcion`, del que se deriva: si el criterio
+ * se copiara a la UI, el día que cambie la regla 3 el rótulo diría una cosa y la caja otra.
+ */
+export function engancheCobra(
+  enganche: Pick<EngancheParaPrecio, "modo" | "precioUnitario"> & {
+    opciones: Pick<OpcionParaPrecio, "precioDelta">[];
+  },
+): boolean {
+  return enganche.opciones.some((opcion) => precioEfectivoOpcion(enganche, opcion) > 0);
+}
+
+/**
+ * ¿Este enganche es un tamaño o presentación —"Porción de helado: pequeña $4.000, mediana
+ * $8.000"— en vez de un extra?
+ *
+ * Lo que lo define es **obligatorio y de pago a la vez**, que ninguna de las dos formas
+ * anteriores podía dar: lo incluido obliga pero vale 0 sin mirar el `precioDelta` (regla 3), y
+ * lo adicional cobra pero se puede saltar. Un tamaño va en modo `adicional` para que el precio
+ * de cada opción cuente, con `minSelect >= 1` para que haya que elegir uno.
+ *
+ * Vive aquí junto a `engancheCobra` y no en la carta ni en el panel porque los dos lo
+ * necesitan: la ficha para pintarlo abierto en vez de como "+ Agregar … adicionales", y la
+ * tarjeta de la carta para decir "desde $4.000". Duplicado, el día que el criterio cambie una
+ * pantalla diría una cosa y la otra otra.
+ */
+export function esVariante(
+  enganche: Pick<EngancheParaPrecio, "modo" | "tipo" | "minSelect">,
+): boolean {
+  return enganche.tipo === "seleccion" && enganche.modo === "adicional" && enganche.minSelect > 0;
+}
+
+/**
+ * ¿Este enganche es una **casilla** —"¿Quieres agrandar tus churros? · Sí, +5 churros +$8.000"—
+ * en vez de una sección de extras?
+ *
+ * Lo que la define es que **no hay lista que abrir**: es opcional y trae una sola opción, así que
+ * la pregunta se responde marcando o no marcando. Un grupo de nueve salsas con el mismo modo sí es
+ * una lista, y por eso sigue naciendo plegado.
+ *
+ * Cuenta **todas** las opciones y no solo las disponibles: la forma de una sección no puede
+ * cambiar el día que algo se agote.
+ *
+ * **Es la forma del grupo la que decide, nunca su `colapsado`**, y eso no es un detalle de estilo:
+ * `planificarEngancles` escribe siempre `colapsado: true` para los adicionales, así que una casilla
+ * que dependiera de esa columna se volvería a plegar sola en el primer guardado del panel.
+ *
+ * Vive junto a `esVariante` y `engancheCobra` porque las tres responden lo mismo —cómo se lee este
+ * enganche— y separarlas repartiría el criterio por dos archivos.
+ */
+export function esCasilla(
+  enganche: Pick<EngancheParaPrecio, "modo" | "tipo" | "minSelect"> & { opciones: unknown[] },
+): boolean {
+  return (
+    enganche.tipo === "seleccion" &&
+    enganche.modo === "adicional" &&
+    enganche.minSelect === 0 &&
+    enganche.opciones.length === 1
+  );
+}
+
+/**
+ * El precio más barato al que se puede llevar un producto, y si hay algo más caro que elegir
+ * —que es cuando el número se rotula "desde".
+ *
+ * **Un tamaño obligatorio se puede modelar de dos formas** igual de razonables: base $4.000 con
+ * el mediano sumando $4.000, o base $0 con cada tamaño cobrando su precio entero (que es como
+ * quedó la porción de helado). Quien pinte `precioBase` a secas anuncia **$0** en la segunda.
+ * Sumando el mínimo de cada grupo de tamaños al base, las dos dan $4.000.
+ *
+ * Solo cuentan las opciones **disponibles**: con el pequeño agotado el mínimo real es el
+ * mediano, y anunciar el del pequeño sería prometer un precio que nadie puede pedir. Un grupo
+ * con todo agotado se salta —sumarle 0 diría que el producto sale más barato justo cuando no se
+ * puede comprar—; de ese caso ya avisa la ficha, que bloquea el botón.
+ *
+ * Es la gemela de `conPrecioDesde` (`db/queries/menu.ts`), que responde lo mismo para la tarjeta
+ * de la carta partiendo de filas planas de SQL. Lo que comparten —y lo que no se puede
+ * duplicar— son los criterios: `esVariante` decide quién es un tamaño y `precioEfectivoOpcion`
+ * cuánto cobra cada opción.
+ */
+export function precioDesde(
+  producto: Pick<ProductoParaPrecio, "precioBase" | "engancles">,
+): { minimo: number; hayRango: boolean } {
+  let extra = 0;
+  let hayRango = false;
+
+  for (const enganche of producto.engancles) {
+    if (!esVariante(enganche)) continue;
+
+    const precios = enganche.opciones
+      .filter((opcion) => opcion.disponible)
+      .map((opcion) => precioEfectivoOpcion(enganche, opcion));
+
+    if (precios.length === 0) continue;
+
+    const min = Math.min(...precios);
+    extra += min;
+    if (Math.max(...precios) > min) hayRango = true;
+  }
+
+  return { minimo: producto.precioBase + extra, hayRango };
+}
+
 // ------------------------------------------------------------
 // Errores y resultado
 // ------------------------------------------------------------

@@ -10,6 +10,11 @@ type Ejecutor = Pick<typeof db, "insert">;
 /**
  * Crea o actualiza el cliente por (storeId, teléfono normalizado). Recibe `db` o una
  * transacción (`tx`) para poder correr atómicamente junto con la creación del pedido.
+ *
+ * Devuelve el `totalPedidos` **ya incrementado**, que es lo que dice si esta persona pide por
+ * primera vez: un `1` es su primer pedido. Sale del `RETURNING` del propio upsert y no de una
+ * consulta aparte porque así es exacto — entre leer y escribir cabe otro pedido de la misma
+ * persona, y ese hueco convertiría a un habitual en cliente nuevo.
  */
 export async function upsertCustomer(
   ejecutor: Ejecutor,
@@ -17,7 +22,7 @@ export async function upsertCustomer(
   telefonoCrudo: string,
   nombre: string,
   montoPedido: number,
-): Promise<{ id: string }> {
+): Promise<{ id: string; totalPedidos: number }> {
   const telefono = normalizarTelefono(telefonoCrudo);
 
   const [fila] = await ejecutor
@@ -39,7 +44,7 @@ export async function upsertCustomer(
         ultimoPedido: sql`now()`,
       },
     })
-    .returning({ id: customer.id });
+    .returning({ id: customer.id, totalPedidos: customer.totalPedidos });
 
   return fila;
 }
