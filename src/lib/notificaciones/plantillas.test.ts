@@ -5,9 +5,10 @@ import {
   cuandoCorto,
   horaCorta,
   llevaAviso,
+  pedidoNuevoTelegram,
   pedidoParaDomiciliario,
 } from "./plantillas";
-import type { PedidoParaMensaje } from "./plantillas";
+import type { PedidoParaMensaje, PedidoParaTelegram } from "./plantillas";
 
 /**
  * Los dos formateadores de hora, que es donde un error se lee como una promesa distinta de la
@@ -406,5 +407,174 @@ describe("llevaAviso", () => {
   it("no arma el texto para responder", () => {
     // Si lo armara, la plantilla de la aceptación leería el total y esto lanzaría.
     expect(() => llevaAviso("preparando")).not.toThrow();
+  });
+});
+
+/**
+ * El aviso interno. Lo que se prueba aquí no es el texto bonito, son las dos cosas que lo hacen
+ * útil o inútil: **qué cabe en las dos primeras líneas** —lo único que se lee en una pantalla
+ * bloqueada— y que el HTML no se rompa con lo que escriba el cliente, porque un `<` suelto hace
+ * que Telegram rechace el mensaje entero y el aviso no llegue.
+ */
+describe("pedidoNuevoTelegram", () => {
+  const A_LAS_7 = new Date("2026-08-14T00:42:00Z"); // 7:42 pm del 13 en Bogotá
+
+  const NUEVO: PedidoParaTelegram = {
+    numero: 142,
+    tipo: "domicilio",
+    programadoPara: null,
+    clienteNombre: "Laura Gómez",
+    clienteTelefono: "3001234567",
+    esClienteNuevo: true,
+    direccion: "Cra 12 #8-45, Apto 302 Torre B",
+    barrio: "Pekín",
+    indicaciones: "portería azul junto a la papelería",
+    zonaNombre: "Centro",
+    items: [
+      {
+        nombre: "Cronchy Churros",
+        cantidad: 2,
+        subtotal: 22000,
+        modificadores: [
+          { grupo: "Salsa incluida", nombre: "Arequipe", cantidad: 1, precio: 0 },
+          { grupo: "Toppings", nombre: "Oreo", cantidad: 2, precio: 2000 },
+        ],
+      },
+      { nombre: "Malteada", cantidad: 1, subtotal: 16000, modificadores: [] },
+    ],
+    costoDomicilio: 6000,
+    total: 47000,
+    metodoPago: "efectivo",
+    pagaCon: 50000,
+    pagado: false,
+    notas: "Porfa el arequipe aparte",
+    creadoEn: A_LAS_7,
+  };
+
+  const dos = (texto: string) => texto.split("\n").slice(0, 2).join("\n");
+
+  it("resuelve en dos líneas si hay que salir corriendo y por cuánto", () => {
+    const { texto } = pedidoNuevoTelegram(NUEVO, TIENDA);
+
+    expect(dos(texto)).toBe(
+      "<b>🛵 DOMICILIO · #142 · $47.000</b>\n💵 EFECTIVO — paga con $50.000, devolver $3.000",
+    );
+  });
+
+  // Misma doctrina que el payload del Web Push: quien pasa al lado del mostrador no tiene por qué
+  // leer el nombre ni la dirección de nadie en una pantalla bloqueada.
+  it("no asoma datos del cliente en lo que se ve bloqueado", () => {
+    const { texto } = pedidoNuevoTelegram(NUEVO, TIENDA);
+
+    expect(dos(texto)).not.toContain("Laura");
+    expect(dos(texto)).not.toContain("Cra 12");
+    expect(dos(texto)).not.toContain("3001234567");
+  });
+
+  // Es lo único que impide que alguien fría veinte churros doce horas antes.
+  it("un pedido programado antepone su línea, sola", () => {
+    const { texto } = pedidoNuevoTelegram(
+      { ...NUEVO, programadoPara: new Date("2026-08-14T01:00:00Z") },
+      TIENDA,
+      A_LAS_7,
+    );
+
+    expect(texto.split("\n")[0]).toBe("⏰ <b>PROGRAMADO — hoy 8:00 pm</b>");
+    expect(texto.split("\n")[1]).toContain("DOMICILIO");
+  });
+
+  it("lleva los items con sus modificadores y la nota del pedido", () => {
+    const { texto } = pedidoNuevoTelegram(NUEVO, TIENDA);
+
+    expect(texto).toContain("🧾 2× Cronchy Churros con Arequipe, Oreo ×2");
+    expect(texto).toContain("   1× Malteada");
+    expect(texto).toContain('📝 "Porfa el arequipe aparte"');
+  });
+
+  it("lleva dónde, con qué zona cobró y la referencia", () => {
+    const { texto } = pedidoNuevoTelegram(NUEVO, TIENDA);
+
+    expect(texto).toContain("📍 Cra 12 #8-45, Apto 302 Torre B");
+    expect(texto).toContain("   Pekín · Centro ($6.000)");
+    expect(texto).toContain("   Ref: portería azul junto a la papelería");
+  });
+
+  it("lleva a quién llamar, a qué hora entró y si es la primera vez", () => {
+    const { texto } = pedidoNuevoTelegram(NUEVO, TIENDA);
+
+    expect(texto).toContain("👤 Laura Gómez · 3001234567");
+    expect(texto).toContain("🕐 7:42 pm · Cliente nuevo");
+    expect(pedidoNuevoTelegram({ ...NUEVO, esClienteNuevo: false }, TIENDA).texto).not.toContain(
+      "Cliente nuevo",
+    );
+  });
+
+  it("en recoger no hay nada que ubicar", () => {
+    const { texto } = pedidoNuevoTelegram({ ...NUEVO, tipo: "recoger" }, TIENDA);
+
+    expect(texto).toContain("🏪 RECOGE EN TIENDA");
+    expect(texto).not.toContain("📍");
+    expect(texto).not.toContain("Ref:");
+  });
+
+  it("un pedido pagado no habla de devuelta", () => {
+    const { texto } = pedidoNuevoTelegram(
+      { ...NUEVO, metodoPago: "nequi", pagaCon: null, pagado: true },
+      TIENDA,
+    );
+
+    expect(texto).toContain("✅ NEQUI O BRE-B — comprobante adjunto");
+    expect(texto).not.toContain("devolver");
+  });
+
+  // Recoger se paga por adelantado: si llega sin comprobante hay un pago que perseguir, y decir
+  // "contra entrega" sería justo lo contrario de lo que hay que hacer.
+  it("avisa cuando falta el comprobante en vez de darlo por contra entrega", () => {
+    const { texto } = pedidoNuevoTelegram(
+      { ...NUEVO, metodoPago: "nequi", pagaCon: null, pagado: false },
+      TIENDA,
+    );
+
+    expect(texto).toContain("⚠️ NEQUI O BRE-B — SIN comprobante");
+  });
+
+  it("sin billete declarado no promete una devuelta que nadie calculó", () => {
+    const { texto } = pedidoNuevoTelegram({ ...NUEVO, pagaCon: null }, TIENDA);
+
+    expect(texto).toContain("💵 EFECTIVO — contra entrega");
+    expect(texto).not.toContain("devolver");
+  });
+
+  // Un `<` en el nombre no se ve raro: Telegram rechaza el mensaje ENTERO y el aviso no llega.
+  it("escapa el HTML de todo lo que escribió el cliente", () => {
+    const { texto } = pedidoNuevoTelegram(
+      {
+        ...NUEVO,
+        clienteNombre: "Ana <la del 302>",
+        direccion: "Calle 5 & 6",
+        notas: "sin <crema>",
+      },
+      TIENDA,
+    );
+
+    expect(texto).toContain("Ana &lt;la del 302&gt;");
+    expect(texto).toContain("Calle 5 &amp; 6");
+    expect(texto).toContain("sin &lt;crema&gt;");
+    // Las etiquetas del propio mensaje sí tienen que sobrevivir.
+    expect(texto).toContain("<b>🛵 DOMICILIO");
+  });
+
+  // Pasarse de 4.096 no recorta el mensaje: Telegram lo rechaza y no llega nada.
+  it("un pedido enorme se recorta en vez de no llegar", () => {
+    const muchos = Array.from({ length: 200 }, () => NUEVO.items[0]);
+    const { texto } = pedidoNuevoTelegram({ ...NUEVO, items: muchos }, TIENDA);
+
+    expect(texto.length).toBeLessThanOrEqual(4000);
+  });
+
+  it("el botón apunta al pedido en el panel", () => {
+    expect(pedidoNuevoTelegram(NUEVO, TIENDA).urlPanel).toBe(
+      "https://cronchy.co/admin/pedidos/142",
+    );
   });
 });

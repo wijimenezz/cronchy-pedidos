@@ -11,7 +11,16 @@ export async function crearPedidoEnDB(
   storeId: string,
   input: CrearPedidoInput,
   calculo: PedidoCalculado,
-): Promise<{ id: string; numero: number; tokenPublico: string }> {
+): Promise<{
+  id: string;
+  numero: number;
+  tokenPublico: string;
+  /**
+   * Si es la primera vez que esta persona pide. Sale del contador que el propio upsert
+   * incrementa dentro de esta transacción, así que no hay consulta extra ni carrera.
+   */
+  esClienteNuevo: boolean;
+}> {
   return db.transaction(async (tx) => {
     const cliente = await upsertCustomer(tx, storeId, input.clienteTelefono, input.clienteNombre, calculo.total);
 
@@ -72,7 +81,7 @@ export async function crearPedidoEnDB(
 
     await tx.insert(orderStatusEvent).values({ storeId, orderId: pedido.id, estado: "nuevo" });
 
-    return pedido;
+    return { ...pedido, esClienteNuevo: cliente.totalPedidos === 1 };
   });
 }
 
