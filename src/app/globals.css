@@ -16,6 +16,8 @@
   --color-alerta: var(--alerta);
   --color-error: var(--error);
   --color-agotado: var(--agotado);
+  --color-programado: var(--programado);
+  --color-programado-suave: var(--programado-suave);
 
   --color-badge-vendido: var(--badge-vendido);
   --color-badge-nuevo: var(--badge-nuevo);
@@ -73,6 +75,14 @@
   --alerta: #d97b29;
   --error: #c0392b;
   --agotado: #9a8574;
+  /* Azul frío a propósito, contra toda la paleta cálida: es el pedido que NO se prepara
+     ahora. Ver DESIGN.md antes de "corregirlo" a naranja por coherencia de marca. */
+  --programado: #3a5a8a;
+  /* El fondo de la tarjeta programada. Es un color propio y NO `--programado` con opacidad:
+     mezclado al 5 % sobre una crema tan clara y tan cálida, el azul se desatura y acaba
+     pareciendo un gris — se probó y las dos tarjetas se leían igual. Un blanco frío al lado
+     del `--tarjeta` cálido sí se distingue sin leer. */
+  --programado-suave: #eef2f8;
 
   /* Badges de producto */
   --badge-vendido: #e03e00;

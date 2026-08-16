@@ -33,6 +33,8 @@ Paleta tomada del logo, el packaging y el mural reales.
 --alerta: #d97b29; /* naranja ámbar: "te falta una salsa" */
 --error: #c0392b; /* rojo del mural, para errores reales */
 --agotado: #9a8574; /* gris cálido para productos sin stock */
+--programado: #3a5a8a; /* azul frío: el pedido que NO se prepara ahora */
+--programado-suave: #eef2f8; /* su fondo de tarjeta, un blanco frío */
 
 /* --- Badges de producto --- */
 --badge-vendido: #e03e00; /* "Más vendido" */
@@ -60,6 +62,20 @@ Paleta tomada del logo, el packaging y el mural reales.
   "te falta una salsa" es ámbar (`--alerta`), no rojo: no es un error, es un
   recordatorio. La única excepción es el badge "Más vendido", que usa rojo
   como color de marca del mockup, no como estado de error.
+- **El frío es solo del pedido programado**, y es la única excepción a una paleta
+  cálida. No es un capricho: ámbar, rojo y naranja ya están tomados por urgencia,
+  error y acción, y lo programado no es ninguna de las tres — es lo único que se
+  distingue por **cuándo** y no por en qué estado está. Un pedido que no se
+  prepara ahora tiene que separarse de un vistazo de los diez que sí. Vive en el
+  panel (tarjeta del tablero y detalle) y **no aparece en la tienda pública**: al
+  cliente no le sirve de nada. Si alguien lo "corrige" a naranja por coherencia de
+  marca, el color deja de significar algo.
+- **Sobre crema, un tinte por opacidad no se ve: usa un token de fondo propio.** El
+  primer intento pintó la tarjeta programada con `bg-programado/5` y en pantalla no
+  se distinguía de una normal — la crema es tan clara y tan cálida que mezclarle un
+  azul medio lo desatura hasta dejarlo gris. Por eso existe `--programado-suave`, un
+  blanco frío hecho a mano. La regla general: `color/opacidad` sirve para píldoras y
+  bordes, no para diferenciar dos fondos grandes.
 
 ---
 
