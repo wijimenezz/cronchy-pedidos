@@ -1,9 +1,16 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { MapPin } from "lucide-react";
+import { MapPin, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { pesos } from "@/lib/notificaciones/plantillas";
+import {
+  accionDelFallo,
+  contextoDelNavegador,
+  diagnosticar,
+  textoDelFallo,
+  type FalloUbicacion,
+} from "@/lib/checkout/ubicacion";
 import type { Punto } from "./MapaUbicacion";
 
 const MapaUbicacion = dynamic(() => import("./MapaUbicacion"), {
@@ -58,7 +65,7 @@ export function SelectorUbicacion({
 }) {
   const [gps, setGps] = useState<Punto | null>(null);
   const [buscando, setBuscando] = useState(false);
-  const [errorGps, setErrorGps] = useState<string | null>(null);
+  const [fallo, setFallo] = useState<FalloUbicacion | null>(null);
 
   function mover(punto: Punto) {
     onPin(punto);
@@ -67,12 +74,12 @@ export function SelectorUbicacion({
 
   function usarMiUbicacion() {
     if (!navigator.geolocation) {
-      setErrorGps("Tu navegador no puede darnos tu ubicación. Marca el punto en el mapa.");
+      setFallo(diagnosticar(null));
       return;
     }
 
     setBuscando(true);
-    setErrorGps(null);
+    setFallo(null);
 
     navigator.geolocation.getCurrentPosition(
       (posicion) => {
@@ -81,11 +88,14 @@ export function SelectorUbicacion({
         setBuscando(false);
         mover(punto);
       },
-      () => {
+      // El `code` es la ÚNICA señal que tenemos: WebKit no implementa `permissions.query` para
+      // geolocalización, así que fuera de aquí no hay forma de saber qué pasó. La versión
+      // anterior recibía el error sin parámetro y lo tiraba, y por eso un iPhone con la
+      // Localización apagada para el navegador —que falla en un milisegundo, sin diálogo— se
+      // veía exactamente igual que si el botón no hiciera nada.
+      (error) => {
         setBuscando(false);
-        // Negar el permiso no es un error: el mapa queda centrado en la tienda y el cliente
-        // marca a mano (regla 14).
-        setErrorGps("No pudimos ubicarte. Marca el punto en el mapa, es igual de válido.");
+        setFallo(diagnosticar(error.code));
       },
       { enableHighAccuracy: true, timeout: 10_000, maximumAge: 0 },
     );
@@ -105,18 +115,20 @@ export function SelectorUbicacion({
         {buscando ? "Ubicándote…" : "Usar mi ubicación actual"}
       </button>
 
+      {/*
+        Pegado al botón y no debajo del mapa, que es donde estaba: con 256 px de mapa y un
+        párrafo de ayuda en medio, en un teléfono este aviso caía fuera de pantalla. Y como el
+        permiso denegado falla en un milisegundo, el rótulo "Ubicándote…" ni se alcanza a ver:
+        entre las dos cosas, tocar el botón no producía ningún cambio visible.
+      */}
+      {fallo && <AvisoFallo fallo={fallo} onReintentar={usarMiUbicacion} />}
+
       <MapaUbicacion centro={centroTienda} pin={pin} onMover={mover} />
 
       <p className="font-cuerpo text-[13px] text-cafe-tenue">
         Arrastra el pin o toca el mapa hasta dejarlo en tu puerta. De ahí sale el costo del
         domicilio.
       </p>
-
-      {errorGps && (
-        <p role="status" className="font-cuerpo text-[13px] text-cafe-suave">
-          {errorGps}
-        </p>
-      )}
 
       {lejosDelGps && (
         <p role="status" className="rounded-sm bg-alerta/12 px-3 py-2 font-cuerpo text-[13px] text-alerta">
@@ -125,6 +137,60 @@ export function SelectorUbicacion({
       )}
 
       <ResumenCobertura cobertura={cobertura} />
+    </div>
+  );
+}
+
+/**
+ * Qué pasó con el GPS y qué hacer al respecto.
+ *
+ * El texto sale de `lib/checkout/ubicacion.ts`, que es puro y está probado; aquí solo se pinta.
+ * Se lee el user agent durante el render y eso es seguro: `fallo` arranca en `null`, así que
+ * este componente solo existe después de que alguien tocó el botón — nunca en el HTML del
+ * servidor, donde no hay `navigator` y la hidratación no cuadraría.
+ */
+function AvisoFallo({
+  fallo,
+  onReintentar,
+}: {
+  fallo: FalloUbicacion;
+  onReintentar: () => void;
+}) {
+  const contexto = contextoDelNavegador(navigator.userAgent);
+  const { titulo, pasos, alternativa } = textoDelFallo(fallo, contexto);
+  const accion = accionDelFallo(fallo);
+
+  return (
+    <div
+      role="alert"
+      className="flex flex-col gap-2 rounded-sm bg-alerta/15 px-3 py-3 font-cuerpo text-[13px] text-cafe"
+    >
+      <p className="font-semibold">{titulo}</p>
+
+      {pasos.length > 0 && (
+        <ol className="ml-4 flex list-decimal flex-col gap-1">
+          {pasos.map((paso) => (
+            <li key={paso}>{paso}</li>
+          ))}
+        </ol>
+      )}
+
+      {accion !== "ninguna" && (
+        <button
+          type="button"
+          // Recargar y no reintentar cuando faltó el permiso: iOS no lo reevalúa en la misma
+          // carga de página, así que un reintento volvería a fallar y el cliente concluiría
+          // que activarlo no sirvió. Recargar aquí no cuesta nada — el paso, el carrito y los
+          // datos viven en localStorage.
+          onClick={accion === "recargar" ? () => window.location.reload() : onReintentar}
+          className="mt-1 flex min-h-11 items-center justify-center gap-2 self-start rounded-sm border border-crema-oscura bg-tarjeta px-4 font-bold text-cafe transition-colors hover:bg-crema focus:outline-none focus:ring-2 focus:ring-naranja"
+        >
+          <RefreshCw className="size-4" />
+          {accion === "recargar" ? "Ya lo activé, recargar" : "Intentar de nuevo"}
+        </button>
+      )}
+
+      <p className="text-cafe-suave">{alternativa}</p>
     </div>
   );
 }
