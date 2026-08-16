@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { CalendarClock } from "lucide-react";
 import { useState, useSyncExternalStore, useTransition } from "react";
 import type { PedidoEnLista } from "@/db/queries/panel";
 import { cuandoCorto, horaCorta, pesos } from "@/lib/notificaciones/plantillas";
@@ -99,15 +100,29 @@ export function TarjetaPedido({
   // El polling entrega las fechas como string al pasar por JSON; el render del servidor las
   // da como Date. Se normalizan aquí en vez de en dos sitios.
   const creadoEn = new Date(pedido.creadoEn);
-  const programadoPara = pedido.programadoPara ? new Date(pedido.programadoPara) : null;
+  const programadoPara = pedido.programadoPara
+    ? new Date(pedido.programadoPara)
+    : null;
+  const esProgramado = programadoPara !== null;
 
   const minutosEsperando =
-    ahora === null ? null : Math.max(0, Math.floor((ahora - creadoEn.getTime()) / 60_000));
+    ahora === null
+      ? null
+      : Math.max(0, Math.floor((ahora - creadoEn.getTime()) / 60_000));
 
   // El reloj solo alarma en la primera columna. Que un pedido lleve dos horas es normal si ya
   // está en camino; que lleve veinte minutos sin que nadie lo mire, no.
+  //
+  // Y nunca alarma en un programado, por más que lleve horas creado: uno tomado anoche para hoy
+  // a las 2 pm sale con "13 h" esperando y se pintaba en el mismo rojo que un pedido abandonado
+  // —el elemento más gritón de la tarjeta, idéntico en las dos, justo compitiendo contra el azul
+  // que las separa—. Esta cuenta mide desde `creadoEn` y ahí no significa nada.
+  //
+  // Lo que sí sería un problema es un programado que ya se pasó de su hora, pero eso se mide
+  // contra `programadoPara` y este contador no lo sabe. Mientras ese cálculo no exista, un badge
+  // callado es mejor que uno que grita por el motivo equivocado.
   const urgencia =
-    pedido.estado !== "nuevo" || minutosEsperando === null
+    pedido.estado !== "nuevo" || minutosEsperando === null || esProgramado
       ? "normal"
       : minutosEsperando >= ALARMA_MIN
         ? "alarma"
@@ -146,7 +161,10 @@ export function TarjetaPedido({
     setError(null);
     setUrlBloqueada(null);
     iniciar(async () => {
-      const resultado = await prepararAviso({ numero: pedido.numero, estado: pedido.estado });
+      const resultado = await prepararAviso({
+        numero: pedido.numero,
+        estado: pedido.estado,
+      });
       if (!resultado.ok) setError(resultado.error);
       else abrirWhatsapp(resultado.url);
       alCambiar();
@@ -157,7 +175,16 @@ export function TarjetaPedido({
     // `relative` + el enlace estirado de abajo: toda la tarjeta abre el detalle sin meter un
     // <button> dentro de un <a>, que no es HTML válido. Antes solo se podía entrar por el
     // número, un objetivo de dos centímetros en una pantalla que se opera con el dedo.
-    <article className="relative flex flex-col gap-2 rounded-md border border-crema-oscura bg-tarjeta p-3 shadow-tarjeta transition-colors focus-within:border-naranja hover:border-naranja/60">
+    <article
+      className={`relative flex flex-col gap-2 rounded-md border p-3 shadow-tarjeta transition-colors focus-within:border-naranja hover:border-naranja/60 ${
+        esProgramado
+          ? // `border` deja 1 px en los cuatro lados y `border-l-4` sobreescribe solo el
+            // izquierdo: esa cinta es lo que se ve desde el otro lado del mostrador. El fondo
+            // es un token propio y no `bg-programado/5`, que se desaturaba hasta parecer gris.
+            "border-programado/30 border-l-4 border-l-programado bg-programado-suave"
+          : "border-crema-oscura bg-tarjeta"
+      }`}
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="font-titulo text-base font-bold text-cafe">
@@ -166,7 +193,9 @@ export function TarjetaPedido({
               {hora(creadoEn)}
             </span>
           </p>
-          <p className="truncate font-cuerpo text-[15px] text-cafe">{pedido.clienteNombre}</p>
+          <p className="truncate font-cuerpo text-[15px] text-cafe">
+            {pedido.clienteNombre}
+          </p>
         </div>
 
         {minutosEsperando !== null && (
@@ -193,11 +222,17 @@ export function TarjetaPedido({
       {/* Lo que hay que preparar, sin abrir nada. Dos líneas y se corta: para armar el pedido
           está el detalle; esto es para reconocerlo. */}
       {pedido.resumenItems && (
-        <p className="line-clamp-2 font-cuerpo text-[13px] text-cafe">{pedido.resumenItems}</p>
+        <p className="line-clamp-2 font-cuerpo text-[13px] text-cafe">
+          {pedido.resumenItems}
+        </p>
       )}
 
+      {/* Píldora y no una línea de texto más: en café y con el mismo peso que el resto, esto se
+          leía solo si ya estabas leyendo la tarjeta. Es la misma que la cabecera del detalle.
+          `w-fit` para que abrace su texto en vez de cruzar la tarjeta entera. */}
       {programadoPara && (
-        <p className="font-cuerpo text-[12px] font-bold text-cafe">
+        <p className="flex w-fit items-center gap-1.5 rounded-full bg-programado/15 px-2.5 py-1 font-cuerpo text-[12px] font-bold text-programado">
+          <CalendarClock className="size-3.5 shrink-0" />
           {/* Con pedidos de hoy y de mañana mezclados, una hora suelta es una promesa
               ambigua: el día va siempre, y por eso `cuandoCorto` y no la hora pelada. */}
           Programado · {cuandoCorto(programadoPara)}
@@ -215,7 +250,10 @@ export function TarjetaPedido({
       </p>
 
       {error && (
-        <p role="alert" className="font-cuerpo text-[13px] font-semibold text-error">
+        <p
+          role="alert"
+          className="font-cuerpo text-[13px] font-semibold text-error"
+        >
           {error}
         </p>
       )}
@@ -252,7 +290,9 @@ export function TarjetaPedido({
               disabled={pendiente}
               className="min-h-11 flex-1 rounded-full bg-naranja px-3 font-cuerpo text-sm font-bold text-crema transition-colors hover:bg-naranja-osc focus:outline-none focus:ring-2 focus:ring-naranja focus:ring-offset-2 disabled:opacity-50"
             >
-              {pedido.estado === "nuevo" ? "Aceptar" : ETIQUETA_ESTADO[pedido.siguiente]}
+              {pedido.estado === "nuevo"
+                ? "Aceptar"
+                : ETIQUETA_ESTADO[pedido.siguiente]}
             </button>
           )}
 

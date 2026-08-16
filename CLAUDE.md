@@ -370,6 +370,29 @@ lectura cruda del GPS ni sobre la dirección escrita.
   resultante **siempre es arrastrable**: el GPS de escritorio se ubica por IP y falla
   por cuadras.
 - Si el cliente niega el permiso: mapa centrado en la tienda, pin manual.
+
+  **Y hay que decírselo, porque en iPhone el fallo es invisible.** Un cliente real tocó el botón
+  y no pasó nada: tenía la Localización apagada para Safari a nivel de sistema, así que iOS ni
+  llegó a mostrar el diálogo —contestó `PERMISSION_DENIED` en un milisegundo, sin preguntar— y
+  acabó saliendo a los Ajustes del teléfono por su cuenta. El componente recibía el error, lo
+  **tiraba** (callback sin parámetro) y pintaba una frase gris debajo del mapa de 256 px, o sea
+  fuera de pantalla en un teléfono.
+
+  `src/lib/checkout/ubicacion.ts` traduce el `code` a instrucciones, puro y probado, y el aviso
+  se pinta pegado al botón. Tres cosas que no se pueden hacer y por eso no se intentan:
+
+  - **No se puede reabrir el diálogo de permiso desde JavaScript**, ni enlazar a los Ajustes de
+    iOS (`App-Prefs:` está bloqueado en Safari). Solo queda explicar dónde está el interruptor.
+  - **No se puede consultar el permiso antes de pedirlo**: WebKit no implementa
+    `permissions.query({name:"geolocation"})`. El `code` del callback es la única señal.
+  - **Tras conceder el permiso, iOS no lo reevalúa sin recargar**, así que ahí el botón ofrece
+    recargar y no reintentar. Se puede prometer que no se pierde nada porque el paso, el carrito
+    y los datos viven en `localStorage`.
+
+  El texto depende del navegador: todos los de iOS son WebKit y fallan igual, pero cada uno tiene
+  su entrada en la lista de Localización. Ojo con el orden al leer el UA — el de Chrome en iPhone
+  también termina en `Safari/…`, y mandar a un usuario de Chrome a "Ajustes › Safari" es mandarlo
+  a una pantalla donde su navegador no está.
 - Si el pin queda a más de 500 m de la lectura GPS original: aviso
   ("verifica que el pin esté en tu dirección exacta"), **sin bloquear**.
 - La dirección escrita, **el barrio** y las observaciones son referencia para el
