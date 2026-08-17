@@ -62,7 +62,22 @@ const TITULO_BASE = "Pedidos — Cronchy";
  * las cuatro columnas (~239 px cada una en vertical, ~324 en horizontal). Por debajo —un
  * teléfono de urgencia— pasan a pestañas, porque cuatro columnas ahí no se leen.
  */
-export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
+export function ListaPedidos({
+  iniciales,
+  selectorDia,
+  estimado,
+  acciones,
+}: {
+  iniciales: PedidoEnLista[];
+  /**
+   * Controles de servidor que comparten la barra con el contador y el botón de avisos, que sí
+   * son estado de este componente. Llegan como nodos ya renderizados: así conviven en una sola
+   * fila de 48 px sin mover ningún estado de sitio.
+   */
+  selectorDia: React.ReactNode;
+  estimado: React.ReactNode;
+  acciones: React.ReactNode;
+}) {
   const router = useRouter();
   const [pedidos, setPedidos] = useState(iniciales);
   const [sinConexion, setSinConexion] = useState(false);
@@ -311,27 +326,43 @@ export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
       }),
   );
 
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="font-titulo text-xl font-bold text-cafe">
-          Pedidos
-          {pedidos.length > 0 && (
-            <span className="ml-2 font-cuerpo text-sm font-normal text-cafe-tenue">
-              {pedidos.length}
-            </span>
-          )}
-        </h1>
+  /**
+   * La última columna ("Terminados") vacía se colapsa a una franja angosta.
+   *
+   * Un cuarto del ancho para un rótulo y un "Nada aún" es el peor reparto posible: ese espacio
+   * lo necesitan las tres columnas que sí se operan. En cuanto entra el primer pedido terminado
+   * la rejilla vuelve a cuatro columnas iguales.
+   */
+  const ultima = COLUMNAS_TABLERO.length - 1;
+  const terminadosVacio = porColumna[ultima].length === 0;
 
-        <div className="flex items-center gap-3">
+  return (
+    // `h-full` + `min-h-0`: el tablero ocupa el alto que le da `<main>` y NO crece con el
+    // contenido. Es lo que permite que el scroll ocurra dentro de cada columna en vez de
+    // arrastrar las cuatro a la vez.
+    <div className="flex h-full min-h-0 flex-col gap-2">
+      {/* Una sola barra de herramientas donde antes había un <h1>, el chip del estimado y una
+          fila de acciones: tres bloques apilados para lo que cabe en una línea. */}
+      <div className="flex h-12 shrink-0 items-center gap-3">
+        {selectorDia}
+
+        <span className="shrink-0 font-cuerpo text-sm text-cafe-suave">
+          Pedidos <span className="font-bold text-cafe">{pedidos.length}</span>
+        </span>
+
+        {estimado}
+
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           {sinConexion && (
             <p
               role="status"
-              className="rounded-sm bg-alerta/15 px-3 py-1.5 font-cuerpo text-[13px] font-semibold text-cafe"
+              className="rounded-full bg-alerta/15 px-2.5 py-1 font-cuerpo text-xs font-semibold text-cafe"
             >
-              Sin conexión. Reintentando…
+              Sin conexión…
             </p>
           )}
+
+          {acciones}
 
           {/* Se pinta llamativo cuando está apagado y hay pedidos esperando: un panel mudo sin
               que nadie lo sepa es peor que uno que no avisa. */}
@@ -339,7 +370,7 @@ export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
             type="button"
             onClick={alternarSonido}
             aria-pressed={sonido}
-            className={`flex min-h-11 items-center gap-2 rounded-full border px-4 font-cuerpo text-sm font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-naranja ${
+            className={`flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 font-cuerpo text-xs font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-naranja ${
               sonido
                 ? "border-crema-oscura text-cafe-suave hover:bg-crema"
                 : sinAceptar.length > 0
@@ -348,37 +379,29 @@ export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
             }`}
           >
             {sonido ? <Bell className="size-4" /> : <BellOff className="size-4" />}
-            {sonido ? "Avisos activos" : "Activar avisos"}
+            {sonido ? "Avisos" : "Activar avisos"}
           </button>
         </div>
       </div>
 
       {/* Qué canal quedó armado y cuál no. El silencio aquí solo puede significar que los tres
-          funcionan: un panel que cree estar avisando y no avisa es peor que uno mudo declarado. */}
+          funcionan: un panel que cree estar avisando y no avisa es peor que uno mudo declarado.
+
+          Este SÍ se queda, a diferencia del banner de "N pedidos sin aceptar" que se quitó: aquel
+          repetía un número que la columna ya canta, este dice algo que no está en ninguna otra
+          parte de la pantalla. */}
       {sonido && problema && (
         <p
           role="status"
-          className="rounded-md bg-alerta/15 px-4 py-2 font-cuerpo text-[13px] text-cafe"
+          className="shrink-0 rounded-md bg-alerta/15 px-3 py-1.5 font-cuerpo text-xs text-cafe"
         >
           {problema}
         </p>
       )}
 
-      {/* El aviso que se ve. Acompaña al sonido y lo sustituye cuando está apagado. */}
-      {sinAceptar.length > 0 && (
-        <p
-          role="status"
-          className="rounded-md bg-naranja/12 px-4 py-2 font-cuerpo text-sm font-bold text-naranja-osc"
-        >
-          {sinAceptar.length === 1
-            ? "1 pedido nuevo sin aceptar"
-            : `${sinAceptar.length} pedidos nuevos sin aceptar`}
-        </p>
-      )}
-
       {/* Las pestañas solo existen en pantalla estrecha; a partir de `lg` mandan las columnas
           y estos botones sobran. */}
-      <div className="flex gap-2 overflow-x-auto lg:hidden" role="tablist">
+      <div className="flex shrink-0 gap-2 overflow-x-auto lg:hidden" role="tablist">
         {COLUMNAS_TABLERO.map((columna, i) => (
           <button
             key={columna.titulo}
@@ -398,7 +421,13 @@ export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
         ))}
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-4 lg:items-start">
+      {/* `min-h-0` aquí es lo que hace funcionar todo el overflow de abajo: sin él, el contenido
+          empuja la altura de la rejilla y el scroll de las columnas no llega a existir nunca. */}
+      <div
+        className={`grid min-h-0 flex-1 gap-3 ${
+          terminadosVacio ? "lg:grid-cols-[1fr_1fr_1fr_auto]" : "lg:grid-cols-4"
+        }`}
+      >
         {COLUMNAS_TABLERO.map((columna, i) => (
           <Columna
             key={columna.titulo}
@@ -407,6 +436,8 @@ export function ListaPedidos({ iniciales }: { iniciales: PedidoEnLista[] }) {
             pedidos={porColumna[i]}
             alCambiar={refrescar}
             oculta={i !== columnaVisible}
+            urge={i === 0 && porColumna[0].length > 0}
+            colapsada={i === ultima && terminadosVacio}
           />
         ))}
       </div>
@@ -420,6 +451,8 @@ function Columna({
   pedidos,
   alCambiar,
   oculta,
+  urge,
+  colapsada,
 }: {
   titulo: string;
   vacio: string;
@@ -427,22 +460,53 @@ function Columna({
   alCambiar: () => void;
   /** En pantalla estrecha solo se ve la pestaña elegida; en `lg` se ven todas. */
   oculta: boolean;
+  /**
+   * Hay algo esperando a que alguien lo mire. Sustituye al banner naranja que decía este mismo
+   * número con letras, dos centímetros más arriba y ocupando una fila entera.
+   */
+  urge: boolean;
+  /** "Terminados" sin nada: se encoge para devolverle el ancho a las que sí se operan. */
+  colapsada: boolean;
 }) {
+  // Colapsada solo en `lg`: en estrecho las columnas son pestañas y la elegida ocupa todo.
+  if (colapsada) {
+    return (
+      <section
+        className={`${oculta ? "hidden lg:flex" : "flex"} min-h-0 flex-col lg:w-10 lg:items-center lg:justify-start lg:rounded-md lg:border lg:border-dashed lg:border-crema-oscura lg:py-3`}
+      >
+        <h2 className="flex shrink-0 items-baseline gap-2 lg:hidden">
+          <span className="font-titulo text-sm font-bold text-cafe">{titulo}</span>
+          <span className="font-cuerpo text-xs text-cafe-tenue">0</span>
+        </h2>
+        <p className="hidden font-cuerpo text-xs text-cafe-tenue lg:block lg:[writing-mode:vertical-rl]">
+          {titulo} · 0
+        </p>
+      </section>
+    );
+  }
+
   return (
-    <section className={`${oculta ? "hidden lg:flex" : "flex"} flex-col gap-2`}>
-      {/* El encabezado se queda arriba al bajar por una columna larga: sin esto, a mitad de
-          scroll ya no se sabe qué columna se está leyendo. */}
-      <h2 className="sticky top-0 z-10 flex items-baseline gap-2 rounded-sm bg-crema/95 py-1.5 backdrop-blur">
-        <span className="font-titulo text-base font-bold text-cafe">{titulo}</span>
-        <span className="font-cuerpo text-sm text-cafe-tenue">{pedidos.length}</span>
+    <section className={`${oculta ? "hidden lg:flex" : "flex"} min-h-0 flex-col gap-2`}>
+      {/* Ya no hace falta `sticky`: el que baja es la lista de abajo, así que el encabezado no
+          se va a ninguna parte. */}
+      <h2 className="flex shrink-0 items-center gap-2">
+        {urge && (
+          <span
+            aria-hidden
+            className="size-2 shrink-0 animate-pulse rounded-full bg-error"
+          />
+        )}
+        <span className="font-titulo text-sm font-bold text-cafe">{titulo}</span>
+        <span className="font-cuerpo text-xs text-cafe-tenue">{pedidos.length}</span>
       </h2>
 
       {pedidos.length === 0 ? (
-        <p className="rounded-md border border-dashed border-crema-oscura px-3 py-6 text-center font-cuerpo text-[13px] text-cafe-tenue">
+        <p className="shrink-0 rounded-md border border-dashed border-crema-oscura px-3 py-3 text-center font-cuerpo text-xs text-cafe-tenue">
           {vacio}
         </p>
       ) : (
-        <ul className="flex flex-col gap-3">
+        // El único scroll del tablero. `pr-1` deja sitio a la barra para que no tape la tarjeta.
+        <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
           {pedidos.map((pedido) => (
             <li key={pedido.id}>
               <TarjetaPedido pedido={pedido} alCambiar={alCambiar} />

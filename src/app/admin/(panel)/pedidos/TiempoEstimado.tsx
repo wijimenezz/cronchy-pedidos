@@ -37,22 +37,35 @@ export function TiempoEstimado({ min, max }: { min: number; max: number }) {
     });
   }
 
-  if (!abierto) {
-    return (
+  /**
+   * El envoltorio `relative` es lo que ancla el panel abierto: sin él se posicionaría contra
+   * cualquier ancestro posicionado que hubiera por encima.
+   */
+  return (
+    <div className="relative shrink-0">
       <button
         type="button"
-        onClick={() => setAbierto(true)}
-        className="flex min-h-11 items-center gap-2 self-start rounded-full border border-crema-oscura px-4 font-cuerpo text-[13px] text-cafe-suave transition-colors hover:bg-crema"
+        onClick={() => setAbierto((a) => !a)}
+        aria-expanded={abierto}
+        className="flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-crema-oscura px-2.5 font-cuerpo text-xs text-cafe-suave transition-colors hover:bg-crema"
       >
-        <Clock className="size-4 shrink-0" />
-        Entrega estimada: {min}–{max} min
+        <Clock className="size-3.5 shrink-0" />
+        {min}–{max} min
         {aviso && <span className="font-bold text-exito">· {aviso}</span>}
       </button>
-    );
-  }
 
-  return (
-    <div className="flex flex-col gap-2 rounded-md border border-crema-oscura bg-tarjeta p-3">
+      {/*
+        Abierto FLOTA sobre el tablero en vez de empujarlo.
+
+        Vive dentro de una barra de herramientas de 48 px: si el formulario se quedara en el
+        flujo, abrirlo estiraría esa fila y bajaría las cuatro columnas de golpe. Es un dato
+        que se toca una vez a la semana, así que no vale ni un píxel de la altura fija.
+
+        Va inline y no en un componente aparte definido aquí dentro: eso remontaría los inputs
+        en cada tecla y el foco se perdería al escribir.
+      */}
+      {abierto && (
+        <div className="absolute left-0 top-full z-30 mt-1 flex w-80 flex-col gap-2 rounded-md border border-crema-oscura bg-tarjeta p-3 shadow-modal">
       <p className="font-cuerpo text-[13px] text-cafe-suave">
         Lo que se le promete al cliente en “lo más pronto posible”. También corre la primera
         hora que se puede programar.
@@ -99,6 +112,8 @@ export function TiempoEstimado({ min, max }: { min: number; max: number }) {
           Cancelar
         </button>
       </div>
+        </div>
+      )}
     </div>
   );
 }

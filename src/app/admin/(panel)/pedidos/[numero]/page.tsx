@@ -96,7 +96,7 @@ export default async function DetallePedidoPage({
   const cuenta = contarPreparacion(pedido.items);
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="mx-auto flex w-full max-w-contenido flex-col gap-4">
       <Link
         href="/admin/pedidos"
         className="flex min-h-11 items-center gap-2 self-start font-cuerpo text-sm font-bold text-cafe-suave underline-offset-2 hover:underline"

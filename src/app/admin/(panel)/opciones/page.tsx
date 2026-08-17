@@ -22,5 +22,11 @@ export default async function OpcionesPage() {
 
   const listas = await listarListasDelPanel(tienda.id);
 
-  return <EditorOpciones listas={listas} esAdmin={sesion.rol === "admin"} />;
+  // El tope de ancho lo pone cada pantalla desde que el tablero de pedidos necesita el ancho
+  // completo; salió de `<main>` en el layout.
+  return (
+    <div className="mx-auto w-full max-w-contenido">
+      <EditorOpciones listas={listas} esAdmin={sesion.rol === "admin"} />
+    </div>
+  );
 }

@@ -176,7 +176,7 @@ export function TarjetaPedido({
     // <button> dentro de un <a>, que no es HTML válido. Antes solo se podía entrar por el
     // número, un objetivo de dos centímetros en una pantalla que se opera con el dedo.
     <article
-      className={`relative flex flex-col gap-2 rounded-md border p-3 shadow-tarjeta transition-colors focus-within:border-naranja hover:border-naranja/60 ${
+      className={`relative flex flex-col gap-1.5 rounded-md border p-3 shadow-tarjeta transition-colors focus-within:border-naranja hover:border-naranja/60 ${
         esProgramado
           ? // `border` deja 1 px en los cuatro lados y `border-l-4` sobreescribe solo el
             // izquierdo: esa cinta es lo que se ve desde el otro lado del mostrador. El fondo
@@ -185,23 +185,22 @@ export function TarjetaPedido({
           : "border-crema-oscura bg-tarjeta"
       }`}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="font-titulo text-base font-bold text-cafe">
-            #{pedido.numero}
-            <span className="ml-2 font-cuerpo text-[13px] font-normal text-cafe-tenue">
-              {hora(creadoEn)}
-            </span>
-          </p>
-          <p className="truncate font-cuerpo text-[15px] text-cafe">
-            {pedido.clienteNombre}
-          </p>
-        </div>
+      {/* Número, hora, nombre y espera en UNA fila. El nombre iba debajo en 15 px y era la
+          línea más alta de la tarjeta sin ser la más útil: para reconocer el pedido basta el
+          número, y quien busca por nombre lo lee igual a 14. */}
+      <div className="flex items-baseline gap-2">
+        <p className="shrink-0 font-titulo text-sm font-bold text-cafe">#{pedido.numero}</p>
+        <span className="shrink-0 font-cuerpo text-[11px] text-cafe-tenue">
+          {hora(creadoEn)}
+        </span>
+        <p className="min-w-0 flex-1 truncate font-cuerpo text-sm font-semibold text-cafe">
+          {pedido.clienteNombre}
+        </p>
 
         {minutosEsperando !== null && (
           <span
             title={`Entró hace ${espera(minutosEsperando)}`}
-            className={`shrink-0 rounded-full px-2 py-0.5 font-cuerpo text-[12px] font-bold ${
+            className={`shrink-0 rounded-full px-1.5 py-0.5 font-cuerpo text-[11px] font-bold ${
               urgencia === "alarma"
                 ? "bg-error/15 text-error"
                 : urgencia === "aviso"
@@ -214,15 +213,23 @@ export function TarjetaPedido({
         )}
       </div>
 
-      <p className="truncate font-cuerpo text-[13px] text-cafe-suave">
-        {pedido.tipo === "domicilio" ? "Domicilio" : "Recoge"}
-        {pedido.barrio && ` · ${pedido.barrio}`}
-      </p>
+      {/* Tipo y barrio como dos píldoras y no como una frase con puntos: son dos datos que se
+          buscan por separado —cómo sale y a dónde va— y así se distinguen sin leer. */}
+      <div className="flex min-w-0 items-center gap-1">
+        <span className="shrink-0 rounded-full bg-crema px-1.5 py-0.5 font-cuerpo text-[11px] font-bold text-cafe-suave">
+          {pedido.tipo === "domicilio" ? "Domicilio" : "Recoge"}
+        </span>
+        {pedido.barrio && (
+          <span className="truncate rounded-full bg-crema px-1.5 py-0.5 font-cuerpo text-[11px] text-cafe-suave">
+            {pedido.barrio}
+          </span>
+        )}
+      </div>
 
       {/* Lo que hay que preparar, sin abrir nada. Dos líneas y se corta: para armar el pedido
           está el detalle; esto es para reconocerlo. */}
       {pedido.resumenItems && (
-        <p className="line-clamp-2 font-cuerpo text-[13px] text-cafe">
+        <p className="line-clamp-2 font-cuerpo text-xs text-cafe-suave">
           {pedido.resumenItems}
         </p>
       )}
@@ -231,29 +238,16 @@ export function TarjetaPedido({
           leía solo si ya estabas leyendo la tarjeta. Es la misma que la cabecera del detalle.
           `w-fit` para que abrace su texto en vez de cruzar la tarjeta entera. */}
       {programadoPara && (
-        <p className="flex w-fit items-center gap-1.5 rounded-full bg-programado/15 px-2.5 py-1 font-cuerpo text-[12px] font-bold text-programado">
-          <CalendarClock className="size-3.5 shrink-0" />
+        <p className="flex w-fit items-center gap-1 rounded-full bg-programado/15 px-2 py-0.5 font-cuerpo text-[11px] font-bold text-programado">
+          <CalendarClock className="size-3 shrink-0" />
           {/* Con pedidos de hoy y de mañana mezclados, una hora suelta es una promesa
               ambigua: el día va siempre, y por eso `cuandoCorto` y no la hora pelada. */}
           Programado · {cuandoCorto(programadoPara)}
         </p>
       )}
 
-      <p className="font-cuerpo text-[13px] text-cafe-suave">
-        <span className="font-bold text-cafe">{pesos(pedido.total)}</span> ·{" "}
-        {METODO_PAGO_ETIQUETA[pedido.metodoPago] ?? pedido.metodoPago}
-        {/* Un Nequi sin comprobante no puede avanzar: mejor decirlo aquí que dejar que
-            el empleado descubra el bloqueo al tocar el botón. */}
-        {pedido.metodoPago === "nequi" && !pedido.tieneComprobante && (
-          <span className="font-bold text-error"> · sin comprobante</span>
-        )}
-      </p>
-
       {error && (
-        <p
-          role="alert"
-          className="font-cuerpo text-[13px] font-semibold text-error"
-        >
+        <p role="alert" className="font-cuerpo text-xs font-semibold text-error">
           {error}
         </p>
       )}
@@ -281,36 +275,56 @@ export function TarjetaPedido({
         <span className="sr-only">Ver el pedido #{pedido.numero}</span>
       </Link>
 
-      {(pedido.siguiente || pedido.avisoPendiente) && (
-        <div className="relative z-10 mt-1 flex flex-wrap items-center gap-2">
-          {pedido.siguiente && (
-            <button
-              type="button"
-              onClick={() => avanzar(pedido.siguiente!)}
-              disabled={pendiente}
-              className="min-h-11 flex-1 rounded-full bg-naranja px-3 font-cuerpo text-sm font-bold text-crema transition-colors hover:bg-naranja-osc focus:outline-none focus:ring-2 focus:ring-naranja focus:ring-offset-2 disabled:opacity-50"
-            >
-              {pedido.estado === "nuevo"
-                ? "Aceptar"
-                : ETIQUETA_ESTADO[pedido.siguiente]}
-            </button>
-          )}
+      {/*
+        Dinero y acción en la MISMA fila. Eran dos bloques apilados —el total en su párrafo y
+        debajo un botón a todo el ancho— y entre los dos se llevaban ~80 px de una tarjeta de
+        290. El botón no gana nada por ser ancho: es el único de su fila.
 
-          {/* Ámbar y no el gris de antes: avanzar y avisar son dos toques, y el segundo se
-              olvidaba. Los mismos tokens que el badge de espera de arriba, para que el
-              naranja sólido siga siendo solo del botón que mueve el pedido. */}
-          {pedido.avisoPendiente && (
-            <button
-              type="button"
-              onClick={avisar}
-              disabled={pendiente}
-              className="min-h-11 rounded-full border border-alerta bg-alerta/20 px-3 font-cuerpo text-sm font-bold text-cafe transition-colors hover:bg-alerta/35 focus:outline-none focus:ring-2 focus:ring-naranja disabled:opacity-50"
-            >
-              Avisar
-            </button>
+        El texto se queda FUERA del `z-10`: ese enlace invisible que cubre la tarjeta abre el
+        detalle, y subir el total por encima dejaría un trozo muerto donde tocar no hace nada.
+      */}
+      <div className="mt-0.5 flex items-center gap-2">
+        <p className="min-w-0 flex-1 font-cuerpo text-xs text-cafe-suave">
+          <span className="font-bold text-cafe">{pesos(pedido.total)}</span> ·{" "}
+          {METODO_PAGO_ETIQUETA[pedido.metodoPago] ?? pedido.metodoPago}
+          {/* Un Nequi sin comprobante no puede avanzar: mejor decirlo aquí que dejar que
+              el empleado descubra el bloqueo al tocar el botón. */}
+          {pedido.metodoPago === "nequi" && !pedido.tieneComprobante && (
+            <span className="font-bold text-error"> · sin comprobante</span>
           )}
-        </div>
-      )}
+        </p>
+
+        {(pedido.siguiente || pedido.avisoPendiente) && (
+          <div className="relative z-10 flex shrink-0 items-center gap-1.5">
+            {/* 44 px de alto aunque el resto de la tarjeta encoja: esto se pulsa con el dedo en
+                la tablet del mostrador, y es el único objetivo táctil que tiene. */}
+            {pedido.siguiente && (
+              <button
+                type="button"
+                onClick={() => avanzar(pedido.siguiente!)}
+                disabled={pendiente}
+                className="min-h-11 rounded-full bg-naranja px-3 font-cuerpo text-xs font-bold text-crema transition-colors hover:bg-naranja-osc focus:outline-none focus:ring-2 focus:ring-naranja focus:ring-offset-2 disabled:opacity-50"
+              >
+                {pedido.estado === "nuevo" ? "Aceptar" : ETIQUETA_ESTADO[pedido.siguiente]}
+              </button>
+            )}
+
+            {/* Ámbar y no el gris de antes: avanzar y avisar son dos toques, y el segundo se
+                olvidaba. Los mismos tokens que el badge de espera de arriba, para que el
+                naranja sólido siga siendo solo del botón que mueve el pedido. */}
+            {pedido.avisoPendiente && (
+              <button
+                type="button"
+                onClick={avisar}
+                disabled={pendiente}
+                className="min-h-11 rounded-full border border-alerta bg-alerta/20 px-2.5 font-cuerpo text-xs font-bold text-cafe transition-colors hover:bg-alerta/35 focus:outline-none focus:ring-2 focus:ring-naranja disabled:opacity-50"
+              >
+                Avisar
+              </button>
+            )}
+          </div>
+        )}
+      </div>
     </article>
   );
 }
