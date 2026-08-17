@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
   experimental: {
@@ -23,4 +24,29 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+/**
+ * Sentry envuelve la config para dos cosas: subir los source maps al construir —sin ellos la
+ * traza de producción es código minificado y no sirve para nada— y podar del bundle lo que no
+ * se usa.
+ *
+ * Los tres flags de abajo son la diferencia entre un SDK de ~40 KB y uno bastante más gordo, y
+ * aquí eso importa: los clientes entran desde datos móviles. Se apagan **el debug**, **el
+ * tracing** (que ya va con `tracesSampleRate: 0`) y **los logs**; Session Replay ni se instala.
+ *
+ * `silent` en CI para que el log del build no se llene, y `widenClientFileUpload` para que la
+ * traza también resuelva dentro de los chunks compartidos.
+ *
+ * Sin `SENTRY_AUTH_TOKEN` el build NO falla: se salta la subida de source maps y sigue. Es lo
+ * que permite que alguien clone el repo y construya sin cuentas de nadie.
+ */
+export default withSentryConfig(nextConfig, {
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  silent: !process.env.CI,
+  widenClientFileUpload: true,
+  disableLogger: true,
+  bundleSizeOptimizations: {
+    excludeDebugStatements: true,
+    excludeTracing: true,
+  },
+});
