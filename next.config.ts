@@ -29,9 +29,17 @@ const nextConfig: NextConfig = {
  * traza de producción es código minificado y no sirve para nada— y podar del bundle lo que no
  * se usa.
  *
- * Los tres flags de abajo son la diferencia entre un SDK de ~40 KB y uno bastante más gordo, y
- * aquí eso importa: los clientes entran desde datos móviles. Se apagan **el debug**, **el
- * tracing** (que ya va con `tracesSampleRate: 0`) y **los logs**; Session Replay ni se instala.
+ * **Ojo con `bundleSizeOptimizations`: hoy, con Turbopack, no poda nada.** Se dejan puestas
+ * porque son la forma documentada y no deprecada de pedirlo, y se aplicarán solas el día que
+ * Turbopack las soporte —pero no se cuentan como ahorro. Medido sobre el bundle construido:
+ * `__SENTRY_DEBUG__` y las cadenas del logger siguen ahí, y el código de tracing también, pese a
+ * `excludeTracing`. Lo único que de verdad se ahorra es Session Replay, que sencillamente no se
+ * instala. El SDK suma ~84 KB gzip al cliente; esa es la cifra real y no la teórica.
+ *
+ * **Aquí NO va `disableLogger`, y no es un olvido.** Está deprecado en favor de
+ * `webpack.treeshake.removeDebugLogging`, que es una opción de webpack y con Turbopack tampoco
+ * hace nada. Se midió al quitarlo: **el bundle cambió en 5 bytes**, o sea que no estaba podando
+ * nada. Lo único que aportaba era un aviso de deprecación en cada `pnpm dev`.
  *
  * `silent` en CI para que el log del build no se llene, y `widenClientFileUpload` para que la
  * traza también resuelva dentro de los chunks compartidos.
@@ -44,7 +52,6 @@ export default withSentryConfig(nextConfig, {
   project: process.env.SENTRY_PROJECT,
   silent: !process.env.CI,
   widenClientFileUpload: true,
-  disableLogger: true,
   bundleSizeOptimizations: {
     excludeDebugStatements: true,
     excludeTracing: true,
