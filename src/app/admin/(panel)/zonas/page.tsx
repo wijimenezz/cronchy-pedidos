@@ -39,7 +39,7 @@ export default async function ZonasPage() {
 
 function SinPermiso() {
   return (
-    <div className="rounded-md border border-crema-oscura bg-tarjeta p-6">
+    <div className="mx-auto w-full max-w-contenido rounded-md border border-crema-oscura bg-tarjeta p-6">
       <h1 className="font-titulo text-xl font-bold text-cafe">Zonas de cobertura</h1>
       <p className="mt-2 font-cuerpo text-[15px] text-cafe-suave">
         Solo los dueños pueden ver y editar las zonas de domicilio.

@@ -23,7 +23,7 @@ export default async function CatalogoPage() {
   ]);
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="mx-auto flex w-full max-w-contenido flex-col gap-4">
       <div>
         <h1 className="font-titulo text-xl font-bold text-cafe">Qué hay hoy</h1>
         <p className="font-cuerpo text-[13px] text-cafe-tenue">

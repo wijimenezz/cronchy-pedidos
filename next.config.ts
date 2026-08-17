@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
   experimental: {
@@ -23,4 +24,36 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+/**
+ * Sentry envuelve la config para dos cosas: subir los source maps al construir —sin ellos la
+ * traza de producción es código minificado y no sirve para nada— y podar del bundle lo que no
+ * se usa.
+ *
+ * **Ojo con `bundleSizeOptimizations`: hoy, con Turbopack, no poda nada.** Se dejan puestas
+ * porque son la forma documentada y no deprecada de pedirlo, y se aplicarán solas el día que
+ * Turbopack las soporte —pero no se cuentan como ahorro. Medido sobre el bundle construido:
+ * `__SENTRY_DEBUG__` y las cadenas del logger siguen ahí, y el código de tracing también, pese a
+ * `excludeTracing`. Lo único que de verdad se ahorra es Session Replay, que sencillamente no se
+ * instala. El SDK suma ~84 KB gzip al cliente; esa es la cifra real y no la teórica.
+ *
+ * **Aquí NO va `disableLogger`, y no es un olvido.** Está deprecado en favor de
+ * `webpack.treeshake.removeDebugLogging`, que es una opción de webpack y con Turbopack tampoco
+ * hace nada. Se midió al quitarlo: **el bundle cambió en 5 bytes**, o sea que no estaba podando
+ * nada. Lo único que aportaba era un aviso de deprecación en cada `pnpm dev`.
+ *
+ * `silent` en CI para que el log del build no se llene, y `widenClientFileUpload` para que la
+ * traza también resuelva dentro de los chunks compartidos.
+ *
+ * Sin `SENTRY_AUTH_TOKEN` el build NO falla: se salta la subida de source maps y sigue. Es lo
+ * que permite que alguien clone el repo y construya sin cuentas de nadie.
+ */
+export default withSentryConfig(nextConfig, {
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  silent: !process.env.CI,
+  widenClientFileUpload: true,
+  bundleSizeOptimizations: {
+    excludeDebugStatements: true,
+    excludeTracing: true,
+  },
+});

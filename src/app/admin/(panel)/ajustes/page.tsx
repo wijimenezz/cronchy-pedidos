@@ -30,7 +30,7 @@ export default async function AjustesPage() {
   const barrios = await listarBarrios(tienda.id);
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="mx-auto flex w-full max-w-contenido flex-col gap-4">
       <h1 className="font-titulo text-xl font-bold text-cafe">Ajustes</h1>
       <PagoNequi
         llave={tienda.nequiLlave}
@@ -44,7 +44,7 @@ export default async function AjustesPage() {
 
 function SinPermiso() {
   return (
-    <div className="rounded-md border border-crema-oscura bg-tarjeta p-6">
+    <div className="mx-auto w-full max-w-contenido rounded-md border border-crema-oscura bg-tarjeta p-6">
       <h1 className="font-titulo text-xl font-bold text-cafe">Ajustes</h1>
       <p className="mt-2 font-cuerpo text-[15px] text-cafe-suave">
         Solo los dueños pueden cambiar los datos de pago.
