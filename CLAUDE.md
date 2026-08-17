@@ -510,6 +510,24 @@ Los toggles del panel son a **un clic, sin confirmación** (operación diaria). 
 acciones destructivas (eliminar producto) piden confirmación explícita y solo admin.
 Al guardar cualquier cambio de catálogo o zonas se revalida el menú público (ISR).
 
+**Eliminar un producto sí existe, y su regla es: se borra lo que nunca se pidió; lo que se vendió
+se oculta.** Es el único DELETE del catálogo, y no es una excepción a la regla 9 sino la misma
+doctrina leída sobre las tres FKs que apuntan a `product.id`, que no significan lo mismo:
+`product_modifier_group.product_id` va en CASCADE porque los enganches son **configuración** de
+ese producto y se van con él; `order_item.product_id` no lleva `ON DELETE` porque es **historial**
+(la regla 2 lo reserva para reportes agregados); y `modifier_option.producto_ref` tampoco, porque
+es el catálogo **vivo** de otro producto — es lo que hace que un upsell se cobre por el
+`precio_base` de su bebida (regla 8). Postgres ya rechaza los dos últimos casos, así que lo que
+aporta `eliminarProducto` es comprobarlos antes y devolver el motivo: un 500 de la base no le dice
+a nadie que la salida es Oculto, ni a qué lista de Opciones ir. El caso que esto resuelve es el
+producto de prueba o duplicado, que nunca se vendió y hasta ahora se quedaba en el panel para
+siempre.
+
+**No se avisa antes de pulsar, a propósito.** Saber si un producto se vendió exige un agregado
+sobre `order_item`, que no tiene índice por `product_id`, y pagarlo en cada carga del panel para
+adornar un botón que se usa dos veces al año no vale. Quien decide es el servidor y la UI traduce
+su error, igual que en el checkout; el panel de confirmación adelanta la condición con palabras.
+
 **El panel se opera en una tablet de 12" y en escritorio**, no en un teléfono. Se diseña para
 ≥1024 px; por debajo sigue siendo usable, pero no es el caso principal. Esto **no reabre la
 regla 15**: una tablet también es táctil, así que nada se arrastra.

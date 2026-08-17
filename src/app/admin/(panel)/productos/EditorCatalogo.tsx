@@ -61,6 +61,18 @@ export function EditorCatalogo({
     elegirProducto(id);
   }
 
+  /**
+   * Después de borrar: a la lista. El `setProductoId(null)` es casi de más —la selección se
+   * resuelve al pintar y cae sola al `??` cuando lo elegido ya no está—, pero el `setPaso` no:
+   * por debajo de `md` esto es un drill-down, y sin él el admin se queda mirando un "Elige un
+   * producto" donde estaba el detalle, en vez de volver a la columna de la que vino.
+   */
+  function alEliminarProducto() {
+    router.refresh();
+    setProductoId(null);
+    setPaso("productos");
+  }
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-start justify-between gap-3">
@@ -154,6 +166,7 @@ export function EditorCatalogo({
           categorias={categorias}
           grupos={grupos}
           esAdmin={esAdmin}
+          onEliminado={alEliminarProducto}
           className={
             paso === "categorias"
               ? "hidden lg:flex"
