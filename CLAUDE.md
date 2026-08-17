@@ -510,6 +510,24 @@ Los toggles del panel son a **un clic, sin confirmación** (operación diaria). 
 acciones destructivas (eliminar producto) piden confirmación explícita y solo admin.
 Al guardar cualquier cambio de catálogo o zonas se revalida el menú público (ISR).
 
+**Eliminar un producto sí existe, y su regla es: se borra lo que nunca se pidió; lo que se vendió
+se oculta.** Es el único DELETE del catálogo, y no es una excepción a la regla 9 sino la misma
+doctrina leída sobre las tres FKs que apuntan a `product.id`, que no significan lo mismo:
+`product_modifier_group.product_id` va en CASCADE porque los enganches son **configuración** de
+ese producto y se van con él; `order_item.product_id` no lleva `ON DELETE` porque es **historial**
+(la regla 2 lo reserva para reportes agregados); y `modifier_option.producto_ref` tampoco, porque
+es el catálogo **vivo** de otro producto — es lo que hace que un upsell se cobre por el
+`precio_base` de su bebida (regla 8). Postgres ya rechaza los dos últimos casos, así que lo que
+aporta `eliminarProducto` es comprobarlos antes y devolver el motivo: un 500 de la base no le dice
+a nadie que la salida es Oculto, ni a qué lista de Opciones ir. El caso que esto resuelve es el
+producto de prueba o duplicado, que nunca se vendió y hasta ahora se quedaba en el panel para
+siempre.
+
+**No se avisa antes de pulsar, a propósito.** Saber si un producto se vendió exige un agregado
+sobre `order_item`, que no tiene índice por `product_id`, y pagarlo en cada carga del panel para
+adornar un botón que se usa dos veces al año no vale. Quien decide es el servidor y la UI traduce
+su error, igual que en el checkout; el panel de confirmación adelanta la condición con palabras.
+
 **El panel se opera en una tablet de 12" y en escritorio**, no en un teléfono. Se diseña para
 ≥1024 px; por debajo sigue siendo usable, pero no es el caso principal. Esto **no reabre la
 regla 15**: una tablet también es táctil, así que nada se arrastra.
@@ -739,6 +757,26 @@ mientras quede algo sin aceptar, así que el silencio significa que alguien lo t
 abrir el panel por lo que ya estaba —la lista de vistos se siembra con lo que llega del
 servidor— y el audio necesita **un gesto del usuario** antes de poder sonar: de ahí el botón de
 "Activar sonido", que no es un adorno sino el requisito del navegador.
+
+**El volumen del aviso no sale de la ganancia, y por eso está escrito.** El pitido original —dos
+notas triangulares a 880 y 1320 Hz con la ganancia en `0.35`— no se oía en la tablet del mostrador,
+y subir ese `0.35` no era el arreglo: el techo digital es `1.0`, así que por amplitud sola hay 2,8×
+y pasarse recorta la onda. Las 4-6 veces que se pidieron salen de **la frecuencia** (3100 Hz, donde
+converge el diseño de las alarmas de humo: un altavoz de tablet no rinde abajo y el oído es más
+sensible entre 2 y 4 kHz), de **la onda cuadrada** (√3 más de valor eficaz a igual pico, y sus
+armónicos caen en esa misma banda) y del pico al `0.9`. No hay compresor a propósito: una cuadrada
+ya tiene el eficaz pegado al pico, así que no queda nada que recuperar. Medido en un
+`OfflineAudioContext` sobre la misma ventana y sin contar la ventaja acústica de la frecuencia, el
+eficaz sube **+21,8 dB** en Alto sin que el pico recorte —y la sonoridad percibida se dobla cada
+~10 dB—, así que las 4-6× se cumplen con margen. Devolver esto a una triangular de 880 Hz porque
+suena más agradable es devolver el aviso que no se oye.
+
+El volumen se ajusta desde el tablero en tres niveles recordados (`cronchy_volumen_panel`), y
+**cambiarlo suena en el momento**: un pedido real no se puede provocar a voluntad, así que sin esa
+previsualización se estaría ajustando a ciegas. **Bajo sigue siendo más fuerte que el aviso viejo**
+(+7,9 dB medidos), porque frecuencia y onda no dependen del nivel. Y lo que ningún nivel arregla:
+la web no puede tocar el volumen de **multimedia** de Android — si está a media asta, no hay código
+que lo suba.
 
 ---
 

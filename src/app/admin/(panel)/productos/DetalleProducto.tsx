@@ -1,14 +1,14 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Link2 } from "lucide-react";
+import { Link2, Trash2 } from "lucide-react";
 import { Campo, claseControl } from "@/components/checkout/Campo";
 import { BotonSwitch } from "@/components/admin/Interruptor";
 import type { CategoriaPanel, GrupoEnganchable, ProductoDelPanel } from "@/db/queries/catalogo";
 import { Modificadores } from "./Modificadores";
 import { SelectorEstado } from "./SelectorEstado";
 import { SubidaFotos } from "./SubidaFotos";
-import { cambiarUrlProducto, guardarProducto } from "./acciones";
+import { cambiarUrlProducto, eliminarProductoDelCatalogo, guardarProducto } from "./acciones";
 
 /**
  * La columna derecha: el producto seleccionado.
@@ -51,12 +51,14 @@ export function DetalleProducto({
   categorias,
   grupos,
   esAdmin,
+  onEliminado,
   className,
 }: {
   producto: ProductoDelPanel | null;
   categorias: CategoriaPanel[];
   grupos: GrupoEnganchable[];
   esAdmin: boolean;
+  onEliminado: () => void;
   className: string;
 }) {
   const [pestana, setPestana] = useState<Pestana>("basicos");
@@ -103,7 +105,7 @@ export function DetalleProducto({
       {!esAdmin ? (
         <SoloLectura producto={producto} />
       ) : pestana === "basicos" ? (
-        <Basicos producto={producto} categorias={categorias} />
+        <Basicos producto={producto} categorias={categorias} onEliminado={onEliminado} />
       ) : (
         <Modificadores producto={producto} grupos={grupos} />
       )}
@@ -154,9 +156,11 @@ function SoloLectura({ producto }: { producto: ProductoDelPanel }) {
 function Basicos({
   producto,
   categorias,
+  onEliminado,
 }: {
   producto: ProductoDelPanel;
   categorias: CategoriaPanel[];
+  onEliminado: () => void;
 }) {
   const [pendiente, iniciar] = useTransition();
   const [borrador, setBorrador] = useState<Borrador>(borradorDe(producto));
@@ -308,6 +312,105 @@ function Basicos({
           className="min-h-11 rounded-full border border-crema-oscura px-5 font-cuerpo text-sm font-bold text-cafe-suave transition-colors hover:bg-crema disabled:opacity-50"
         >
           Descartar
+        </button>
+      </div>
+
+      {/* Al fondo y tras una línea, no en la barra de arriba: es la única acción de esta pantalla
+          sin vuelta atrás y no puede quedar pegada al botón que se pulsa cien veces al día. */}
+      <div className="mt-2 border-t border-crema-oscura pt-3">
+        <EliminarProducto
+          id={producto.id}
+          nombre={producto.nombre}
+          onEliminado={onEliminado}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Borrar el producto. Solo se llega aquí siendo admin —`Basicos` es la rama de admin— pero quien
+ * corta de verdad es el `exigirRol` de la acción (regla 12).
+ *
+ * Pregunta antes, con el mismo panel en línea que "Cancelar pedido" y no un `window.confirm`. Y
+ * adelanta la condición: si el producto ya se vendió no se va a poder, así que decirlo aquí evita
+ * un viaje al servidor para recibir un no.
+ */
+function EliminarProducto({
+  id,
+  nombre,
+  onEliminado,
+}: {
+  id: string;
+  nombre: string;
+  onEliminado: () => void;
+}) {
+  const [pendiente, iniciar] = useTransition();
+  const [confirmando, setConfirmando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function eliminar() {
+    setError(null);
+    iniciar(async () => {
+      const resultado = await eliminarProductoDelCatalogo({ id });
+
+      // El motivo se queda en pantalla y el panel se cierra: reintentar el mismo botón daría el
+      // mismo no, y lo que toca hacer está escrito en el mensaje.
+      if (resultado.ok) return onEliminado();
+
+      setConfirmando(false);
+      setError(resultado.error);
+    });
+  }
+
+  if (!confirmando) {
+    return (
+      <div className="flex flex-col gap-2">
+        {error && (
+          <p role="alert" className="font-cuerpo text-[13px] font-semibold text-error">
+            {error}
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={() => {
+            setConfirmando(true);
+            setError(null);
+          }}
+          className="flex min-h-11 items-center gap-1.5 self-start px-2 font-cuerpo text-[13px] font-bold text-cafe-tenue transition-colors hover:text-error"
+        >
+          <Trash2 className="size-4" />
+          Eliminar producto
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-error/40 bg-error/5 p-3">
+      <p className="font-cuerpo text-[13px] font-bold text-cafe">
+        ¿Eliminar «{nombre}»? No se puede deshacer.
+      </p>
+      <p className="font-cuerpo text-[13px] text-cafe-suave">
+        Se van también sus fotos y las adiciones que le configuraste. Si ya se vendió alguna vez no
+        se podrá borrar: en ese caso ponlo en Oculto.
+      </p>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={eliminar}
+          disabled={pendiente}
+          className="min-h-11 flex-1 rounded-full bg-error px-4 font-cuerpo text-sm font-bold text-crema transition-opacity hover:opacity-90 disabled:opacity-50"
+        >
+          {pendiente ? "Eliminando…" : "Sí, eliminar"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setConfirmando(false)}
+          disabled={pendiente}
+          className="min-h-11 flex-1 rounded-full border border-crema-oscura px-4 font-cuerpo text-sm font-bold text-cafe transition-colors hover:bg-crema disabled:opacity-50"
+        >
+          No
         </button>
       </div>
     </div>

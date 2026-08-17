@@ -9,6 +9,7 @@ import {
   cambiarVisibleProducto,
   crearCategoria,
   crearProducto,
+  eliminarProducto,
   enganclesDeProducto,
   guardarBannerCategoria,
   guardarImagenesProducto,
@@ -26,6 +27,7 @@ import { esUrlDeFotoProducto, MAX_FOTOS } from "@/lib/imagenes";
 import { borrarFotoProducto } from "@/lib/storage";
 import { slugify, slugLibre } from "@/lib/texto";
 import { idSchema } from "@/lib/validaciones";
+import { porQueNoSeBorra } from "./borrado";
 
 /**
  * El CRUD del catálogo. Casi todo es `exigirRol("admin")`: precios, altas, fotos y
@@ -230,6 +232,39 @@ export async function reordenarProductosDeCategoria(entrada: {
   if (!parsed.success) return { ok: false, error: "Datos inválidos" };
 
   await reordenarProductos(sesion.storeId, parsed.data.categoryId, parsed.data.ids);
+
+  revalidar();
+  return { ok: true };
+}
+
+/**
+ * El único DELETE del catálogo, y solo para lo que nunca se pidió. La regla y el porqué están en
+ * la cabecera de `db/queries/catalogo.ts`; los textos del rechazo, en `borrado.ts`.
+ *
+ * Es de admin y con confirmación en la UI: es la única acción de esta pantalla sin vuelta atrás.
+ */
+export async function eliminarProductoDelCatalogo(entrada: {
+  id: string;
+}): Promise<ResultadoCatalogo> {
+  const sesion = await exigirRol("admin");
+
+  const parsed = z.object({ id: idSchema }).safeParse(entrada);
+  if (!parsed.success) return { ok: false, error: "Datos inválidos" };
+
+  let resultado;
+  try {
+    resultado = await eliminarProducto(sesion.storeId, parsed.data.id);
+  } catch (error) {
+    return traducirBorrado(error);
+  }
+
+  if (resultado.estado !== "ok") {
+    return { ok: false, error: porQueNoSeBorra(resultado) };
+  }
+
+  // Las fotos del bucket, después de que el borrado esté confirmado y en best-effort, por los
+  // mismos motivos que `borrarSobrantes`: la fuente de verdad es la fila, que ya no existe.
+  await Promise.all(resultado.imagenes.map(borrarFotoProducto));
 
   revalidar();
   return { ok: true };
@@ -505,6 +540,27 @@ function traducir(error: unknown, que: "producto" | "categoría"): { ok: false; 
   }
   if (violaConstraint(error, "product_precio_base_check")) {
     return { ok: false, error: "El precio no puede ser negativo." };
+  }
+  throw error;
+}
+
+/**
+ * El segundo cierre del borrado. `eliminarProducto` ya comprueba las dos referencias que lo
+ * impiden, pero entre la comprobación y el DELETE hay una rendija —la cierra el `FOR UPDATE`, no
+ * la fe— y si alguna vez se colara, lo que llegaría al panel sería un error de Postgres en
+ * inglés. Aquí sale el mismo texto que habría salido por el camino normal.
+ */
+function traducirBorrado(error: unknown): { ok: false; error: string } {
+  if (violaConstraint(error, "order_item_product_id_fkey")) {
+    return { ok: false, error: porQueNoSeBorra({ estado: "tiene_ventas" }) };
+  }
+  // Sin los nombres de las listas: el DELETE ya falló y consultarlas ahora sería otra ida a la
+  // base para adornar un caso que no debería ocurrir. El sitio a donde ir se dice igual.
+  if (violaConstraint(error, "modifier_option_producto_ref_fkey")) {
+    return {
+      ok: false,
+      error: "Este producto se ofrece como acompañante en alguna lista. Quítalo de ahí en Opciones y vuelve a intentarlo.",
+    };
   }
   throw error;
 }

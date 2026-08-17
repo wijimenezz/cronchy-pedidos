@@ -10,8 +10,13 @@ import { idsNuevos } from "./alerta";
 import {
   desbloquearSonido,
   detenerMantenerDespierto,
+  ETIQUETA_NIVEL,
+  guardarNivel,
   guardarPreferencia,
   iniciarMantenerDespierto,
+  leerNivel,
+  type Nivel,
+  NIVELES,
   prefiereSonido,
   reanudarAlPrimerToque,
   silenciar,
@@ -89,6 +94,13 @@ export function ListaPedidos({
    * decir lo contrario en el botón sería mentir. Lo reactiva el primer toque.
    */
   const [sonido, setSonido] = useState(false);
+  /**
+   * El volumen del aviso, recordado entre recargas. `leerNivel()` toca `localStorage`, así que va
+   * en el inicializador perezoso del `useState` y no en el cuerpo: en el render del servidor no
+   * existe y devolvería "alto" igual, pero llamarlo en cada render sería leer el almacenamiento
+   * cincuenta veces para nada.
+   */
+  const [nivel, setNivel] = useState<Nivel>(leerNivel);
   /**
    * Si además del pitido va a salir la notificación del sistema. Se pinta porque un panel que
    * cree estar avisando y no avisa es peor que uno mudo declarado: quien deniega el permiso sin
@@ -278,6 +290,17 @@ export function ListaPedidos({
 
   const problema = problemaDeAvisos(notificaSistema, estadoPush);
 
+  /**
+   * Cambiar el volumen **suena en el momento**. Sin eso se ajusta a ciegas y hay que esperar un
+   * pedido real para saber si sirvió, que es justo lo que no se puede provocar a voluntad. El
+   * toque además vale como el gesto que el navegador exige para el audio.
+   */
+  function cambiarNivel(destino: Nivel) {
+    setNivel(destino);
+    guardarNivel(destino);
+    void sonarAviso();
+  }
+
   function alternarSonido() {
     const activar = !sonido;
     setSonido(activar);
@@ -381,6 +404,31 @@ export function ListaPedidos({
             {sonido ? <Bell className="size-4" /> : <BellOff className="size-4" />}
             {sonido ? "Avisos" : "Activar avisos"}
           </button>
+
+          {/* A la DERECHA de la campana y no a su izquierda: así el botón que se busca y se pulsa
+              no se mueve de sitio al aparecer este control. Y solo con los avisos armados —ofrecer
+              volumen en un panel mudo no dice nada. */}
+          {sonido && (
+            <div
+              role="group"
+              aria-label="Volumen del aviso"
+              className="flex h-9 shrink-0 items-center rounded-full border border-crema-oscura p-0.5"
+            >
+              {NIVELES.map((opcion) => (
+                <button
+                  key={opcion}
+                  type="button"
+                  onClick={() => cambiarNivel(opcion)}
+                  aria-pressed={opcion === nivel}
+                  className={`h-8 rounded-full px-2.5 font-cuerpo text-xs font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-naranja ${
+                    opcion === nivel ? "bg-crema text-cafe" : "text-cafe-tenue hover:text-cafe"
+                  }`}
+                >
+                  {ETIQUETA_NIVEL[opcion]}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

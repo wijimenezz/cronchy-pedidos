@@ -1,6 +1,13 @@
 import { and, asc, count, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { category, modifierGroup, modifierOption, product, productModifierGroup } from "@/db/schema";
+import {
+  category,
+  modifierGroup,
+  modifierOption,
+  orderItem,
+  product,
+  productModifierGroup,
+} from "@/db/schema";
 import type { EngancheActual, PlanEngancles } from "@/lib/catalogo/engancles";
 
 /**
@@ -8,10 +15,21 @@ import type { EngancheActual, PlanEngancles } from "@/lib/catalogo/engancles";
  *
  * Es la contraparte de `menu.ts`, que sirve la carta pública.
  *
- * Nada se borra (regla 9). No hay DELETE de producto ni de categoría: `activo = false` los
- * saca de la carta y es reversible. Además `order_item.product_id` y
- * `modifier_option.producto_ref` son FKs sin `ON DELETE`, así que un producto con historial
- * no se podría borrar aunque se quisiera.
+ * Las categorías no se borran: `activa = false` las saca de la carta y es reversible.
+ *
+ * Los productos sí, pero con una regla: **se borra lo que nunca se pidió; lo que se vendió se
+ * oculta**. La diferencia no es un gusto, la marcan las tres FKs que apuntan a `product.id`, y
+ * no significan lo mismo:
+ *
+ * - `product_modifier_group.product_id` es `ON DELETE CASCADE`. Son configuración —los
+ *   enganches y las variantes de ESTE producto— y se van con él, que es lo correcto.
+ * - `order_item.product_id` no lleva `ON DELETE`. Es historial: la regla 2 lo reserva para
+ *   reportes agregados. Un producto vendido no se borra ni queriendo, y tampoco debe.
+ * - `modifier_option.producto_ref` tampoco. Es el catálogo VIVO de otro producto: es lo que
+ *   hace que un upsell se cobre por el `precio_base` de su bebida (regla 8).
+ *
+ * `eliminarProducto` comprueba las dos últimas y devuelve el motivo en vez de dejar que
+ * reviente la base, porque un 500 de Postgres no le dice a nadie que la salida es "Oculto".
  */
 
 // ------------------------------------------------------------
@@ -368,6 +386,67 @@ export async function guardarImagenesProducto(
       .where(and(eq(product.storeId, storeId), eq(product.id, productId)));
 
     return { previas: antes.imagenes.filter(Boolean) };
+  });
+}
+
+export type ResultadoBorrado =
+  | { estado: "ok"; imagenes: string[] }
+  | { estado: "sin_producto" }
+  | { estado: "tiene_ventas" }
+  | { estado: "es_acompanante"; listas: string[] };
+
+/**
+ * Borra un producto de verdad, y solo si se puede: la regla y sus motivos están en la cabecera
+ * del archivo. Devuelve por qué no cuando no, para que el panel lo diga con palabras.
+ *
+ * Sus enganches se van solos por el CASCADE de `product_modifier_group`. Las fotos NO: son
+ * objetos de Storage y hay que sacarlas del bucket, así que se devuelven aquí.
+ */
+export async function eliminarProducto(
+  storeId: string,
+  productId: string,
+): Promise<ResultadoBorrado> {
+  return db.transaction(async (tx): Promise<ResultadoBorrado> => {
+    // `FOR UPDATE` y no un SELECT a secas: es lo que cierra la carrera con un pedido que entra
+    // mientras se decide. Un `INSERT INTO order_item` necesita un `FOR KEY SHARE` sobre la fila
+    // que referencia, así que espera a que esta transacción termine en vez de colarse entre la
+    // comprobación de ventas y el DELETE. Mismo recurso que `cambiarEstadoPedido` (regla 19).
+    const [fila] = await tx
+      .select({ imagenes: product.imagenes })
+      .from(product)
+      .where(and(eq(product.storeId, storeId), eq(product.id, productId)))
+      .for("update");
+
+    if (!fila) return { estado: "sin_producto" };
+
+    // Sin filtrar por `store_id`, a propósito: lo que bloquea el borrado es la FK, y una FK no
+    // sabe de tiendas. Filtrar aquí diría "se puede borrar" y el DELETE reventaría después.
+    const [venta] = await tx
+      .select({ id: orderItem.id })
+      .from(orderItem)
+      .where(eq(orderItem.productId, productId))
+      .limit(1);
+
+    if (venta) return { estado: "tiene_ventas" };
+
+    // Se devuelven los NOMBRES de las listas y no un booleano: quien intenta borrar tiene que
+    // saber a dónde ir a quitarlo, y eso es `/admin/opciones`.
+    const listas = await tx
+      .selectDistinct({ nombre: modifierGroup.nombre })
+      .from(modifierOption)
+      .innerJoin(modifierGroup, eq(modifierGroup.id, modifierOption.groupId))
+      .where(eq(modifierOption.productoRef, productId));
+
+    if (listas.length > 0) {
+      return { estado: "es_acompanante", listas: listas.map((l) => l.nombre) };
+    }
+
+    await tx.delete(product).where(and(eq(product.storeId, storeId), eq(product.id, productId)));
+
+    // Las fotos se leyeron arriba, antes del DELETE: después ya no hay de dónde sacarlas. Es el
+    // mismo motivo por el que `guardarImagenesProducto` devuelve `previas` en vez de un
+    // `RETURNING`.
+    return { estado: "ok", imagenes: fila.imagenes.filter(Boolean) };
   });
 }
 
