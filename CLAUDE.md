@@ -758,6 +758,26 @@ abrir el panel por lo que ya estaba —la lista de vistos se siembra con lo que 
 servidor— y el audio necesita **un gesto del usuario** antes de poder sonar: de ahí el botón de
 "Activar sonido", que no es un adorno sino el requisito del navegador.
 
+**El volumen del aviso no sale de la ganancia, y por eso está escrito.** El pitido original —dos
+notas triangulares a 880 y 1320 Hz con la ganancia en `0.35`— no se oía en la tablet del mostrador,
+y subir ese `0.35` no era el arreglo: el techo digital es `1.0`, así que por amplitud sola hay 2,8×
+y pasarse recorta la onda. Las 4-6 veces que se pidieron salen de **la frecuencia** (3100 Hz, donde
+converge el diseño de las alarmas de humo: un altavoz de tablet no rinde abajo y el oído es más
+sensible entre 2 y 4 kHz), de **la onda cuadrada** (√3 más de valor eficaz a igual pico, y sus
+armónicos caen en esa misma banda) y del pico al `0.9`. No hay compresor a propósito: una cuadrada
+ya tiene el eficaz pegado al pico, así que no queda nada que recuperar. Medido en un
+`OfflineAudioContext` sobre la misma ventana y sin contar la ventaja acústica de la frecuencia, el
+eficaz sube **+21,8 dB** en Alto sin que el pico recorte —y la sonoridad percibida se dobla cada
+~10 dB—, así que las 4-6× se cumplen con margen. Devolver esto a una triangular de 880 Hz porque
+suena más agradable es devolver el aviso que no se oye.
+
+El volumen se ajusta desde el tablero en tres niveles recordados (`cronchy_volumen_panel`), y
+**cambiarlo suena en el momento**: un pedido real no se puede provocar a voluntad, así que sin esa
+previsualización se estaría ajustando a ciegas. **Bajo sigue siendo más fuerte que el aviso viejo**
+(+7,9 dB medidos), porque frecuencia y onda no dependen del nivel. Y lo que ningún nivel arregla:
+la web no puede tocar el volumen de **multimedia** de Android — si está a media asta, no hay código
+que lo suba.
+
 ---
 
 ## Convenciones
