@@ -149,6 +149,8 @@ export type PedidoParaExport = {
   subtotal: number;
   costoDomicilio: number;
   descuento: number;
+  /** Con qué cupón se descontó, congelado (regla 2). `null` si no hubo. */
+  cuponCodigo: string | null;
   total: number;
   items: ItemSnapshot[];
 };
@@ -239,6 +241,7 @@ export async function pedidosDelRango(
       subtotal: fila.subtotal,
       costoDomicilio: fila.costoDomicilio,
       descuento: fila.descuento,
+      cuponCodigo: fila.cuponCodigo,
       total: fila.total,
       items,
     };

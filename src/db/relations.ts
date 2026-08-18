@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm/relations";
-import { store, storeHours, storeClosure, appUser, category, product, modifierGroup, modifierOption, productModifierGroup, deliveryZone, customer, courier, order, orderItem, orderStatusEvent } from "./schema";
+import { store, storeHours, storeClosure, appUser, category, product, modifierGroup, modifierOption, productModifierGroup, deliveryZone, cupon, cuponCategoria, cuponProducto, customer, courier, order, orderItem, orderStatusEvent } from "./schema";
 
 export const storeHoursRelations = relations(storeHours, ({one}) => ({
 	store: one(store, {
@@ -18,6 +18,7 @@ export const storeRelations = relations(store, ({many}) => ({
 	modifierOptions: many(modifierOption),
 	productModifierGroups: many(productModifierGroup),
 	deliveryZones: many(deliveryZone),
+	cupones: many(cupon),
 	customers: many(customer),
 	orders: many(order),
 	orderItems: many(orderItem),
@@ -45,6 +46,7 @@ export const categoryRelations = relations(category, ({one, many}) => ({
 		references: [store.id]
 	}),
 	products: many(product),
+	cuponCategorias: many(cuponCategoria),
 }));
 
 export const productRelations = relations(product, ({one, many}) => ({
@@ -59,6 +61,7 @@ export const productRelations = relations(product, ({one, many}) => ({
 	modifierOptions: many(modifierOption),
 	productModifierGroups: many(productModifierGroup),
 	orderItems: many(orderItem),
+	cuponProductos: many(cuponProducto),
 }));
 
 export const modifierGroupRelations = relations(modifierGroup, ({one, many}) => ({
@@ -108,6 +111,38 @@ export const deliveryZoneRelations = relations(deliveryZone, ({one, many}) => ({
 	orders: many(order),
 }));
 
+export const cuponRelations = relations(cupon, ({one, many}) => ({
+	store: one(store, {
+		fields: [cupon.storeId],
+		references: [store.id]
+	}),
+	cuponCategorias: many(cuponCategoria),
+	cuponProductos: many(cuponProducto),
+	orders: many(order),
+}));
+
+export const cuponCategoriaRelations = relations(cuponCategoria, ({one}) => ({
+	cupon: one(cupon, {
+		fields: [cuponCategoria.cuponId],
+		references: [cupon.id]
+	}),
+	category: one(category, {
+		fields: [cuponCategoria.categoryId],
+		references: [category.id]
+	}),
+}));
+
+export const cuponProductoRelations = relations(cuponProducto, ({one}) => ({
+	cupon: one(cupon, {
+		fields: [cuponProducto.cuponId],
+		references: [cupon.id]
+	}),
+	product: one(product, {
+		fields: [cuponProducto.productId],
+		references: [product.id]
+	}),
+}));
+
 export const customerRelations = relations(customer, ({one, many}) => ({
 	store: one(store, {
 		fields: [customer.storeId],
@@ -140,6 +175,10 @@ export const orderRelations = relations(order, ({one, many}) => ({
 	courier: one(courier, {
 		fields: [order.courierId],
 		references: [courier.id]
+	}),
+	cupon: one(cupon, {
+		fields: [order.cuponId],
+		references: [cupon.id]
 	}),
 	orderItems: many(orderItem),
 	orderStatusEvents: many(orderStatusEvent),

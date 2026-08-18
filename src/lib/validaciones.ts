@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { esTelefonoValido } from "@/lib/notificaciones/transporte";
 import { esUrlDeComprobante } from "@/lib/comprobantes";
+import { normalizarCodigo } from "@/lib/cupones";
 
 /**
  * Lo que ve el cliente cuando deja vacío algo obligatorio. Vive aquí para que el
@@ -195,6 +196,16 @@ export const crearPedidoSchema = z
         .url("El comprobante no es válido.")
         .refine(esUrlDeComprobante, "El comprobante no es válido."),
     ),
+    /**
+     * El código que escribió el cliente. Ausente = sin cupón.
+     *
+     * Aquí se comprueba la **forma** y se normaliza, nada más. Que exista, que no esté vencido y
+     * que cubra algo de este carrito lo decide el route handler contra la base
+     * (`buscarCuponPorCodigo` + `aplicarCupon`): es la regla 1 aplicada al descuento — el navegador
+     * manda *cuál* código, nunca *cuánto* vale. Escribir esas reglas en Zod sería una segunda
+     * fuente de verdad que envejece sola en cuanto alguien apague el cupón desde el panel.
+     */
+    cupon: opcional(z.string().trim().max(24, "Ese cupón no existe").transform(normalizarCodigo)),
     notas: textoOpcional(280),
     items: z.array(itemSchema).min(1, "Tu carrito está vacío").max(30),
   })

@@ -147,6 +147,8 @@ function datosPedidos(pedidos: PedidoParaExport[]): SheetData {
       "Productos",
       "Domicilio",
       "Descuento",
+      // Junto a "Descuento" y no al final: quien lee la fila quiere el porqué al lado de la cifra.
+      "Cupón",
       "Total",
       "Notas",
       "Id de orden",
@@ -175,6 +177,7 @@ function datosPedidos(pedidos: PedidoParaExport[]): SheetData {
       dinero(p.productos),
       dinero(p.domicilio),
       dinero(p.descuento),
+      texto(p.cupon),
       dinero(p.total),
       texto(p.notas),
       texto(p.id),

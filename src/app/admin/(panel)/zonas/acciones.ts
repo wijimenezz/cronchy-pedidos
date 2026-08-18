@@ -10,6 +10,7 @@ import {
   reordenarZonas,
   validarPoligono,
 } from "@/db/queries/zonas";
+import { violaConstraint } from "@/db/errores";
 import { exigirRol } from "@/lib/autorizacion";
 import { esPuntoValido } from "@/lib/zonas";
 import { idSchema } from "@/lib/validaciones";
@@ -117,20 +118,4 @@ function revalidar() {
   revalidatePath("/admin/zonas");
   // El checkout muestra el costo del domicilio: si cambia una zona, tiene que enterarse.
   revalidatePath("/checkout");
-}
-
-/**
- * Drizzle envuelve los errores del driver en un `Failed query:` genérico y deja el original
- * colgando de `cause`, así que buscar el nombre del constraint en el mensaje de arriba no
- * encuentra nada. Se recorre la cadena leyendo el `constraint_name` que expone postgres.js.
- */
-function violaConstraint(error: unknown, nombre: string): boolean {
-  let actual: unknown = error;
-
-  for (let i = 0; i < 5 && actual instanceof Error; i++) {
-    if ((actual as { constraint_name?: string }).constraint_name === nombre) return true;
-    actual = actual.cause;
-  }
-
-  return false;
 }

@@ -185,7 +185,12 @@ export default async function DetallePedidoPage({
                 <Total etiqueta="Domicilio" valor={pesos(pedido.costoDomicilio)} />
               )}
               {pedido.descuento > 0 && (
-                <Total etiqueta="Descuento" valor={`− ${pesos(pedido.descuento)}`} />
+                <Total
+                  // El código al lado del monto: quien cuadra la caja necesita saber por qué este
+                  // pedido cobró menos, y "Descuento" a secas no lo dice.
+                  etiqueta={pedido.cuponCodigo ? `Descuento ${pedido.cuponCodigo}` : "Descuento"}
+                  valor={`− ${pesos(pedido.descuento)}`}
+                />
               )}
               <Total etiqueta="Total" valor={pesos(pedido.total)} destacado />
             </dl>

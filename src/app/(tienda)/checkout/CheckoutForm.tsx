@@ -33,8 +33,10 @@ import {
 import { crearPedidoSchema, REQUERIDO } from "@/lib/validaciones";
 import { fueraDeCobertura, pesos } from "@/lib/notificaciones/plantillas";
 import { decidirBarrio, type MotivoConsulta } from "@/lib/barrio";
+import { mensajeDeRechazo, type MotivoRechazo } from "@/lib/cupones";
 import { metodosDePago } from "@/lib/pedidos/pago";
 import { Campo, claseControl } from "@/components/checkout/Campo";
+import { CampoCupon, type EstadoCupon } from "@/components/checkout/CampoCupon";
 import { DatoCopiable } from "@/components/checkout/DatoCopiable";
 import { QrDePago } from "@/components/checkout/QrDePago";
 import { SelectorFecha } from "@/components/checkout/SelectorFecha";
@@ -154,6 +156,57 @@ async function consultarCobertura(
 }
 
 /**
+ * Qué descuenta este cupón sobre este carrito, según el servidor.
+ *
+ * Hermana de `consultarCobertura` y con el mismo contrato: **no es la fuente del descuento**
+ * (regla 1). Al confirmar, `POST /api/pedidos` vuelve a buscar el cupón y a aplicarlo; esto solo
+ * existe para que el cliente vea el número antes de pagar.
+ *
+ * Tampoco toca estado, por lo mismo que aquella: hay dos formas de disparar la consulta —escribir
+ * el código y cambiar el carrito— y las dos tienen que poder descartar una respuesta vieja.
+ */
+async function consultarCupon(
+  codigo: string,
+  tipo: TipoPedido,
+  items: unknown[],
+): Promise<EstadoCupon> {
+  try {
+    const respuesta = await fetch("/api/cupones/validar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // El tipo viaja aunque el domicilio no se descuente (regla 13): es lo que decide si cada
+      // producto se puede vender por ese canal, y valorarlo con el tipo equivocado convierte un
+      // carrito válido en un "no pudimos comprobar el cupón".
+      body: JSON.stringify({ codigo, tipo, items }),
+    });
+    if (!respuesta.ok) {
+      return { estado: "rechazado", mensaje: "No pudimos comprobar el cupón. Intenta de nuevo." };
+    }
+
+    const datos = (await respuesta.json()) as {
+      ok: boolean;
+      descuento?: number;
+      motivo?: MotivoRechazo | "no_comprobable";
+      aplicaA?: string[];
+    };
+
+    if (datos.ok) return { estado: "aplicado", descuento: datos.descuento ?? 0 };
+
+    // "no_comprobable" es un problema del carrito, no del cupón (algo se agotó mientras escribía).
+    // No se le echa la culpa al código: quien lo dirá con precisión es el 422 al confirmar.
+    if (!datos.motivo || datos.motivo === "no_comprobable") {
+      return { estado: "rechazado", mensaje: "No pudimos comprobar el cupón. Intenta de nuevo." };
+    }
+
+    // El texto sale del módulo puro, el mismo que traduce el 422: un cupón rechazado se explica
+    // igual por los dos caminos.
+    return { estado: "rechazado", mensaje: mensajeDeRechazo(datos.motivo, datos.aplicaA ?? []) };
+  } catch {
+    return { estado: "rechazado", mensaje: "No pudimos comprobar el cupón. Revisa tu conexión." };
+  }
+}
+
+/**
  * Qué campos del esquema se revisan antes de dejar pasar al siguiente paso. El envío
  * final valida el payload completo igual que hoy; esto solo decide dónde se detiene
  * al cliente, para que no descubra en el paso 3 que le faltó el teléfono.
@@ -256,6 +309,10 @@ export function CheckoutForm({
   const comprobanteUrl = useCarrito((s) => s.comprobanteUrl);
   const pagoConfirmado = useCarrito((s) => s.pagoConfirmado);
   const setPago = useCarrito((s) => s.setPago);
+  // El código que se está intentando usar. Vive en el carrito para sobrevivir al viaje a la app de
+  // Nequi y para que un link `?cupon=` abierto en la carta llegue vivo hasta aquí.
+  const cupon = useCarrito((s) => s.cupon);
+  const setCupon = useCarrito((s) => s.setCupon);
 
   // Estos campos NO son estado local: viven en un store persistido, así el cliente no
   // tiene que volver a escribirlos en su próximo pedido (ni si recarga a mitad del
@@ -290,12 +347,30 @@ export function CheckoutForm({
   // Qué dijo el servidor del pin actual. Es lo que pinta el costo en vivo y lo que bloquea
   // el envío si el cliente quedó fuera de cobertura (regla 14).
   const [cobertura, setCobertura] = useState<Cobertura>({ estado: "sin_pin" });
+  /**
+   * Qué dijo el servidor del cupón, **junto al código al que corresponde**.
+   *
+   * Guardar el par es lo que permite derivar el "comprobando" en vez de asignarlo dentro del
+   * efecto: si la respuesta que hay no es de este código, es que la consulta está en vuelo. Un
+   * `setState` sincrónico en el cuerpo de un efecto provoca renders en cascada, y aquí además no
+   * hacía falta — el estado ya estaba implícito en los datos.
+   *
+   * No va al carrito persistido: es la respuesta a una consulta, y guardarla sería prometer un
+   * descuento que el servidor puede recalcular distinto al confirmar.
+   */
+  const [respuestaCupon, setRespuestaCupon] = useState<{
+    codigo: string;
+    estado: EstadoCupon;
+  } | null>(null);
 
   // Para descartar respuestas de cotizaciones viejas: si el cliente mueve el pin dos veces
   // seguidas, la primera puede llegar después y pintar el precio equivocado. El turno vive
   // aquí, con el estado, porque hay dos formas de pedir una cotización —mover el pin y volver
   // a montar el formulario— y un guardia que solo conoce una de las dos no guarda nada.
   const ultimaCotizacion = useRef(0);
+  // Lo mismo para el cupón: cambiar el carrito y escribir un código son dos disparadores, y la
+  // respuesta a la consulta vieja puede llegar después de la nueva.
+  const ultimaComprobacion = useRef(0);
 
   /**
    * La última sugerencia que dio el mapa en esta sesión, **se haya escrito o no**.
@@ -356,6 +431,31 @@ export function CheckoutForm({
     renovarTipoPedido();
   }, []);
 
+  /**
+   * Comprueba el cupón cada vez que cambia el código **o el carrito**.
+   *
+   * Lo segundo es lo que evita el descuento fantasma: quien aplica CHURRO10 con un churro en el
+   * carrito y luego lo quita tiene que ver que el descuento se cae, y verlo *aquí*, no descubrirlo
+   * en el 422 al confirmar. Reejecutar con los items es todo el mecanismo.
+   *
+   * `items` es la referencia del store, que solo cambia cuando el carrito cambia de verdad, así
+   * que esto no se dispara en cada render.
+   */
+  useEffect(() => {
+    // Con el carrito vacío no hay nada que comprobar, y el endpoint exige al menos una línea: sin
+    // esta guarda, vaciar el carrito con un cupón puesto dispararía una consulta que solo puede
+    // fallar. Sin tipo tampoco, que es el estado momentáneo mientras se pregunta domicilio/recoger.
+    if (!hidratado || !cupon || !tipoPedido || items.length === 0) return;
+
+    const turno = ++ultimaComprobacion.current;
+    const { items: itemsPedido } = carritoAItems(items);
+
+    void consultarCupon(cupon, tipoPedido, itemsPedido).then((resultado) => {
+      if (turno !== ultimaComprobacion.current) return;
+      setRespuestaCupon({ codigo: cupon, estado: resultado });
+    });
+  }, [hidratado, cupon, tipoPedido, items]);
+
   // El pin sobrevive en localStorage; su cobertura no, porque es estado de este componente.
   // Sin esto, quien recarga estando en el paso 3 —el paso también se guarda— ve el domicilio
   // en $0: el mapa que lo recotizaba está en el paso 2 y no se está renderizando. Y un
@@ -408,12 +508,38 @@ export function CheckoutForm({
   const costoDomicilio =
     esDomicilio && cobertura.estado === "cubierto" ? cobertura.precio : 0;
   const sinCobertura = esDomicilio && cobertura.estado === "fuera";
+  /**
+   * El estado del cupón, derivado: sin código no hay cupón, y con un código para el que todavía no
+   * hay respuesta la consulta está en vuelo.
+   *
+   * **Al cambiar el carrito con el mismo código, se sigue mostrando la respuesta anterior mientras
+   * llega la nueva.** Es a propósito: alternar a "comprobando" en cada toque del carrito haría
+   * parpadear el total, y quien manda sobre el dinero es el servidor al confirmar (regla 1), así
+   * que lo peor que pasa es un número que se corrige solo unos milisegundos después.
+   */
+  const estadoCupon: EstadoCupon = !cupon
+    ? { estado: "sin_cupon" }
+    : respuestaCupon?.codigo === cupon
+      ? respuestaCupon.estado
+      : { estado: "comprobando" };
+  const descuento = estadoCupon.estado === "aplicado" ? estadoCupon.descuento : 0;
+  /**
+   * Lo que el cliente va a pagar. **Se usa en las cuatro partes donde antes iba
+   * `total + costoDomicilio`**: el resumen, el valor a transferir por Nequi, el botón de confirmar
+   * y la devuelta del efectivo.
+   *
+   * Existe como una sola constante justo por eso: repetir la resta en cuatro sitios es cómo se
+   * termina enseñándole al cliente el total con descuento en el botón y pidiéndole que transfiera
+   * el precio lleno. El servidor recalcula todo al confirmar (regla 1), así que un desajuste aquí
+   * no cobra de más — hace algo peor, que es que el cliente transfiera de más.
+   */
+  const totalAPagar = Math.max(0, total + costoDomicilio - descuento);
   // Solo se muestra cuando de verdad hay algo que devolver. Si escribió menos que el total,
   // no se le corrige con un número negativo: el servidor cobra lo que cobra y el panel le
   // enseña al domiciliario lo que el cliente dijo.
   const devuelta =
-    metodoPago === "efectivo" && Number(pagaCon) > total + costoDomicilio
-      ? Number(pagaCon) - total - costoDomicilio
+    metodoPago === "efectivo" && Number(pagaCon) > totalAPagar
+      ? Number(pagaCon) - totalAPagar
       : null;
   // Si el negocio no cargó su llave, ofrecerlo sería mandar al cliente a un callejón sin
   // salida. Manda la llave y no el QR: con la llave sola se puede pagar, con el QR solo no
@@ -546,6 +672,9 @@ export function CheckoutForm({
       pagaCon:
         metodoPago === "efectivo" && pagaCon ? Number(pagaCon) : undefined,
       comprobanteUrl: comprobanteUrl ?? undefined,
+      // Viaja el CÓDIGO, no el descuento: cuánto vale lo recalcula el servidor al confirmar
+      // (regla 1), igual que con el pin y la zona.
+      cupon: cupon ?? undefined,
       notas: notas || undefined,
       items: itemsPedido,
     };
@@ -669,7 +798,10 @@ export function CheckoutForm({
   }
 
   /** Traduce un ErrorPedido del servidor a algo que el cliente pueda accionar. */
-  function mensajeDe422(detalle: { tipo: string; itemIndex?: number }): string {
+  function mensajeDe422(
+    detalle: { tipo: string; itemIndex?: number; motivo?: MotivoRechazo },
+    aplicaA: string[] = [],
+  ): string {
     const { lineIdPorIndice } = carritoAItems(items);
     const linea =
       detalle.itemIndex !== undefined
@@ -703,6 +835,20 @@ export function CheckoutForm({
         }));
         setPaso(2);
         return "Falta confirmar tu ubicación.";
+      /**
+       * El cupón caducó, lo apagaron o el carrito cambió entre que se comprobó y se confirmó.
+       *
+       * El estado se refleja en el campo para que el cliente vea el total sin descuento **antes**
+       * de volver a confirmar. No se le quita el cupón solo: el cliente lo escribió, y borrárselo
+       * sin decir nada le esconde justo lo que tiene que entender.
+       */
+      case "cupon_invalido": {
+        const mensaje = detalle.motivo
+          ? mensajeDeRechazo(detalle.motivo, aplicaA)
+          : "Ese cupón ya no se puede usar.";
+        if (cupon) setRespuestaCupon({ codigo: cupon, estado: { estado: "rechazado", mensaje } });
+        return mensaje;
+      }
       default:
         return "No pudimos calcular tu pedido. Revísalo e intenta de nuevo.";
     }
@@ -787,7 +933,7 @@ export function CheckoutForm({
       }
 
       if (r.status === 422 && json?.detalle) {
-        setErrorGeneral(mensajeDe422(json.detalle));
+        setErrorGeneral(mensajeDe422(json.detalle, json.aplicaA ?? []));
         return;
       }
 
@@ -1250,6 +1396,21 @@ export function CheckoutForm({
               </p>
             )}
 
+            {/* Encima de los totales y no en un paso aparte: el cupón es dinero, y va donde el
+                cliente está mirando el dinero. */}
+            <div className="border-t border-crema-oscura pt-3">
+              {/* `key`: si el código cambia por fuera —un link `?cupon=` o el carrito rehidratado—
+                  el campo se remonta con el texto correcto. Es la alternativa de React al efecto
+                  que sincronizaba el input, que provocaba renders en cascada. */}
+              <CampoCupon
+                key={cupon ?? "sin-cupon"}
+                codigo={cupon}
+                estado={estadoCupon}
+                onAplicar={setCupon}
+                onQuitar={() => setCupon(null)}
+              />
+            </div>
+
             <dl className="flex flex-col gap-1 border-t border-crema-oscura pt-2 font-cuerpo text-sm text-cafe-suave">
               <div className="flex justify-between">
                 <dt>Subtotal</dt>
@@ -1261,9 +1422,17 @@ export function CheckoutForm({
                   <dd>{pesos(costoDomicilio)}</dd>
                 </div>
               )}
+              {/* Con el código al lado: en una lista de importes, un "Descuento" a secas no dice
+                  de dónde salió, y el cliente que aplicó un cupón quiere ver que es el suyo. */}
+              {descuento > 0 && (
+                <div className="flex justify-between text-exito">
+                  <dt>Descuento {cupon}</dt>
+                  <dd>−{pesos(descuento)}</dd>
+                </div>
+              )}
               <div className="flex justify-between text-base font-bold text-cafe">
                 <dt>Total a pagar</dt>
-                <dd>{pesos(total + costoDomicilio)}</dd>
+                <dd>{pesos(totalAPagar)}</dd>
               </div>
             </dl>
           </section>
@@ -1357,8 +1526,8 @@ export function CheckoutForm({
               <div className="flex flex-col gap-4 rounded-sm bg-crema p-3">
                 <DatoCopiable
                   etiqueta="Transfiere este valor"
-                  valor={pesos(total + costoDomicilio)}
-                  aCopiar={String(total + costoDomicilio)}
+                  valor={pesos(totalAPagar)}
+                  aCopiar={String(totalAPagar)}
                 />
                 {tienda.nequiQrUrl && <QrDePago url={tienda.nequiQrUrl} />}
 
@@ -1450,7 +1619,7 @@ export function CheckoutForm({
               Enviando…
             </>
           ) : (
-            `Realizar pedido · ${pesos(total + costoDomicilio)}`
+            `Realizar pedido · ${pesos(totalAPagar)}`
           )}
         </button>
       ) : (

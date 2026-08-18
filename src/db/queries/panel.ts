@@ -65,6 +65,8 @@ export type PedidoPanel = {
   subtotal: number;
   costoDomicilio: number;
   descuento: number;
+  /** El cupón que se usó, congelado (regla 2). `null` si no hubo. */
+  cuponCodigo: string | null;
   total: number;
 };
 
@@ -304,6 +306,7 @@ export async function obtenerPedidoPorNumero(
       subtotal: fila.subtotal,
       costoDomicilio: fila.costoDomicilio,
       descuento: fila.descuento,
+      cuponCodigo: fila.cuponCodigo,
       total: fila.total,
     },
     historial: fila.orderStatusEvents.map((e) => ({

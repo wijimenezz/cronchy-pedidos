@@ -84,6 +84,7 @@ export function pedidoParaMensaje(pedido: PedidoParaAviso): PedidoParaMensaje {
     subtotal: pedido.subtotal,
     costoDomicilio: pedido.costoDomicilio,
     descuento: pedido.descuento,
+    cuponCodigo: pedido.cuponCodigo,
     // Todavía no existe: ni el checkout la pide ni la base la guarda. Se manda en 0 para que el
     // recibo del cliente ya tenga su renglón; el día que el checkout tenga propina, se cambia
     // esta línea y nada más.
@@ -155,6 +156,8 @@ export async function avisoDomiciliario(
       ubicacion: pedido.punto,
       subtotal: pedido.subtotal,
       costoDomicilio: pedido.costoDomicilio,
+      // Sin esto el desglose del mensaje no sumaría el "COBRAR" cuando hubo cupón (regla 20).
+      descuento: pedido.descuento,
       total: pedido.total,
       metodoPago: pedido.metodoPago,
       pagaCon: pedido.pagaCon,

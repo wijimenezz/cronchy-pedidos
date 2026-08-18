@@ -183,6 +183,13 @@
       "when": 1786728824509,
       "tag": "0025_orden_helado",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1787075295942,
+      "tag": "0026_numerous_goliath",
+      "breakpoints": true
     }
   ]
 }

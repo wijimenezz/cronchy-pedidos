@@ -1,9 +1,13 @@
 import Image from "next/image";
 import { MarcoPublico } from "@/components/MarcoPublico";
+import { CapturarCupon } from "@/components/tienda/CapturarCupon";
 
 export default function TiendaLayout({ children }: { children: React.ReactNode }) {
   return (
     <MarcoPublico>
+      {/* En el layout y no en la portada: un link con `?cupon=` tiene que funcionar apuntando a
+          cualquier página pública, no solo a la carta. No pinta nada. */}
+      <CapturarCupon />
       <div className="relative flex flex-1 flex-col">
         <div aria-hidden className="pointer-events-none fixed inset-0 z-0">
           <div className="relative mx-auto h-full w-full max-w-[520px] lg:max-w-contenido">

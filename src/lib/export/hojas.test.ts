@@ -38,6 +38,7 @@ const BASE: PedidoParaExport = {
   subtotal: 30000,
   costoDomicilio: 5000,
   descuento: 0,
+  cuponCodigo: null,
   total: 35000,
   items: [
     {
