@@ -62,6 +62,10 @@ export async function crearPedidoEnDB(
         subtotal: calculo.subtotal,
         costoDomicilio: calculo.costoDomicilio,
         descuento: calculo.descuento,
+        // Snapshot del cupón (regla 2), igual que `zonaNombre`: el id para reportes agregados y el
+        // código congelado para mostrar. Apagar o renombrar el cupón no puede reescribir esto.
+        cuponId: calculo.cuponId,
+        cuponCodigo: calculo.cuponCodigo,
         total: calculo.total,
       })
       .returning({ id: order.id, numero: order.numero, tokenPublico: order.tokenPublico });
@@ -110,6 +114,8 @@ export type PedidoPublico = {
   subtotal: number;
   costoDomicilio: number;
   descuento: number;
+  /** El cupón que se usó, congelado (regla 2). `null` si no hubo. */
+  cuponCodigo: string | null;
   total: number;
 };
 
@@ -163,6 +169,7 @@ export async function obtenerPedidoPorToken(
     subtotal: fila.subtotal,
     costoDomicilio: fila.costoDomicilio,
     descuento: fila.descuento,
+    cuponCodigo: fila.cuponCodigo,
     total: fila.total,
   };
 }

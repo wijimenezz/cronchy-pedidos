@@ -67,6 +67,7 @@ src/
                               ResumenDia + DescargarPedidos: cifras y export (admin)
         catalogo/             switches de agotado (US21)
         zonas/                mapa con polígonos de cobertura — solo admin
+      cupones/              CRUD de cupones de descuento — solo admin
         productos/            CRUD completo: 3 columnas categoría/producto/detalle
         opciones/             salsas, toppings, sabores: 2 columnas lista/opciones
     api/
@@ -81,9 +82,11 @@ src/
       disponibilidad.ts       switches de agotado
       catalogo.ts             CRUD de categorías, productos y enganches
       opciones.ts             CRUD de las listas de opciones y sus opciones
+      cupones.ts              busca el cupón y expande su alcance + CRUD del panel
   lib/
     precios.ts                CÁLCULO DE PRECIOS — fuente única de verdad
     zonas.ts                  CÁLCULO DE DOMICILIO — fuente única de verdad
+    cupones.ts                CÁLCULO DEL DESCUENTO (regla 20) — puro, testeado
     barrio.ts                 SUGERENCIA de barrio desde el pin (OSM) — nunca fuente de verdad
     horario.ts                ¿está abierta la tienda en tal instante?
     fechas.ts                 nombres de meses y días + calendario sin zona horaria
@@ -496,6 +499,7 @@ pueda saltar generando franjas por otro camino.
 | `admin/productos` | solo Visible↔Agotado (ni ocultar ni reactivar)               | CRUD completo, precios, fotos (de producto y de categoría), categorías, enganches |
 | `admin/opciones`  | solo switch `disponible` (sabores de la semana)              | crear/renombrar/ordenar opciones, precio propio, archivar listas  |
 | `admin/zonas`     | sin acceso (ni lectura)                                      | mapa: dibujar, editar vértices, precio, prioridad, activar/apagar |
+| `admin/cupones`   | sin acceso (ni lectura)                                      | crear cupones, porcentaje, a qué aplican, vencimiento, aviso de la carta, apagar |
 | `admin/ajustes`   | sin acceso (ni lectura)                                      | con qué se paga (llave, titular, QR) y los nombres de barrio que OSM devuelve mal |
 
 Estados de un producto (independientes entre sí — no colapsarlos en un enum):
@@ -624,8 +628,8 @@ Falta una hoja que sí tiene la referencia de la que se copió el formato, y fal
 `Sedes`, porque hay una sola tienda. `Domiciliarios` tampoco está, pero por otro motivo: son una
 agenda de contactos externos, no una nómina con turnos ni pagos que reportar — quién llevó cada
 pedido viaja en su columna de la hoja `Pedidos`, que es donde se puede cruzar con las ventas. La
-columna de cupón no existe todavía: cuando llegue va junto a `Descuento $`. **No se añade vacía**,
-que se leería como un dato perdido.
+columna **`Cupón`** ya llegó y va justo donde se dijo, junto a `Descuento $`: quien lee la fila
+quiere el porqué al lado de la cifra (regla 20).
 
 ### 18. El domiciliario tiene su propia llave, y solo abre una puerta
 
@@ -778,6 +782,61 @@ previsualización se estaría ajustando a ciegas. **Bajo sigue siendo más fuert
 la web no puede tocar el volumen de **multimedia** de Android — si está a media asta, no hay código
 que lo suba.
 
+### 20. El cupón descuenta un porcentaje, y lo decide el servidor
+
+Un cupón (`CHURRO10`) descuenta un **porcentaje** sobre la parte del pedido que cubre. El cálculo
+vive entero en `src/lib/cupones.ts`, puro y testeado como `precios.ts`: si necesitas saber cuánto
+descuenta un cupón, importa de ahí.
+
+Es **la regla 1 aplicada al descuento**, igual que la 16 lo es al tiempo y `metodosDePago` al
+dinero: del navegador llega el **código**, nunca el monto. `POST /api/pedidos` lo busca
+(`buscarCuponPorCodigo`), lo aplica desde cero y solo entonces sabe cuánto vale.
+`/api/cupones/validar` existe para pintarlo en vivo mientras el cliente escribe, con el mismo
+contrato que `/api/zonas/cotizar`: **no es la fuente del precio**.
+
+Tres cosas del cálculo que no se cambian:
+
+- **La base son los items elegibles. El domicilio no entra**, y no es un olvido: la regla 13 dice
+  que el domicilio siempre se cobra porque lo ejecuta un courier externo. Ni siquiera llega como
+  parámetro a `aplicarCupon`.
+- **Se redondea una sola vez sobre la base**, nunca línea por línea: redondear por item deriva unos
+  pesos y el total deja de cuadrar con el que el cliente vio.
+- **Un upsell se evalúa como cualquier otro item.** La bebida agregada desde la ficha de un churro
+  es su propio `order_item` con su propio `productId` (regla 8), así que un cupón de churros **no**
+  la descuenta. Es correcto, y hay un test que lo fija.
+
+**Un cupón que no sirve corta el pedido; no se ignora en silencio.** `calcularPedido` devuelve
+`cupon_invalido` con su motivo y el checkout lo traduce con `mensajeDeRechazo` — la misma función
+que usa la comprobación en vivo, para que el mismo problema no se explique de dos maneras. Cobrarle
+el precio lleno a quien vio un total con descuento es peor que rechazarle el pedido: puede haberlo
+transferido ya por Nequi. Ojo con el `null`: significa "escribió un código que no existe", que **no**
+es lo mismo que no haber escrito ninguno (`undefined`).
+
+El alcance se guarda como categorías y productos (`cupon_categoria`, `cupon_producto`) y se expande
+a ids de producto **en cada lectura**: así un producto que entre mañana a una categoría cubierta
+queda cubierto solo. La columna `alcance` no sobra —sin ella, "toda la carta" y "acoté pero no marqué
+nada" son las dos cero filas, y la segunda descontaría sobre todo.
+
+**Solo hay dos frenos: la fecha (`vence_el`) y el switch `activo`.** No hay tope de usos ni límite
+por cliente, y es una decisión tomada, no un olvido: un código filtrado lo puede reusar la misma
+persona hasta que venza. Si algún día hace falta, `usos_maximos` se cuenta sobre `order` (así un
+pedido cancelado devuelve el cupo solo) con un `SELECT … FOR UPDATE` sobre la fila del cupón.
+`vence_el` es `date` y no `timestamptz` porque "vence el 30 de septiembre" es un día de Bogotá: se
+compara como cadena contra `diaDeBogota()`, y el cupón vale **durante todo** su último día.
+
+Nada se borra (regla 9): se apaga. Por eso `order.cupon_id` no lleva `ON DELETE` — es historial—, y
+`order.cupon_codigo` es el snapshot que se muestra, igual que `zona_nombre` (regla 2).
+
+**El cupón llega por tres caminos y los tres escriben en el mismo sitio** (`carrito.cupon`): el campo
+del paso 3, el link `?cupon=CHURRO10` y el aviso de la carta. Ese aviso (`cupon.anuncio`) cuelga del
+cupón y no de `store` a propósito: así **muere con él** en vez de seguir anunciando una promo vencida.
+Un índice único parcial garantiza que solo haya uno anunciado a la vez.
+
+Y el detalle que hay que mirar dos veces al tocar el checkout: **el total con descuento se usa en
+cuatro sitios** —el resumen, el «Transfiere este valor» de Nequi, el botón de confirmar y la devuelta
+del efectivo—. Por eso existe `totalAPagar` como una sola constante: olvidar la del `DatoCopiable`
+no cobra de más, hace algo peor, que es que el cliente **transfiera** de más.
+
 ---
 
 ## Convenciones
@@ -911,8 +970,10 @@ que lo suba.
 - Validación con Zod en el borde de cada route handler, antes de tocar la base.
 - Los estados del pedido se registran en `order_status_event`, no solo actualizando
   `order.estado`.
-- Tests con Vitest para `precios.ts`, `horario.ts`, `zonas.ts`, `pedidos/franjas.ts` y
-  `pedidos/dias.ts` como mínimo — es donde un bug cuesta plata real. Para `zonas.ts`: punto
+- Tests con Vitest para `precios.ts`, `horario.ts`, `zonas.ts`, `cupones.ts`, `pedidos/franjas.ts` y
+  `pedidos/dias.ts` como mínimo — es donde un bug cuesta plata real. Para `cupones.ts`: el alcance
+  acotado, que un upsell no entre, que el domicilio nunca entre en la base, el redondeo sobre el
+  total y no por línea, y que el último día de vigencia todavía valga. Para `zonas.ts`: punto
   dentro, fuera, en el borde, en solapamiento (gana prioridad) y con todas las zonas apagadas.
   Para `franjas.ts`: la anticipación de hoy, que mañana no la arrastre, el turno partido, el
   límite del cierre y que el instante guardado sea el de Bogotá y no el de UTC. Para `dias.ts`:

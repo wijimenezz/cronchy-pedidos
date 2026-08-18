@@ -282,8 +282,10 @@ export default async function SeguimientoPedido({
             </div>
           )}
           {pedido.descuento > 0 && (
-            <div className="flex justify-between">
-              <dt>Descuento</dt>
+            <div className="flex justify-between text-exito">
+              {/* Con el código si lo hubo: es lo que le recuerda al cliente que su cupón sí
+                  entró, y de paso qué código usar la próxima vez. */}
+              <dt>{pedido.cuponCodigo ? `Descuento ${pedido.cuponCodigo}` : "Descuento"}</dt>
               <dd>−{pesos(pedido.descuento)}</dd>
             </div>
           )}

@@ -4,6 +4,7 @@ import { calcularPedido } from "@/lib/precios";
 import { esFranjaOfrecida, opcionesDeEntrega } from "@/lib/pedidos/entrega";
 import { esMetodoOfrecido } from "@/lib/pedidos/pago";
 import { getStore } from "@/db/queries/store";
+import { buscarCuponPorCodigo } from "@/db/queries/cupones";
 import { crearPedidoEnDB } from "@/db/queries/pedidos";
 import { enviarPushPedidoNuevo } from "@/lib/notificaciones/push";
 import { avisarPedidoNuevo } from "@/lib/notificaciones/telegram";
@@ -72,20 +73,36 @@ export async function POST(request: Request) {
     );
   }
 
+  // Y el descuento igual que todo lo demás: del navegador llega el **código** del cupón, y cuánto
+  // vale lo decide el servidor. Se busca aquí y se le pasa resuelto al cálculo; si no sirve —no
+  // existe, venció, lo apagaron, o el carrito no lleva nada que cubra— `calcularPedido` corta con
+  // `cupon_invalido` en vez de cobrar el precio lleno en silencio.
+  const cupon = input.cupon ? await buscarCuponPorCodigo(tienda.id, input.cupon) : null;
+
   // Todo el dinero se calcula aquí, en servidor (regla 1 de CLAUDE.md) — nunca se
-  // confía en un total que venga del cliente. El descuento es siempre 0 al crear el
-  // pedido: es un ajuste manual del negocio, no algo que el cliente controle.
+  // confía en un total que venga del cliente.
   const resultado = await calcularPedido(tienda.id, {
     tipo: input.tipo,
     items: input.items,
     // Llega el pin, no la zona ni el precio: el servidor resuelve la cobertura de nuevo.
     punto: input.punto,
-    descuento: 0,
+    // `null` cuando el código no existe, y eso NO es "sin cupón": el cliente escribió algo y hay
+    // que decírselo. Distinguir los dos casos es lo que hace que se rechace en vez de ignorarlo.
+    cupon: input.cupon ? cupon : undefined,
   });
 
   if (!resultado.ok) {
     return NextResponse.json(
-      { error: "No se pudo calcular el pedido", detalle: resultado.error },
+      {
+        error: "No se pudo calcular el pedido",
+        detalle: resultado.error,
+        // Los nombres de lo que el cupón cubre viajan aparte del `detalle` —que es el `ErrorPedido`
+        // del cálculo y no tiene por qué conocer el catálogo—, y solo cuando hacen falta: son lo
+        // que permite decir "aplica solo a Churros con helado" en vez de "no aplica".
+        ...(resultado.error.tipo === "cupon_invalido" && cupon
+          ? { aplicaA: cupon.aplicaA }
+          : {}),
+      },
       { status: 422 },
     );
   }

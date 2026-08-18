@@ -118,6 +118,13 @@ export type FilaPedido = {
   productos: number;
   domicilio: number;
   descuento: number;
+  /**
+   * El código del cupón, junto al monto que descontó. La columna que CLAUDE.md tenía prometida.
+   *
+   * `null` cuando no hubo cupón: en una hoja de cálculo, la celda vacía al lado de un descuento en
+   * $0 se lee bien, y la del descuento manual del negocio también — no hay código que poner.
+   */
+  cupon: string | null;
   total: number;
   notas: string | null;
   id: string;
@@ -154,6 +161,7 @@ export function hojaPedidos(pedidos: PedidoParaExport[]): FilaPedido[] {
     productos: p.subtotal,
     domicilio: p.costoDomicilio,
     descuento: p.descuento,
+    cupon: p.cuponCodigo,
     total: p.total,
     notas: p.notas,
     id: p.id,

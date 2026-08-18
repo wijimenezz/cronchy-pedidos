@@ -1,7 +1,8 @@
-import { pgTable, unique, uuid, text, boolean, timestamp, foreignKey, check, smallint, time, date, integer, index, bigint, serial, jsonb, pgEnum } from "drizzle-orm/pg-core"
+import { pgTable, unique, uniqueIndex, primaryKey, uuid, text, boolean, timestamp, foreignKey, check, smallint, time, date, integer, index, bigint, serial, jsonb, pgEnum } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 import { geometria } from "./tipos-geo"
 
+export const alcanceCupon = pgEnum("alcance_cupon", ['todo', 'seleccion'])
 export const estadoPedido = pgEnum("estado_pedido", ['nuevo', 'aceptado', 'preparando', 'en_camino', 'listo', 'entregado', 'cancelado'])
 export const metodoPago = pgEnum("metodo_pago", ['efectivo', 'nequi', 'transferencia', 'datafono'])
 export const modoGrupo = pgEnum("modo_grupo", ['incluido', 'adicional'])
@@ -302,6 +303,104 @@ export const barrio = pgTable("barrio", {
 	unique("barrio_store_id_nombre_osm_key").on(table.storeId, table.nombreOsm),
 ]);
 
+/**
+ * Un cupón de descuento por porcentaje. `CHURRO10` → 10 % sobre lo que cubra.
+ *
+ * El monto que descuentó cada pedido NO se recalcula nunca desde aquí: se congela en
+ * `order.descuento` y `order.cupon_codigo` (regla 2). Cambiarle el porcentaje a un cupón o
+ * borrarlo jamás debe reescribir lo que un cliente ya pagó.
+ */
+export const cupon = pgTable("cupon", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	storeId: uuid("store_id").notNull(),
+	/** Siempre normalizado a mayúsculas sin espacios (`normalizarCodigo`), o no se encontraría. */
+	codigo: text().notNull(),
+	porcentaje: integer().notNull(),
+	/**
+	 * `todo` = toda la carta. `seleccion` = lo que digan `cupon_categoria` y `cupon_producto`.
+	 *
+	 * Existe aunque el alcance ya se lea de esas dos tablas, y no es redundante: sin esta columna,
+	 * "toda la carta" y "elegí acotar pero todavía no marqué nada" son las dos cero filas, y la
+	 * segunda descontaría sobre todo el pedido — exactamente lo contrario de lo que se pidió.
+	 */
+	alcance: alcanceCupon().default('todo').notNull(),
+	/**
+	 * El último día en que sirve, en el calendario de Bogotá. NULL = no vence.
+	 *
+	 * `date` y no `timestamptz` a propósito: "vence el 30 de septiembre" es un día, no un instante,
+	 * y con un timestamp habría que inventarle una hora que a nadie le importa. Peor: comparado
+	 * contra `now()` a secas, un cupón así vencería a las 7 pm del día anterior (UTC). Se compara
+	 * como cadena contra `diaDeBogota()`, así que vale durante todo su último día.
+	 */
+	venceEl: date("vence_el"),
+	/**
+	 * El aviso que sale en la carta. NULL = no se anuncia.
+	 *
+	 * Cuelga del cupón y no de `store` para que **el aviso muera con el cupón**: un texto suelto en
+	 * la tienda seguiría anunciando un cupón vencido hasta que alguien se acordara de borrarlo.
+	 */
+	anuncio: text(),
+	/** Apagar, no borrar (regla 9): un pedido viejo tiene que poder decir con qué cupón se pagó. */
+	activo: boolean().default(true).notNull(),
+	creadoEn: timestamp("creado_en", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	foreignKey({
+			columns: [table.storeId],
+			foreignColumns: [store.id],
+			name: "cupon_store_id_fkey"
+		}).onDelete("cascade"),
+	unique("cupon_store_id_codigo_key").on(table.storeId, table.codigo),
+	// La carta tiene un solo sitio para el aviso, así que solo un cupón puede ocuparlo. Índice
+	// parcial y no un `activo`-como-radio: lo que hace único al anunciado es tener texto.
+	uniqueIndex("idx_cupon_anuncio_unico")
+		.on(table.storeId)
+		.where(sql`anuncio IS NOT NULL`),
+	check("cupon_porcentaje_check", sql`porcentaje >= 1 AND porcentaje <= 50`),
+]);
+
+/**
+ * Las categorías que cubre un cupón acotado.
+ *
+ * El alcance se expande a ids de producto **en cada lectura** (`db/queries/cupones.ts`), no al
+ * guardar: así un producto que entre mañana a una categoría cubierta queda cubierto solo.
+ */
+export const cuponCategoria = pgTable("cupon_categoria", {
+	cuponId: uuid("cupon_id").notNull(),
+	categoryId: uuid("category_id").notNull(),
+}, (table) => [
+	primaryKey({ columns: [table.cuponId, table.categoryId], name: "cupon_categoria_pkey" }),
+	foreignKey({
+			columns: [table.cuponId],
+			foreignColumns: [cupon.id],
+			name: "cupon_categoria_cupon_id_fkey"
+		}).onDelete("cascade"),
+	// CASCADE porque esto es configuración del cupón, no historial: si la categoría desaparece,
+	// deja de haber nada que cubrir. Lo que un pedido pagó vive en `order.descuento` (regla 2).
+	foreignKey({
+			columns: [table.categoryId],
+			foreignColumns: [category.id],
+			name: "cupon_categoria_category_id_fkey"
+		}).onDelete("cascade"),
+]);
+
+/** Los productos sueltos que cubre un cupón acotado. Mismo trato que `cupon_categoria`. */
+export const cuponProducto = pgTable("cupon_producto", {
+	cuponId: uuid("cupon_id").notNull(),
+	productId: uuid("product_id").notNull(),
+}, (table) => [
+	primaryKey({ columns: [table.cuponId, table.productId], name: "cupon_producto_pkey" }),
+	foreignKey({
+			columns: [table.cuponId],
+			foreignColumns: [cupon.id],
+			name: "cupon_producto_cupon_id_fkey"
+		}).onDelete("cascade"),
+	foreignKey({
+			columns: [table.productId],
+			foreignColumns: [product.id],
+			name: "cupon_producto_product_id_fkey"
+		}).onDelete("cascade"),
+]);
+
 export const customer = pgTable("customer", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	storeId: uuid("store_id").notNull(),
@@ -396,6 +495,12 @@ export const order = pgTable("order", {
 	subtotal: integer().notNull(),
 	costoDomicilio: integer("costo_domicilio").default(0).notNull(),
 	descuento: integer().default(0).notNull(),
+	cuponId: uuid("cupon_id"),
+	// Snapshot del cupón (regla 2), misma pareja que `zona_id`/`zona_nombre` y el domiciliario: el
+	// id sirve para reportes agregados y este texto es lo que se muestra y lo que va al XLSX.
+	// Renombrar o borrar un cupón jamás debe cambiar lo que dice un pedido ya cobrado. Cuánto
+	// descontó está al lado, en `descuento`.
+	cuponCodigo: text("cupon_codigo"),
 	total: integer().notNull(),
 	// La hora que el cliente eligió, o NULL si pidió "lo más pronto posible". El nullable ES
 	// el modelo: un booleano al lado admitiría "programado sin hora" y la base no podría
@@ -425,6 +530,13 @@ export const order = pgTable("order", {
 			columns: [table.courierId],
 			foreignColumns: [courier.id],
 			name: "order_courier_id_fkey"
+		}),
+	// Sin `onDelete`: es historial, igual que `order_item.product_id`. Postgres impide borrar un
+	// cupón que ya se usó, y la salida es apagarlo (regla 9).
+	foreignKey({
+			columns: [table.cuponId],
+			foreignColumns: [cupon.id],
+			name: "order_cupon_id_fkey"
 		}),
 	unique("order_token_publico_key").on(table.tokenPublico),
 	unique("order_token_entrega_key").on(table.tokenEntrega),

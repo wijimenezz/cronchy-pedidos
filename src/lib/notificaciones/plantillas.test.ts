@@ -258,6 +258,7 @@ describe("pedidoParaDomiciliario", () => {
     ubicacion: { lat: 4.34, lng: -74.36 },
     subtotal: 53500,
     costoDomicilio: 6000,
+    descuento: 0,
     total: 59500,
     metodoPago: "efectivo",
     pagaCon: 70000,
@@ -286,6 +287,28 @@ describe("pedidoParaDomiciliario", () => {
     expect(texto).toContain("*COBRAR:* $59.500 en efectivo");
     expect(texto).toContain("*Paga con:* $70.000");
     expect(texto).toContain("*Devuelta:* $10.500");
+  });
+
+  /**
+   * Con cupón, el desglose deja de sumar el total: $53.500 + $6.000 son $59.500, pero hay que
+   * cobrar $54.150. El domiciliario lee las dos cifras de arriba como algo que compone lo de
+   * abajo, así que sin la línea del descuento parece que el "COBRAR" está mal.
+   */
+  it("con descuento, el desglose lo dice y vuelve a cuadrar", () => {
+    const texto = pedidoParaDomiciliario(
+      { ...DOMI, descuento: 5350, total: 54150, pagaCon: null },
+      TIENDA,
+      MEDIODIA,
+    );
+
+    expect(texto).toContain("*COBRAR:* $54.150 en efectivo");
+    expect(texto).toContain("*Descuento:* -$5.350");
+  });
+
+  // Sin descuento no se escribe la línea: en un mensaje que viaja dentro de una URL `wa.me`, un
+  // "-$0" es un renglón que no dice nada y ocupa.
+  it("sin descuento no aparece la línea", () => {
+    expect(pedidoParaDomiciliario(DOMI, TIENDA, MEDIODIA)).not.toContain("Descuento");
   });
 
   it("sin `pagaCon` no habla de devuelta", () => {
