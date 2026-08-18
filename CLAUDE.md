@@ -91,6 +91,7 @@ src/
     horario.ts                ¿está abierta la tienda en tal instante?
     fechas.ts                 nombres de meses y días + calendario sin zona horaria
                               (el único módulo de fechas que puede usar el cliente)
+    tienda/local.ts           DÓNDE QUEDA EL LOCAL y cómo se llega — puro, testeado
     export/
       hojas.ts                LAS CIFRAS del XLSX — puro, testeado
       libro.ts                el archivo: celdas, formatos y hojas
@@ -374,6 +375,13 @@ lectura cruda del GPS ni sobre la dirección escrita.
   por cuadras.
 - Si el cliente niega el permiso: mapa centrado en la tienda, pin manual.
 
+  **Ojo: `centroTienda` NO es la ubicación del local.** Es `store.ubicacion` **con respaldo al
+  parque principal de Fusagasugá** cuando nadie ha fijado el pin, porque el mapa hay que abrirlo en
+  algún sitio. Para decirle a alguien dónde recoger su pedido se usa la ubicación de verdad, que es
+  nullable (`comoLlegarUrl` en `lib/tienda/local.ts`): con el respaldo, quien viene a recoger
+  acabaría en el parque y con toda la confianza. Son dos valores de la misma columna y por eso se
+  llaman distinto.
+
   **Y hay que decírselo, porque en iPhone el fallo es invisible.** Un cliente real tocó el botón
   y no pasó nada: tenía la Localización apagada para Safari a nivel de sistema, así que iOS ni
   llegó a mostrar el diálogo —contestó `PERMISSION_DENIED` en un milisegundo, sin preguntar— y
@@ -500,7 +508,7 @@ pueda saltar generando franjas por otro camino.
 | `admin/opciones`  | solo switch `disponible` (sabores de la semana)              | crear/renombrar/ordenar opciones, precio propio, archivar listas  |
 | `admin/zonas`     | sin acceso (ni lectura)                                      | mapa: dibujar, editar vértices, precio, prioridad, activar/apagar |
 | `admin/cupones`   | sin acceso (ni lectura)                                      | crear cupones, porcentaje, a qué aplican, vencimiento, aviso de la carta, apagar |
-| `admin/ajustes`   | sin acceso (ni lectura)                                      | con qué se paga (llave, titular, QR) y los nombres de barrio que OSM devuelve mal |
+| `admin/ajustes`   | sin acceso (ni lectura)                                      | dirección y teléfono del local, con qué se paga (llave, titular, QR) y los nombres de barrio que OSM devuelve mal |
 
 Estados de un producto (independientes entre sí — no colapsarlos en un enum):
 

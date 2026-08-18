@@ -3,6 +3,11 @@
 import "leaflet/dist/leaflet.css";
 import "@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css";
 import { useEffect, useRef } from "react";
+import {
+  ANCLA_PIN_TIENDA,
+  HTML_PIN_TIENDA,
+  TAMANO_PIN_TIENDA,
+} from "@/components/mapas/iconos";
 import type { ZonaDelPanel } from "@/db/queries/zonas";
 
 /**
@@ -119,10 +124,23 @@ export default function MapaZonas({
 
       // El pin de la tienda. Arrastrable porque la dirección de un local no se acierta a la
       // primera desde un mapa, y de aquí sale el centro del mapa del checkout (regla 14).
+      //
+      // **El icono es obligatorio.** Sin él Leaflet usa el suyo por defecto, que resuelve sus PNG
+      // con rutas que el bundler no empaqueta: el marcador queda ahí, arrastrable y guardando bien,
+      // pero sin dibujarse. Este mapa fue el único que nació sin icono propio y por eso durante
+      // meses "no había pin" en esta pantalla.
       const pin = L.marker([ubicacionTienda.lat, ubicacionTienda.lng], {
         draggable: true,
         title: "Tu tienda — arrástrala hasta la puerta del local",
+        icon: L.divIcon({
+          html: HTML_PIN_TIENDA,
+          className: "",
+          iconSize: TAMANO_PIN_TIENDA,
+          iconAnchor: ANCLA_PIN_TIENDA,
+        }),
       }).addTo(m);
+
+      pin.bindTooltip("Tu tienda", { direction: "top", offset: [0, -52] });
       pin.on("dragend", () => {
         const { lat, lng } = pin.getLatLng();
         cb.current.onUbicacionTienda({ lat, lng });

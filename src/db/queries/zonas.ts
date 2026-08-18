@@ -138,14 +138,9 @@ export async function reordenarZonas(storeId: string, idsEnOrden: string[]): Pro
   });
 }
 
-/** El punto de la tienda, en GeoJSON, para centrar los mapas. */
-export async function obtenerUbicacionTienda(storeId: string): Promise<string | null> {
-  const [fila] = await db.execute<{ ubicacion: string | null }>(sql`
-    SELECT ST_AsGeoJSON(ubicacion) AS ubicacion FROM store WHERE id = ${storeId}
-  `);
-
-  return fila?.ubicacion ?? null;
-}
+// `obtenerUbicacionTienda` se mudó a `db/queries/store.ts`: la piden cuatro pantallas y solo una
+// tiene que ver con la cobertura. Se sigue escribiendo aquí porque el pin se mueve en el mapa de
+// zonas, que es donde tiene sentido arrastrarlo.
 
 export async function guardarUbicacionTienda(
   storeId: string,
