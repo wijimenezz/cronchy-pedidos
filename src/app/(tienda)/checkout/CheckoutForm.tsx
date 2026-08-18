@@ -274,6 +274,8 @@ export function CheckoutForm({
     nombre: string;
     telefono: string | null;
     direccion: string | null;
+    /** Enlace a Maps con el local, ya resuelto en el servidor. `null` = no hay a dónde mandar. */
+    comoLlegar: string | null;
     whatsappUrl: string | null;
     nequiLlave: string | null;
     nequiLlaveTitular: string | null;
@@ -1356,9 +1358,30 @@ export function CheckoutForm({
                 </p>
               </>
             ) : (
-              <p className="font-cuerpo text-sm text-cafe-suave">
-                Te avisamos cuando esté listo para recoger.
-              </p>
+              <>
+                <p className="font-cuerpo text-sm text-cafe-suave">
+                  Te avisamos cuando esté listo para recoger.
+                </p>
+                {/* La dirección repetida aquí, y no solo arriba en «Información de la sede», porque
+                    esta es la sección que responde «¿y yo qué hago?» cuando eliges recoger. */}
+                {tienda.direccion && (
+                  <p className="flex items-start gap-2 font-cuerpo text-sm text-cafe">
+                    <MapPin className="mt-0.5 size-4 shrink-0 text-cafe-suave" />
+                    {tienda.direccion}
+                  </p>
+                )}
+                {tienda.comoLlegar && (
+                  <a
+                    href={tienda.comoLlegar}
+                    target="_blank"
+                    rel="noopener"
+                    className="flex min-h-11 items-center justify-center gap-2 self-start rounded-full border border-crema-oscura px-5 font-cuerpo text-sm font-bold text-cafe"
+                  >
+                    <MapPin className="size-4" />
+                    Cómo llegar
+                  </a>
+                )}
+              </>
             )}
           </section>
 

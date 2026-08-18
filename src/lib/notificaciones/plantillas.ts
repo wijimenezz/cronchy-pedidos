@@ -10,6 +10,8 @@
 // precios actuales (regla 2 del CLAUDE.md).
 // ============================================================
 
+import { comoLlegarUrl, type Local } from "@/lib/tienda/local";
+
 const SEP = "--------------------------------";
 
 // ------------------------------------------------------------
@@ -517,6 +519,27 @@ export function llevaAviso(estado: EstadoPedido): boolean {
 }
 
 /**
+ * Dónde queda el local, para el que viene a recogerlo.
+ *
+ * Devuelve cero, una o dos líneas: sin dirección ni pin no se escribe nada, porque una etiqueta
+ * sin valor detrás se lee como un dato que se perdió por el camino.
+ *
+ * Solo entra en los mensajes de un pedido **para recoger**. Al de domicilio no le sirve —no se
+ * mueve de su casa— y al negocio menos, que ya está ahí.
+ */
+function lineasDelLocal(local: Local): string[] {
+  const lineas: string[] = [];
+
+  const direccion = local.direccion?.trim();
+  if (direccion) lineas.push(`*Dirección:* ${direccion}`);
+
+  const url = comoLlegarUrl(local);
+  if (url) lineas.push(`*Cómo llegar:* ${url}`);
+
+  return lineas;
+}
+
+/**
  * Devuelve null para los estados que NO llevan mensaje. Quien llama debe respetar el null.
  *
  * Ninguno de estos sale solo: el transporte es un link `wa.me` que un empleado toca desde el
@@ -528,12 +551,14 @@ export function cambioEstado(
   pedido: PedidoParaMensaje,
   tienda: Tienda,
   estimado: EstimadoEntrega,
+  recogida: Local,
   ahora: Date = new Date(),
 ): string | null {
   const titulo = TEXTO_ESTADO[estado]?.(tienda.nombre);
   if (!titulo) return null;
 
   const enlace = urlSeguimiento(tienda, pedido.tokenPublico);
+  const local = pedido.tipo === "recoger" ? lineasDelLocal(recogida) : [];
 
   // El de aceptación es el primer mensaje que recibe el cliente, así que es donde va el recibo
   // entero: acaba de decidir gastar esa plata y, si paga en efectivo, es lo que tiene que tener
@@ -553,6 +578,8 @@ export function cambioEstado(
       ...bloqueRecibo(pedido),
       SEP,
       lineaLlegada(pedido, estimado, pedido.tipo === "recoger" ? "Listo" : "Llega", ahora),
+      // Dónde recogerlo, junto a cuándo estará listo: son la misma pregunta partida en dos.
+      ...local,
       "",
       "Sigue tu pedido en tiempo real aquí:",
       "",
@@ -579,8 +606,12 @@ export function cambioEstado(
   // llamamos a explicar.
   if (estado === "cancelado") return titulo;
 
-  // `listo`: está en el mostrador. El link es lo único que hace falta.
-  return [titulo, "", enlace, "", "¡Estaremos en contacto!"].join("\n");
+  // `listo`: está en el mostrador, y este es el momento en que la persona sale de su casa. Aquí la
+  // dirección vale más que en ningún otro mensaje — antes solo iba el link de seguimiento, que
+  // obliga a abrir el navegador para saber a dónde ir.
+  return [titulo, "", ...local, local.length > 0 ? "" : null, enlace, "", "¡Estaremos en contacto!"]
+    .filter((l) => l !== null)
+    .join("\n");
 }
 
 // ------------------------------------------------------------

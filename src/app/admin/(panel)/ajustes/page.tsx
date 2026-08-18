@@ -1,10 +1,15 @@
 import { listarBarrios } from "@/db/queries/barrios";
-import { getStore } from "@/db/queries/store";
+import { getStore, obtenerUbicacionTienda } from "@/db/queries/store";
 import { SinPermisoError, exigirRol } from "@/lib/autorizacion";
+import { puntoDesdeGeoJSON } from "@/lib/zonas";
 import { Barrios } from "./Barrios";
+import { DatosLocal } from "./DatosLocal";
 import { PagoNequi } from "./PagoNequi";
 
 export const dynamic = "force-dynamic";
+
+/** Si nunca se fijó el local, el parque principal de Fusagasugá — igual que en Zonas. */
+const CENTRO_POR_DEFECTO = { lat: 4.3372, lng: -74.3653 };
 
 /**
  * Los datos de la tienda que no son operación del turno: con qué se paga y cómo se llaman los
@@ -27,11 +32,22 @@ export default async function AjustesPage() {
   }
 
   const tienda = await getStore();
-  const barrios = await listarBarrios(tienda.id);
+  const [barrios, ubicacion] = await Promise.all([
+    listarBarrios(tienda.id),
+    obtenerUbicacionTienda(tienda.id),
+  ]);
 
   return (
     <div className="mx-auto flex w-full max-w-contenido flex-col gap-4">
       <h1 className="font-titulo text-xl font-bold text-cafe">Ajustes</h1>
+      <DatosLocal
+        direccion={tienda.direccion}
+        telefono={tienda.telefono}
+        // Con respaldo al centro por defecto, igual que el mapa de Zonas: el mapa hay que abrirlo
+        // en algún sitio. Aquí sí es correcto usarlo —es un editor, no una promesa al cliente—,
+        // al revés que en el «Cómo llegar», que sin pin busca por la dirección escrita.
+        ubicacion={puntoDesdeGeoJSON(ubicacion) ?? CENTRO_POR_DEFECTO}
+      />
       <PagoNequi
         llave={tienda.nequiLlave}
         titular={tienda.nequiLlaveTitular}

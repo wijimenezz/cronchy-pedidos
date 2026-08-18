@@ -1,5 +1,5 @@
-import { getStore } from "@/db/queries/store";
-import { listarZonas, obtenerUbicacionTienda } from "@/db/queries/zonas";
+import { getStore, obtenerUbicacionTienda } from "@/db/queries/store";
+import { listarZonas } from "@/db/queries/zonas";
 import { SinPermisoError, exigirRol } from "@/lib/autorizacion";
 import { EditorZonas } from "./EditorZonas";
 
