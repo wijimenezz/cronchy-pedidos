@@ -1,0 +1,16 @@
+-- Corrige el REVOKE de la migración 0027, que fue un no-op.
+--
+-- Allí se escribió `REVOKE EXECUTE ... FROM anon, authenticated` y no cambió nada, porque esos dos
+-- roles nunca tuvieron un permiso propio: lo heredaban de PUBLIC. El ACL de la función lo decía y
+-- había que leerlo:
+--
+--   {=X/postgres, postgres=X/postgres, service_role=X/postgres}
+--     ^^ el grantee vacío ES PUBLIC
+--
+-- Postgres concede EXECUTE a PUBLIC en toda función nueva, así que revocar por rol no sirve: hay que
+-- quitárselo a PUBLIC. Después de esto quedan `postgres` (el dueño, y el rol con el que pg_cron
+-- corre el job) y `service_role`, que son los dos que tienen que poder.
+--
+-- Con esto la purga deja de ser invocable por RPC (POST /rest/v1/rpc/purgar_comprobantes) para quien
+-- tenga la llave anon. Es lo que RLS no cubre: protege tablas, no funciones.
+REVOKE EXECUTE ON FUNCTION public.purgar_comprobantes(integer) FROM PUBLIC;

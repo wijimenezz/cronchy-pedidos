@@ -852,11 +852,30 @@ no cobra de más, hace algo peor, que es que el cliente **transfiera** de más.
 - **Conexión a Supabase:** usar el transaction pooler (puerto 6543) con
   `postgres(url, { prepare: false })`. Las migraciones y el introspect usan el session
   pooler (5432). La conexión directa NO sirve: es IPv6.
-- **Sin RLS, y por eso la llave `anon` NUNCA sale al cliente.** Las tablas no tienen
-  Row Level Security porque todo el acceso pasa por el servidor. Como consecuencia:
-  prohibido usar `NEXT_PUBLIC_SUPABASE_ANON_KEY` o el cliente de Supabase en
-  componentes del navegador. Si esa llave se filtra, las tablas quedan expuestas.
-  Las subidas a Storage también van desde el servidor.
+- **RLS activado y sin políticas: a la base se entra por `DATABASE_URL` y por ningún otro sitio.**
+  Las 20 tablas llevan `.enableRLS()` en `schema.ts` y **cero políticas**, que en Postgres significa
+  denegar todo a cualquier rol que no salte RLS. La app no se entera: conecta como `postgres`, que
+  tiene `bypassrls` y es dueño de las tablas — igual que las migraciones, los tests y el `pg_cron`
+  de la purga.
+
+  **Esto estuvo apagado y no era teórico.** Con la llave `anon` —un secreto que vive en un
+  dashboard, no en el código— se leían y escribían las 20 tablas: teléfono y dirección de cada
+  cliente, y el hash de la clave del panel. Lo reportó Supabase como `rls_disabled_in_public`.
+
+  Sigue **prohibido** usar `NEXT_PUBLIC_SUPABASE_ANON_KEY` o el cliente de Supabase en el navegador,
+  y ahora por un motivo más fuerte: sin políticas no devolvería ni una fila. Las subidas a Storage
+  también van desde el servidor.
+
+  Tres cosas que hay que saber antes de tocar esto:
+
+  - **Una tabla nueva nace SIN RLS.** Hay que acordarse del `.enableRLS()`; si se olvida, lo vuelve
+    a cazar el linter de Supabase.
+  - **Nunca `FORCE ROW LEVEL SECURITY`.** Con eso el dueño dejaría de saltar RLS y, sin políticas,
+    la aplicación entera se quedaría sin leer nada.
+  - **RLS protege tablas, no funciones.** `purgar_comprobantes` quedaba invocable por RPC con la
+    llave `anon`, y el `REVOKE` hay que hacérselo a **PUBLIC**, no a `anon`: Postgres concede
+    EXECUTE a PUBLIC en toda función nueva, así que revocar por rol es un no-op (pasó en la
+    migración 0027 y lo arregla la 0028).
 - **Storage: dos buckets, y la diferencia importa.** `comprobantes` es **privado**
   —guarda datos personales y se lee por un proxy autenticado del panel— y se purga a
   los 60 días con **`pg_cron` dentro de Supabase** (no un cron de Vercel: corre en la
