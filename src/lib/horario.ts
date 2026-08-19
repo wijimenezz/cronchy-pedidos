@@ -1,5 +1,8 @@
-import { getStore } from "@/db/queries/store";
-import { obtenerContextoHorarioHoy } from "@/db/queries/horario";
+/**
+ * Este módulo quedó **puro**: sin `getStore()` ni consultas, solo el cálculo del horario sobre
+ * los datos que le pasen. Lo componía `estaAbiertaEn`, que se fue (ver el comentario del final);
+ * quien lee la base ahora es `pedidos/entrega.ts`.
+ */
 
 /** Regla 6 de CLAUDE.md: siempre America/Bogota, nunca UTC ni la hora del servidor. */
 const TIMEZONE = "America/Bogota" as const;
@@ -147,29 +150,19 @@ export function calcularDisponibilidad(
       };
 }
 
-/**
- * Compone getStore() + la consulta del día + el cálculo puro, para un instante cualquiera.
+/*
+ * Aquí vivían `estaAbiertaEn()` y `estaAbierta()`, que componían getStore() + la consulta del día
+ * + el cálculo de arriba. Se fueron, y conviene saber por qué antes de recrearlas:
  *
- * El instante es parámetro y no `new Date()` porque un pedido programado pregunta por una hora
- * futura: "¿estaréis abiertos a las 7?". Los campos del contexto se llaman `cierreHoy` y
- * `horariosHoy` por su origen, pero lo que traen es el día que se consultó.
+ * **"¿Está abierta?" casi nunca es la pregunta.** Desde que existen las franjas (regla 16), con
+ * la tienda cerrada se puede pedir igual —programando para mañana—, así que quien decide si se
+ * acepta algo es `opcionesDeEntrega()` y su `sePuedePedir()`, no el horario de este instante. La
+ * subida del comprobante preguntaba lo otro y dejaba el checkout sin salida: ofrecía Nequi de
+ * noche y luego rechazaba el archivo, y como el esquema exige comprobante para Nequi, el pedido
+ * era imposible de terminar.
+ *
+ * Se borran en vez de dejarse sin usar precisamente porque el nombre invita: una función llamada
+ * `estaAbierta` es la que alguien va a llamar para decidir si acepta un pedido, y volvería a
+ * partir lo mismo. Lo que sí se queda es `calcularDisponibilidad`, que es pura, está testeada y
+ * la usa `entrega.ts` para saber si además se puede pedir "para ya".
  */
-export async function estaAbiertaEn(instante: Date): Promise<Disponibilidad> {
-  const tienda = await getStore();
-  const { fecha, diaSemana } = ahoraEnBogota(instante);
-  const contexto = await obtenerContextoHorarioHoy(tienda.id, fecha, diaSemana);
-
-  return calcularDisponibilidad(
-    {
-      aceptaPedidos: tienda.aceptaPedidos,
-      mensajeCerrado: tienda.mensajeCerrado,
-      ...contexto,
-    },
-    instante,
-  );
-}
-
-/** ¿Se puede pedir ahora mismo? */
-export function estaAbierta(): Promise<Disponibilidad> {
-  return estaAbiertaEn(new Date());
-}

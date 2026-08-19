@@ -493,6 +493,21 @@ noche lo deja listo para el día siguiente. Pero `store.acepta_pedidos` sigue ap
 comprobación vive en `opcionesDeEntrega` y no en el módulo puro, precisamente para que no se
 pueda saltar generando franjas por otro camino.
 
+**Y eso vale para TODO el camino del pedido, no solo para la hora.** La pregunta que hay que
+hacer es "¿se puede pedir?" —`sePuedePedir(opciones)`, que es `pronto || dias.length`— y nunca
+"¿está abierta ahora?". Son cosas distintas desde que existen las franjas, y confundirlas costó
+un checkout sin salida: **`POST /api/comprobantes` preguntaba lo segundo**, así que de noche
+rechazaba el archivo con un 409. Como `crearPedidoSchema` exige comprobante cuando el método es
+`nequi`, un pedido programado se podía pagar en efectivo pero **no por Nequi** — y peor en
+`recoger`, que se paga por adelantado y por tanto no tenía ninguna otra vía. El cliente lo
+descubría al final del formulario.
+
+Por eso `estaAbierta()` y `estaAbiertaEn()` **ya no existen**, y no es limpieza: el nombre es lo
+que invita a volver a usar el criterio equivocado para decidir si se acepta algo. `horario.ts`
+quedó puro —solo `calcularDisponibilidad` y compañía, sin tocar la base— y quien consulta es
+`entrega.ts`. Si algún día hace falta saber si la tienda está abierta en un instante, que sea
+para *mostrarlo*, jamás para autorizar un pedido.
+
 `store.minutos_estimado_min` / `_max` son el "llega en 30–45 min", editables desde
 `/admin/pedidos` porque es donde se está cuando se nota que la cocina va lenta.
 
