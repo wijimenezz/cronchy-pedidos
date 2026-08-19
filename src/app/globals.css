@@ -123,5 +123,10 @@
   }
   html {
     @apply font-sans;
+    /* El sitio de la barra de scroll se reserva siempre. `Modal` bloquea el scroll del body
+       mientras está abierto, y sin esto la barra desaparece con él y el contenido de detrás
+       salta ~15 px a la derecha al abrir cualquier modal en escritorio. En táctil no cambia
+       nada: ahí la barra ya flota sobre el contenido. */
+    scrollbar-gutter: stable;
   }
 }

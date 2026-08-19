@@ -870,14 +870,50 @@ Tres cosas que no se cambian:
 - **No vive en el store persistido.** `datos-cliente.ts` ya lo decía de antes: el visto bueno es
   una decisión de UN pedido, no un dato del cliente. Se vuelve a marcar cada vez, y eso es lo que
   hace que cada pedido tenga su propia evidencia.
-- **En el XLSX son dos columnas** (`Aceptó datos` + `Aceptó el`) más la hoja `Clientes`, que agrega
-  por teléfono y responde "¿este cliente consintió, y desde cuándo?". Ahí el criterio es **al menos
-  una** aceptación entre sus pedidos: el cliente de siempre tiene pedidos viejos sin marca y nuevos
-  con ella, y decir "No" por el primero sería falso.
+- **En el XLSX son cuatro columnas** (`Aceptó datos`, `Aceptó el`, `Versión política`,
+  `Avisos WhatsApp`) más la hoja `Clientes`, que agrega por teléfono y responde "¿este cliente
+  consintió, y desde cuándo?". Ahí el criterio es **al menos una** aceptación entre sus pedidos: el
+  cliente de siempre tiene pedidos viejos sin marca y nuevos con ella, y decir "No" por el primero
+  sería falso.
 
-Falta la **página** de la política a la que apunta el check —hoy el texto no enlaza a ninguna
-parte—. Cuando llegue, el pedido debería guardar además **qué versión** aceptó: un registro que
-dice "aceptó" sin poder mostrar qué decía el documento ese día se sostiene a medias.
+**El texto vive en `lib/legal/politica-datos.ts` como datos, no como JSX**, misma doctrina que
+`plantillas.ts`: el documento cambia sin tocar un componente. `VERSION_POLITICA` se guarda en
+`order.politica_version`, porque un registro que dice "aceptó" sin poder mostrar qué decía el
+documento ese día se sostiene a medias. **Al editar el texto de forma que cambien las finalidades o
+el responsable, hay que subir la versión** — dos textos distintos con la misma versión hacen que ese
+registro deje de significar algo. El **medio** no lleva columna: hoy solo hay un camino de
+aceptación, y una columna con un único valor posible es una constante, no un dato.
+
+**El «Ver más» va fuera del `<label>`, y no es maquetación.** Dentro, el clic burbujea hasta el
+label: abrir la política desmarcaría la aceptación, o la marcaría sin haber leído nada.
+
+### La casilla de avisos por WhatsApp
+
+`order.acepta_avisos` (`NOT NULL DEFAULT true`) dice si el cliente quiere que le escribamos por el
+estado de su pedido. **Por defecto sí, y no es laxitud**: es finalidad necesaria del servicio —quien
+pide quiere saber cuándo sale su comida—, no publicidad. Marketing sería otra columna y otra
+casilla, esa sí desmarcada por defecto y con la Ley 2.300 encima. Por lo mismo `crearPedidoSchema`
+lo trae con `.default(true)` en vez de exigirlo: un pedido nunca se rechaza por esto.
+
+**El copy dice «avisos» y no «notificaciones automáticas», a propósito.** Por la regla 10 el mensaje
+lo dispara un empleado desde el panel; prometer un envío automático sería prometer lo que el
+transporte no hace.
+
+Un `false` se respeta en **cinco sitios**, y el orden importa: los tres primeros salen **antes de
+`marcarEstadoNotificado`**, o el candado de la regla 11 daría por avisado un estado que nunca se
+avisó y el botón no volvería jamás.
+
+1. `avisoCambioEstado` devuelve `null` — **el corte de fondo**, el único punto donde el teléfono del
+   cliente entra en un `wa.me`, así que un camino nuevo lo hereda sin que nadie se acuerde.
+2. `avisoDelAvance` (el botón naranja) sale antes del candado. El pedido **avanza igual**: lo que se
+   calla es el mensaje, no el cambio de estado.
+3. `prepararAviso` (el botón ámbar) igual, porque una server action se invoca sin pasar por la UI.
+4. y 5. `avisoPendiente`, en `panel.ts` y en el detalle, para que el botón ni se ofrezca.
+
+**Y el panel dice por qué**: un botón que desaparece sin explicación se lee como que el panel está
+roto. Lo que **no** se apaga son «Llamar» y «Escribir» del detalle — resolver una novedad de la
+entrega es contacto operativo (finalidad 5 de la política), no el aviso que el cliente rechazó. Y
+quien dice que no no se queda a ciegas: le queda el seguimiento en `/pedido/[token]`.
 
 ---
 

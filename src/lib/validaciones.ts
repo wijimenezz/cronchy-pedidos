@@ -222,6 +222,24 @@ export const crearPedidoSchema = z
     politicaAceptada: z.literal(true, {
       error: "Debes aceptar el tratamiento de datos",
     }),
+    /**
+     * Qué versión del documento aceptó. Opcional en el esquema y no requerido como el sí: el
+     * pedido no puede caerse porque una pestaña vieja mande el payload sin este campo, y una
+     * versión ausente se distingue perfectamente de una equivocada.
+     */
+    politicaVersion: textoOpcional(32),
+    /**
+     * Si quiere los avisos por WhatsApp del estado de su pedido.
+     *
+     * `default(true)` y no requerido, al revés que `politicaAceptada`: el sí es lo que el negocio
+     * hace por omisión —es finalidad necesaria del servicio, no publicidad—, así que un payload
+     * sin el campo significa "como siempre" y no un consentimiento inventado. Un pedido no se
+     * rechaza por esto.
+     *
+     * Que un `false` se respete de verdad no depende de aquí: lo hacen `avisoCambioEstado` y el
+     * cálculo de `avisoPendiente` del panel.
+     */
+    aceptaAvisos: z.boolean().default(true),
     items: z.array(itemSchema).min(1, "Tu carrito está vacío").max(30),
   })
   .superRefine((data, ctx) => {

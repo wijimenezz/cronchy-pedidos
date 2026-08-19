@@ -353,3 +353,34 @@ describe("politicaAceptada", () => {
     }
   });
 });
+
+/**
+ * Los avisos por WhatsApp del estado del pedido. Al revés que la política, este NO es obligatorio:
+ * es finalidad necesaria del servicio, así que el sí es lo que el negocio hace por omisión y un
+ * pedido jamás se rechaza por esto.
+ */
+describe("aceptaAvisos", () => {
+  it("un payload sin el campo cae en que sí los quiere", () => {
+    const payload = payloadBase();
+    delete (payload as Record<string, unknown>).aceptaAvisos;
+
+    const r = crearPedidoSchema.safeParse(payload);
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.aceptaAvisos).toBe(true);
+  });
+
+  // El caso que importa: un `false` no puede perderse por el camino ni "normalizarse" a true,
+  // porque de él dependen los cinco frenos del panel.
+  it("el no se respeta tal cual", () => {
+    const r = crearPedidoSchema.safeParse(payloadBase({ aceptaAvisos: false }));
+
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.aceptaAvisos).toBe(false);
+  });
+
+  it("rechaza cualquier cosa que no sea un booleano", () => {
+    expect(crearPedidoSchema.safeParse(payloadBase({ aceptaAvisos: "no" })).success).toBe(
+      false,
+    );
+  });
+});

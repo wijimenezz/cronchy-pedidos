@@ -538,6 +538,22 @@ export const order = pgTable("order", {
 	// La hora la pone el SERVIDOR (regla 1 aplicada al consentimiento): del navegador llega el sí,
 	// nunca el cuándo. Un sello de tiempo que el propio interesado elige no prueba nada.
 	politicaAceptadaEn: timestamp("politica_aceptada_en", { withTimezone: true, mode: 'string' }),
+	// QUÉ versión aceptó, no solo cuándo. Lo exige la propia política ("conserva registro de la
+	// fecha, la hora, la versión de la política aceptada y el medio"), y sin esto el registro dice
+	// que alguien aceptó sin poder mostrar qué decía el documento ese día. Sale de
+	// `VERSION_POLITICA` en `lib/legal/politica-datos.ts`.
+	//
+	// El MEDIO no lleva columna: hoy solo hay un camino de aceptación —el checkout web— y una
+	// columna con un único valor posible no es un dato, es una constante.
+	politicaVersion: text("politica_version"),
+	// Si el cliente quiere los avisos por WhatsApp del estado de su pedido. `true` por defecto
+	// porque es finalidad necesaria del servicio, no publicidad: quien pide quiere saber cuándo
+	// sale su comida. Marketing sería otra columna y otra casilla, desmarcada.
+	//
+	// No es decorativo: `avisoCambioEstado` devuelve null si está en false, y el panel deja de
+	// ofrecer el botón "Avisar". Un consentimiento que se registra y luego se ignora es peor que
+	// no preguntarlo.
+	aceptaAvisos: boolean("acepta_avisos").default(true).notNull(),
 	creadoEn: timestamp("creado_en", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	index("idx_order_estado").using("btree", table.storeId.asc().nullsLast().op("timestamptz_ops"), table.estado.asc().nullsLast().op("uuid_ops"), table.creadoEn.desc().nullsFirst().op("enum_ops")),

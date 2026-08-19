@@ -60,6 +60,14 @@ export type PedidoPanel = {
    * discrepar: lo que el cliente lee como "Estado del Pago" y si el domiciliario cobra.
    */
   tieneComprobante: boolean;
+  /**
+   * Si el cliente quiso los avisos por WhatsApp del estado de su pedido. En `false`, el panel no
+   * ofrece el botón de avisar y `avisoCambioEstado` no arma ningún mensaje.
+   *
+   * Lo que NO apaga son "Llamar" y "Escribir" del detalle: resolver una novedad de la entrega es
+   * contacto operativo —la finalidad 5 de la política—, no un aviso automático.
+   */
+  aceptaAvisos: boolean;
   notas: string | null;
   items: ItemSnapshot[];
   subtotal: number;
@@ -90,6 +98,7 @@ export type PedidoEnLista = Pick<
   | "barrio"
   | "metodoPago"
   | "total"
+  | "aceptaAvisos"
 > & {
   tieneComprobante: boolean;
   cantidadItems: number;
@@ -155,6 +164,7 @@ type FilaDeLista = {
   metodoPago: string;
   total: number;
   comprobanteUrl: string | null;
+  aceptaAvisos: boolean;
   orderItems: { cantidad: number; snapshot: unknown }[];
   orderStatusEvents: { estado: EstadoPedido; notificadoEn: string | null }[];
 };
@@ -178,9 +188,15 @@ function aPedidoEnLista(fila: FilaDeLista): PedidoEnLista {
     metodoPago: fila.metodoPago,
     total: fila.total,
     tieneComprobante: Boolean(fila.comprobanteUrl),
+    aceptaAvisos: fila.aceptaAvisos,
     cantidadItems: fila.orderItems.reduce((n, i) => n + i.cantidad, 0),
     resumenItems: resumirItems(aItems(fila.orderItems)),
-    avisoPendiente: puedeAvisarse(fila.estado) && !yaAvisados.includes(fila.estado),
+    // Quien no quiso avisos no tiene ninguno pendiente: sin esto el tablero seguiría ofreciendo
+    // el botón ámbar y el empleado lo pulsaría de buena fe contra un cliente que dijo que no.
+    avisoPendiente:
+      fila.aceptaAvisos &&
+      puedeAvisarse(fila.estado) &&
+      !yaAvisados.includes(fila.estado),
     siguiente: siguienteEstado(fila.estado, fila.tipo),
   };
 }
@@ -301,6 +317,7 @@ export async function obtenerPedidoPorNumero(
       pagaCon: fila.pagaCon,
       comprobanteUrl: fila.comprobanteUrl,
       tieneComprobante: fila.comprobanteUrl !== null,
+      aceptaAvisos: fila.aceptaAvisos,
       notas: fila.notas,
       items: aItems(fila.orderItems),
       subtotal: fila.subtotal,

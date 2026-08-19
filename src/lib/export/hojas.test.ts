@@ -42,6 +42,8 @@ const BASE: PedidoParaExport = {
   cuponCodigo: null,
   total: 35000,
   politicaAceptadaEn: new Date("2025-12-09T20:00:00Z"),
+  politicaVersion: "2026-09-01",
+  aceptaAvisos: true,
   items: [
     {
       nombre: "Cronchy Mega",
@@ -239,12 +241,26 @@ describe("hojaPedidos", () => {
   it("el consentimiento sale con su fecha, y sin fecha cuando no lo hay", () => {
     const [acepto] = hojaPedidos([pedido()]);
     // Un pedido anterior a la columna: la evidencia no existe y no se inventa.
-    const [viejo] = hojaPedidos([pedido({ politicaAceptadaEn: null })]);
+    const [viejo] = hojaPedidos([
+      pedido({ politicaAceptadaEn: null, politicaVersion: null }),
+    ]);
 
     expect(acepto.aceptoDatos).toBe("Sí");
     expect(acepto.aceptoEl).toBeInstanceOf(Date);
+    expect(acepto.versionPolitica).toBe("2026-09-01");
     expect(viejo.aceptoDatos).toBe("No");
     expect(viejo.aceptoEl).toBeNull();
+    expect(viejo.versionPolitica).toBeNull();
+  });
+
+  // La fila tiene que poder distinguir a quien no quiso avisos: es lo que explica, meses después,
+  // por qué a ese pedido nunca se le mandó un WhatsApp.
+  it("el rechazo de los avisos queda en la fila", () => {
+    const [si] = hojaPedidos([pedido()]);
+    const [no] = hojaPedidos([pedido({ aceptaAvisos: false })]);
+
+    expect(si.avisosWhatsapp).toBe("Sí");
+    expect(no.avisosWhatsapp).toBe("No");
   });
 });
 
@@ -374,6 +390,20 @@ describe("hojaClientes", () => {
     expect(fila.aceptoDatos).toBe("No");
     expect(fila.primeraAceptacion).toBeNull();
     expect(fila.ultimaAceptacion).toBeNull();
+  });
+
+  // Aquí manda el último y no "basta uno", al revés que la aceptación: querer o no que te
+  // escriban es una preferencia que se cambia, y la que sirve es la vigente. Un consentimiento,
+  // en cambio, no se deshace porque el pedido siguiente no lo repita.
+  it("los avisos valen los del pedido más reciente, no los del primero", () => {
+    const [fila] = hojaClientes([
+      pedido({ numero: 1, aceptaAvisos: true }),
+      pedido({ numero: 2, aceptaAvisos: false }),
+    ]);
+
+    expect(fila.aceptaAvisos).toBe("No");
+    // Y el consentimiento de datos no se mueve por eso.
+    expect(fila.aceptoDatos).toBe("Sí");
   });
 
   // Lo que amarra la hoja al resto del libro: si estas dos cifras se separan, una de las dos

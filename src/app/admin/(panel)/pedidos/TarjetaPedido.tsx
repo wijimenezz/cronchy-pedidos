@@ -292,6 +292,15 @@ export function TarjetaPedido({
           {pedido.metodoPago === "nequi" && !pedido.tieneComprobante && (
             <span className="font-bold text-error"> · sin comprobante</span>
           )}
+          {/* Este cliente no quiso avisos, así que el botón ámbar no aparece para su pedido.
+              Sin decirlo, un botón que falta se lee como que el panel está roto —y el tablero
+              es donde se opera, no el detalle—. Va aquí y no en su propia fila porque la
+              tarjeta se mide en píxeles: es la misma línea y el mismo patrón que el aviso de
+              arriba. En gris y no en rojo: no es un problema que resolver, es lo que el
+              cliente pidió. El detalle explica el resto, incluido que llamarlo sí se puede. */}
+          {!pedido.aceptaAvisos && (
+            <span className="font-bold text-cafe-tenue"> · sin avisos</span>
+          )}
         </p>
 
         {(pedido.siguiente || pedido.avisoPendiente) && (
