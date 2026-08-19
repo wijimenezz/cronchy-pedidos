@@ -54,6 +54,10 @@ export async function crearPedidoEnDB(
         // NULL = "lo más pronto posible". El route handler ya comprobó que esta hora es una de
         // las que la tienda ofrece; aquí solo se guarda.
         programadoPara: input.programadoPara ?? null,
+        // El reloj de la base, el mismo que pone `creado_en`. Del navegador llegó el sí
+        // (`politicaAceptada`, que el esquema exige `true`) y el cuándo se sella aquí: una hora
+        // que manda el interesado no es evidencia de nada.
+        politicaAceptadaEn: sql`now()`,
         notas: input.notas ?? null,
         metodoPago: input.metodoPago,
         // Solo tiene sentido en efectivo: en Nequi no hay devuelta que llevar.

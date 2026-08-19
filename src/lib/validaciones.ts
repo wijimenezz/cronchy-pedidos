@@ -207,6 +207,21 @@ export const crearPedidoSchema = z
      */
     cupon: opcional(z.string().trim().max(24, "Ese cupón no existe").transform(normalizarCodigo)),
     notas: textoOpcional(280),
+    /**
+     * El visto bueno del tratamiento de datos. Obligatorio y solo `true`: un pedido sin
+     * consentimiento no se crea.
+     *
+     * Aquí viaja el **sí**, nunca el cuándo — la fecha la sella el servidor al insertar
+     * (`crearPedidoEnDB`), porque el reloj del navegador se cambia en dos toques y un sello de
+     * tiempo elegido por el propio interesado no es evidencia de nada. Es la regla 1 aplicada al
+     * consentimiento, igual que la 16 lo es al tiempo y la 20 al descuento.
+     *
+     * Sin este campo requerido, el checkbox vuelve a ser lo que era: un `disabled` en un botón,
+     * que cualquier POST a mano se salta.
+     */
+    politicaAceptada: z.literal(true, {
+      error: "Debes aceptar el tratamiento de datos",
+    }),
     items: z.array(itemSchema).min(1, "Tu carrito está vacío").max(30),
   })
   .superRefine((data, ctx) => {

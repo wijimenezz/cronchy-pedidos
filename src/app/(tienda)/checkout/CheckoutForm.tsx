@@ -207,12 +207,31 @@ async function consultarCupon(
 }
 
 /**
+ * Correo y cumpleaños del cliente: apagados. Se capturaban para una campaña de cumpleaños
+ * que no existe todavía, y son datos de escritura pura —no los lee el panel, ni el XLSX, ni
+ * ninguna plantilla—, así que hoy solo alargan el paso 1. No se borra nada: el campo, la
+ * validación de `crearPedidoSchema`, el store y las columnas de `order` siguen en su sitio y
+ * volver a pedirlos es poner esto en `true`.
+ *
+ * El `: boolean` es a propósito: sin él el tipo inferido es el literal `false` y las tres
+ * ramas de abajo quedan marcadas como código muerto.
+ */
+const PIDE_CORREO_Y_CUMPLE: boolean = false;
+
+/**
  * Qué campos del esquema se revisan antes de dejar pasar al siguiente paso. El envío
  * final valida el payload completo igual que hoy; esto solo decide dónde se detiene
  * al cliente, para que no descubra en el paso 3 que le faltó el teléfono.
  */
 const CAMPOS_POR_PASO: Record<Paso, string[]> = {
-  1: ["clienteNombre", "clienteTelefono", "clienteEmail", "clienteCumple"],
+  // Un campo oculto NO se revisa: su valor sigue vivo en localStorage, y uno viejo que no
+  // pase el esquema detendría "Continuar" con un `Falta: Correo` que señala a un campo que
+  // ya no está en pantalla — el callejón sin salida que describe `ETIQUETA_CAMPO`.
+  1: [
+    "clienteNombre",
+    "clienteTelefono",
+    ...(PIDE_CORREO_Y_CUMPLE ? ["clienteEmail", "clienteCumple"] : []),
+  ],
   // `programadoPara` está en los dos pasos a propósito, y no hace falta ningún condicional:
   // en domicilio el selector se pinta en el 2 y lo valida "Continuar"; en recoger el paso 2
   // ni existe (`pasos` es [1, 3]), así que lo resuelve el 3, que es donde se pinta ahí.
@@ -232,6 +251,9 @@ const CAMPOS_POR_PASO: Record<Paso, string[]> = {
     "notas",
     "items",
     "programadoPara",
+    // El check vive aquí, y estar en la lista es lo que deja a `señalar()` traerlo hasta él.
+    // `avanzar()` no lo mira: en el último paso el botón es submit, no "Continuar".
+    "politicaAceptada",
   ],
 };
 
@@ -256,6 +278,7 @@ const ETIQUETA_CAMPO: Record<string, string> = {
   pagaCon: "Con cuánto pagas",
   comprobanteUrl: "Comprobante de Nequi",
   notas: "Notas",
+  politicaAceptada: "Aceptar el tratamiento de datos",
   // `items` no está aquí a propósito: no es un campo que el cliente pueda llenar. Si falla,
   // el payload lo armamos mal nosotros, y decirle "falta tu carrito" mientras ve sus
   // productos en pantalla lo manda a arreglar lo que no está roto. Ver `señalar`.
@@ -654,8 +677,11 @@ export function CheckoutForm({
       tipo: tipoPedido as TipoPedido,
       clienteNombre: nombre,
       clienteTelefono: telefono,
-      clienteEmail: email || undefined,
-      clienteCumple: cumple || undefined,
+      // Ocultos no viajan, aunque sigan guardados: los dos persisten en `cronchy_datos_cliente`
+      // entre pedidos, así que sin este corte quien escribió su correo alguna vez lo seguiría
+      // mandando —y guardando en `order`— sin verlo en pantalla ni poder borrarlo.
+      clienteEmail: PIDE_CORREO_Y_CUMPLE ? email || undefined : undefined,
+      clienteCumple: PIDE_CORREO_Y_CUMPLE ? cumple || undefined : undefined,
       recibeNombre: esDomicilio && recibeOtro ? recibeNombre : undefined,
       recibeTelefono: esDomicilio && recibeOtro ? recibeTelefono : undefined,
       // Viaja el pin, no la zona ni el precio: el servidor resuelve la cobertura de nuevo
@@ -678,6 +704,9 @@ export function CheckoutForm({
       // (regla 1), igual que con el pin y la zona.
       cupon: cupon ?? undefined,
       notas: notas || undefined,
+      // Viaja el sí, no la hora: cuándo aceptó lo sella el servidor al insertar. Igual que con el
+      // pin y el cupón, el navegador manda *qué* eligió y no *cuánto vale*.
+      politicaAceptada: aceptaPolitica,
       items: itemsPedido,
     };
   }
@@ -1098,40 +1127,47 @@ export function CheckoutForm({
             )}
           </Campo>
 
-          <Campo
-            etiqueta="Correo"
-            ayuda="Opcional."
-            error={errorDe("clienteEmail")}
-          >
-            {(props) => (
-              <input
-                {...props}
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setDatos({ email: e.target.value })}
-                onBlur={() => alSalirDe("clienteEmail")}
-                placeholder="ana@gmail.com"
-                className={claseControl(errorDe("clienteEmail"))}
-              />
-            )}
-          </Campo>
+          {/* Envueltos y no comentados: así el import de `SelectorFecha` y las variables
+              `email` / `cumple` siguen usados, y esto se refactoriza con el resto del archivo
+              en vez de envejecer aparte. Ver `PIDE_CORREO_Y_CUMPLE`. */}
+          {PIDE_CORREO_Y_CUMPLE && (
+            <>
+              <Campo
+                etiqueta="Correo"
+                ayuda="Opcional."
+                error={errorDe("clienteEmail")}
+              >
+                {(props) => (
+                  <input
+                    {...props}
+                    type="email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={(e) => setDatos({ email: e.target.value })}
+                    onBlur={() => alSalirDe("clienteEmail")}
+                    placeholder="ana@gmail.com"
+                    className={claseControl(errorDe("clienteEmail"))}
+                  />
+                )}
+              </Campo>
 
-          <Campo
-            etiqueta="Fecha de cumpleaños"
-            ayuda="Opcional."
-            error={errorDe("clienteCumple")}
-          >
-            {(props) => (
-              <SelectorFecha
-                {...props}
-                valor={cumple}
-                onCambiar={(v) => setDatos({ cumple: v })}
-                onCerrar={() => alSalirDe("clienteCumple")}
+              <Campo
+                etiqueta="Fecha de cumpleaños"
+                ayuda="Opcional."
                 error={errorDe("clienteCumple")}
-              />
-            )}
-          </Campo>
+              >
+                {(props) => (
+                  <SelectorFecha
+                    {...props}
+                    valor={cumple}
+                    onCambiar={(v) => setDatos({ cumple: v })}
+                    onCerrar={() => alSalirDe("clienteCumple")}
+                    error={errorDe("clienteCumple")}
+                  />
+                )}
+              </Campo>
+            </>
+          )}
         </section>
       )}
 

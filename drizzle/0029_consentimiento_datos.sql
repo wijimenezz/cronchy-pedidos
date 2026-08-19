@@ -1,0 +1,11 @@
+-- Cuándo aceptó el cliente el tratamiento de datos (Ley 1581).
+--
+-- Nullable, y el nullable ES el modelo: NULL significa "no hay consentimiento registrado", que es
+-- el caso de todo lo cobrado antes de esta migración. No se rellena hacia atrás con un `DEFAULT
+-- now()` ni con un UPDATE, porque inventarle una fecha de consentimiento a un pedido viejo es
+-- exactamente lo que un registro de consentimiento no puede hacer: quedaría escrito que alguien
+-- aceptó el día que se corrió la migración.
+--
+-- Tampoco lleva un booleano al lado: admitiría la fila imposible "aceptó sin hora", que es la que
+-- no sirve de evidencia. Mismo trato que `programado_para` (regla 16).
+ALTER TABLE "order" ADD COLUMN "politica_aceptada_en" timestamp with time zone;

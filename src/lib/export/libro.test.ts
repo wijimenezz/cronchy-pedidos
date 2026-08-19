@@ -35,6 +35,7 @@ const PEDIDO: PedidoParaExport = {
   descuento: 0,
   cuponCodigo: null,
   total: 35000,
+  politicaAceptadaEn: new Date("2025-12-09T20:00:00Z"),
   items: [
     {
       nombre: "Cronchy Mega",

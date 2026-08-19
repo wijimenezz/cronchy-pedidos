@@ -152,6 +152,11 @@ export type PedidoParaExport = {
   /** Con qué cupón se descontó, congelado (regla 2). `null` si no hubo. */
   cuponCodigo: string | null;
   total: number;
+  /**
+   * Cuándo aceptó el cliente el tratamiento de datos, sellado por el servidor. `null` cuando no
+   * hay consentimiento registrado, que es el caso de todo lo cobrado antes de que se guardara.
+   */
+  politicaAceptadaEn: Date | null;
   items: ItemSnapshot[];
 };
 
@@ -243,6 +248,7 @@ export async function pedidosDelRango(
       descuento: fila.descuento,
       cuponCodigo: fila.cuponCodigo,
       total: fila.total,
+      politicaAceptadaEn: fila.politicaAceptadaEn ? new Date(fila.politicaAceptadaEn) : null,
       items,
     };
   });

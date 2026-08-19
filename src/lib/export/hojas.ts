@@ -5,7 +5,7 @@ import { ETIQUETA_ESTADO, METODO_PAGO_ETIQUETA } from "@/lib/pedidos/estados";
 import { diaDeBogota, diasDelRango } from "@/lib/pedidos/dias";
 
 /**
- * Las cuatro hojas de la descarga, como datos.
+ * Las cinco hojas de la descarga, como datos.
  *
  * Puro y sin base de datos ni XLSX: recibe los pedidos y devuelve filas. Se separa del armado
  * del archivo (`libro.ts`) porque lo que hay que poder probar es **qué dice** el Excel, no cómo
@@ -18,6 +18,16 @@ import { diaDeBogota, diasDelRango } from "@/lib/pedidos/dias";
 
 function esCancelado(pedido: PedidoParaExport): boolean {
   return pedido.estado === "cancelado";
+}
+
+/**
+ * Sí/No como texto, no como booleano.
+ *
+ * Excel escribe un booleano nativo como VERDADERO/FALSO en mayúsculas y según el idioma de quien
+ * lo abra; el filtro de columna y una tabla dinámica se leen mejor con dos palabras fijas.
+ */
+function siNo(valor: boolean): string {
+  return valor ? "Sí" : "No";
 }
 
 // ------------------------------------------------------------
@@ -119,6 +129,14 @@ export type FilaPedido = {
   domicilio: number;
   descuento: number;
   /**
+   * Si el pedido llevó cupón, en una columna aparte del código.
+   *
+   * No sobra teniendo `cupon` al lado: filtrar "los que usaron cupón" por "código no vacío" es
+   * una fórmula, y contar sobre una columna Sí/No es una tabla dinámica de dos clics. Además
+   * distingue el descuento manual del negocio —descuento sin código— del descuento por cupón.
+   */
+  usoCupon: string;
+  /**
    * El código del cupón, junto al monto que descontó. La columna que CLAUDE.md tenía prometida.
    *
    * `null` cuando no hubo cupón: en una hoja de cálculo, la celda vacía al lado de un descuento en
@@ -127,6 +145,10 @@ export type FilaPedido = {
   cupon: string | null;
   total: number;
   notas: string | null;
+  /** Si hay consentimiento registrado para este pedido. "No" en todo lo anterior a la columna. */
+  aceptoDatos: string;
+  /** Cuándo lo aceptó, sellado por el servidor. `null` deja la celda vacía. */
+  aceptoEl: Date | null;
   id: string;
 };
 
@@ -161,9 +183,12 @@ export function hojaPedidos(pedidos: PedidoParaExport[]): FilaPedido[] {
     productos: p.subtotal,
     domicilio: p.costoDomicilio,
     descuento: p.descuento,
+    usoCupon: siNo(p.cuponCodigo !== null),
     cupon: p.cuponCodigo,
     total: p.total,
     notas: p.notas,
+    aceptoDatos: siNo(p.politicaAceptadaEn !== null),
+    aceptoEl: p.politicaAceptadaEn,
     id: p.id,
   }));
 }
@@ -264,5 +289,82 @@ export function hojaProductos(pedidos: PedidoParaExport[]): FilaProducto[] {
 
   return [...acumulado.values()].sort(
     (a, b) => b.vendida - a.vendida || a.producto.localeCompare(b.producto, "es"),
+  );
+}
+
+// ------------------------------------------------------------
+// Hoja 5 — Clientes
+// ------------------------------------------------------------
+
+export type FilaCliente = {
+  telefono: string;
+  cliente: string;
+  pedidos: number;
+  cancelados: number;
+  gastado: number;
+  aceptoDatos: string;
+  primeraAceptacion: Date | null;
+  ultimaAceptacion: Date | null;
+};
+
+/**
+ * Una fila por cliente, con su consentimiento y lo que dejó en el rango.
+ *
+ * Se agrupa **por teléfono**, que es lo que identifica a una persona en este negocio (el
+ * `unique (store_id, telefono)` de `customer`): el nombre lo reescribe cualquiera entre un pedido
+ * y otro, y se toma el del más reciente porque los pedidos llegan ordenados por fecha ascendente.
+ *
+ * Se calcula **sobre los pedidos del rango descargado** y no consultando la tabla `customer`:
+ * `customer.total_pedidos` es el histórico completo del cliente, así que un cliente con 40 pedidos
+ * saldría con 40 en una descarga de una semana y la hoja no cuadraría con `Resumen`. Aquí todo
+ * mide lo mismo: lo que pasó entre `desde` y `hasta`.
+ *
+ * `aceptoDatos` es "Sí" **si al menos uno** de sus pedidos tiene consentimiento registrado, y las
+ * dos fechas lo acotan. Ese criterio es el que resuelve el caso real: el cliente de siempre, con
+ * pedidos viejos sin marca y nuevos con ella, sí consintió — y aquí está desde cuándo.
+ */
+export function hojaClientes(pedidos: PedidoParaExport[]): FilaCliente[] {
+  const acumulado = new Map<string, FilaCliente>();
+
+  for (const pedido of pedidos) {
+    const fila = acumulado.get(pedido.clienteTelefono) ?? {
+      telefono: pedido.clienteTelefono,
+      cliente: pedido.clienteNombre,
+      pedidos: 0,
+      cancelados: 0,
+      gastado: 0,
+      aceptoDatos: siNo(false),
+      primeraAceptacion: null,
+      ultimaAceptacion: null,
+    };
+
+    // El nombre del pedido más reciente: si se cambió el nombre, el último es el bueno.
+    fila.cliente = pedido.clienteNombre;
+    fila.pedidos += 1;
+
+    // Un cancelado se cuenta pero no suma, igual que en el resto del módulo.
+    if (esCancelado(pedido)) {
+      fila.cancelados += 1;
+    } else {
+      fila.gastado += pedido.total;
+    }
+
+    const acepto = pedido.politicaAceptadaEn;
+    if (acepto) {
+      fila.aceptoDatos = siNo(true);
+      // Sin asumir el orden de entrada: comparar es más barato que confiar en el `orderBy`.
+      if (!fila.primeraAceptacion || acepto < fila.primeraAceptacion) {
+        fila.primeraAceptacion = acepto;
+      }
+      if (!fila.ultimaAceptacion || acepto > fila.ultimaAceptacion) {
+        fila.ultimaAceptacion = acepto;
+      }
+    }
+
+    acumulado.set(pedido.clienteTelefono, fila);
+  }
+
+  return [...acumulado.values()].sort(
+    (a, b) => b.gastado - a.gastado || a.cliente.localeCompare(b.cliente, "es"),
   );
 }

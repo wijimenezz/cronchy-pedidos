@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PedidoParaExport } from "@/db/queries/resumen";
 import {
+  hojaClientes,
   hojaDetalle,
   hojaPedidos,
   hojaProductos,
@@ -40,6 +41,7 @@ const BASE: PedidoParaExport = {
   descuento: 0,
   cuponCodigo: null,
   total: 35000,
+  politicaAceptadaEn: new Date("2025-12-09T20:00:00Z"),
   items: [
     {
       nombre: "Cronchy Mega",
@@ -212,6 +214,38 @@ describe("hojaPedidos", () => {
     expect(typeof fila.productos).toBe("number");
     expect(fila.creadoEn).toBeInstanceOf(Date);
   });
+
+  // "Usó cupón" es columna aparte del código para poder contar sin fórmulas. Que las dos digan
+  // lo mismo es lo que hay que fijar: una en "Sí" con la otra vacía sería una promo fantasma.
+  it("el cupón se reporta en las dos columnas o en ninguna", () => {
+    const [con] = hojaPedidos([pedido({ cuponCodigo: "CHURRO10", descuento: 3000 })]);
+    const [sin] = hojaPedidos([pedido()]);
+
+    expect(con.usoCupon).toBe("Sí");
+    expect(con.cupon).toBe("CHURRO10");
+    expect(sin.usoCupon).toBe("No");
+    expect(sin.cupon).toBeNull();
+  });
+
+  // El descuento manual del negocio no lleva código, y no por eso deja de ser un descuento:
+  // sin la columna Sí/No, filtrar "los que usaron cupón" lo contaría como uno.
+  it("un descuento sin código no cuenta como cupón", () => {
+    const [fila] = hojaPedidos([pedido({ descuento: 5000, cuponCodigo: null })]);
+
+    expect(fila.descuento).toBe(5000);
+    expect(fila.usoCupon).toBe("No");
+  });
+
+  it("el consentimiento sale con su fecha, y sin fecha cuando no lo hay", () => {
+    const [acepto] = hojaPedidos([pedido()]);
+    // Un pedido anterior a la columna: la evidencia no existe y no se inventa.
+    const [viejo] = hojaPedidos([pedido({ politicaAceptadaEn: null })]);
+
+    expect(acepto.aceptoDatos).toBe("Sí");
+    expect(acepto.aceptoEl).toBeInstanceOf(Date);
+    expect(viejo.aceptoDatos).toBe("No");
+    expect(viejo.aceptoEl).toBeNull();
+  });
 });
 
 describe("hojaDetalle", () => {
@@ -281,5 +315,81 @@ describe("hojaProductos", () => {
 
   it("sin pedidos no hay filas", () => {
     expect(hojaProductos([])).toEqual([]);
+  });
+});
+
+describe("hojaClientes", () => {
+  // Es el punto de la hoja: cinco pedidos del mismo teléfono son una persona, no cinco.
+  it("agrupa por teléfono y suma lo que gastó", () => {
+    const filas = hojaClientes([
+      pedido({ numero: 1, total: 35000 }),
+      pedido({ numero: 2, total: 20000 }),
+      pedido({ numero: 3, clienteTelefono: "3009998877", clienteNombre: "Ana", total: 12000 }),
+    ]);
+
+    expect(filas).toHaveLength(2);
+    expect(filas[0]).toMatchObject({ telefono: "3001112233", pedidos: 2, gastado: 55000 });
+    expect(filas[1]).toMatchObject({ telefono: "3009998877", pedidos: 1, gastado: 12000 });
+  });
+
+  // La misma regla del módulo, aplicada por cliente: aparece en su conteo, no en su plata.
+  it("un cancelado cuenta como pedido pero no como gasto", () => {
+    const [fila] = hojaClientes([
+      pedido({ numero: 1, total: 35000 }),
+      pedido({ numero: 2, estado: "cancelado", total: 40000 }),
+    ]);
+
+    expect(fila).toMatchObject({ pedidos: 2, cancelados: 1, gastado: 35000 });
+  });
+
+  // El teléfono identifica; el nombre lo reescribe cualquiera. Si cambió, vale el último.
+  it("se queda con el nombre del pedido más reciente", () => {
+    const [fila] = hojaClientes([
+      pedido({ numero: 1, clienteNombre: "Wilson" }),
+      pedido({ numero: 2, clienteNombre: "Wilson Jiménez" }),
+    ]);
+
+    expect(fila.cliente).toBe("Wilson Jiménez");
+  });
+
+  // El caso real del cliente de siempre: pedidos viejos sin marca y nuevos con ella. Sí
+  // consintió, y las fechas dicen desde cuándo — decir "No" por el primero sería falso.
+  it("basta una aceptación, y las fechas la acotan", () => {
+    const primera = new Date("2025-12-09T20:00:00Z");
+    const ultima = new Date("2025-12-11T15:00:00Z");
+    const [fila] = hojaClientes([
+      pedido({ numero: 1, politicaAceptadaEn: null }),
+      pedido({ numero: 2, politicaAceptadaEn: ultima }),
+      pedido({ numero: 3, politicaAceptadaEn: primera }),
+    ]);
+
+    expect(fila.aceptoDatos).toBe("Sí");
+    expect(fila.primeraAceptacion).toEqual(primera);
+    expect(fila.ultimaAceptacion).toEqual(ultima);
+  });
+
+  it("sin ninguna aceptación no hay fechas que mostrar", () => {
+    const [fila] = hojaClientes([pedido({ politicaAceptadaEn: null })]);
+
+    expect(fila.aceptoDatos).toBe("No");
+    expect(fila.primeraAceptacion).toBeNull();
+    expect(fila.ultimaAceptacion).toBeNull();
+  });
+
+  // Lo que amarra la hoja al resto del libro: si estas dos cifras se separan, una de las dos
+  // está contando mal y el Excel se contradice a sí mismo entre hojas.
+  it("lo gastado por todos los clientes es igual a las ventas del resumen", () => {
+    const pedidos = [
+      pedido({ numero: 1, total: 35000 }),
+      pedido({ numero: 2, clienteTelefono: "3009998877", total: 12000 }),
+      pedido({ numero: 3, estado: "cancelado", total: 40000 }),
+    ];
+    const { total } = hojaResumen(pedidos, "2025-12-09", "2025-12-09");
+
+    expect(hojaClientes(pedidos).reduce((n, c) => n + c.gastado, 0)).toBe(total.ventas);
+  });
+
+  it("sin pedidos no hay filas", () => {
+    expect(hojaClientes([])).toEqual([]);
   });
 });
