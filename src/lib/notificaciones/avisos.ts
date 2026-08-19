@@ -9,7 +9,9 @@ import {
   type Tienda,
 } from "./plantillas";
 import { obtenerTransporte, type ResultadoEnvio } from "./transporte";
+import { obtenerUbicacionTienda } from "@/db/queries/store";
 import { resolverBaseUrl } from "@/lib/url";
+import { puntoDesdeGeoJSON } from "@/lib/zonas";
 import type { PedidoPublico } from "@/db/queries/pedidos";
 import type { PedidoPanel } from "@/db/queries/panel";
 
@@ -84,6 +86,7 @@ export function pedidoParaMensaje(pedido: PedidoParaAviso): PedidoParaMensaje {
     subtotal: pedido.subtotal,
     costoDomicilio: pedido.costoDomicilio,
     descuento: pedido.descuento,
+    cuponCodigo: pedido.cuponCodigo,
     // Todavía no existe: ni el checkout la pide ni la base la guarda. Se manda en 0 para que el
     // recibo del cliente ya tenga su renglón; el día que el checkout tenga propina, se cambia
     // esta línea y nada más.
@@ -155,6 +158,8 @@ export async function avisoDomiciliario(
       ubicacion: pedido.punto,
       subtotal: pedido.subtotal,
       costoDomicilio: pedido.costoDomicilio,
+      // Sin esto el desglose del mensaje no sumaría el "COBRAR" cuando hubo cupón (regla 20).
+      descuento: pedido.descuento,
       total: pedido.total,
       metodoPago: pedido.metodoPago,
       pagaCon: pedido.pagaCon,
@@ -192,13 +197,34 @@ export function puedeAvisarse(estado: EstadoPedido): boolean {
 export async function avisoCambioEstado(
   estado: EstadoPedido,
   pedido: PedidoParaAviso,
-  store: { nombre: string; minutosEstimadoMin: number; minutosEstimadoMax: number },
+  store: {
+    id: string;
+    nombre: string;
+    direccion: string | null;
+    minutosEstimadoMin: number;
+    minutosEstimadoMax: number;
+  },
 ): Promise<ResultadoEnvio | null> {
+  /**
+   * Dónde queda el local, para los mensajes de un pedido para recoger.
+   *
+   * El pin se consulta aparte porque en la fila de `store` la columna `ubicacion` llega como WKB en
+   * hexadecimal. Solo hace falta cuando el cliente viene por su pedido; en domicilio no se pide.
+   */
+  const recogida =
+    pedido.tipo === "recoger"
+      ? {
+          direccion: store.direccion,
+          ubicacion: puntoDesdeGeoJSON(await obtenerUbicacionTienda(store.id)),
+        }
+      : { direccion: null, ubicacion: null };
+
   const texto = cambioEstado(
     estado,
     pedidoParaMensaje(pedido),
     tiendaParaMensaje(store),
     estimadoDeEntrega(store),
+    recogida,
   );
   if (!texto) return null;
 

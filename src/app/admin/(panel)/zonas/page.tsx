@@ -1,5 +1,5 @@
-import { getStore } from "@/db/queries/store";
-import { listarZonas, obtenerUbicacionTienda } from "@/db/queries/zonas";
+import { getStore, obtenerUbicacionTienda } from "@/db/queries/store";
+import { listarZonas } from "@/db/queries/zonas";
 import { SinPermisoError, exigirRol } from "@/lib/autorizacion";
 import { EditorZonas } from "./EditorZonas";
 
@@ -39,7 +39,7 @@ export default async function ZonasPage() {
 
 function SinPermiso() {
   return (
-    <div className="rounded-md border border-crema-oscura bg-tarjeta p-6">
+    <div className="mx-auto w-full max-w-contenido rounded-md border border-crema-oscura bg-tarjeta p-6">
       <h1 className="font-titulo text-xl font-bold text-cafe">Zonas de cobertura</h1>
       <p className="mt-2 font-cuerpo text-[15px] text-cafe-suave">
         Solo los dueños pueden ver y editar las zonas de domicilio.

@@ -22,11 +22,11 @@ export default async function ProductosPage() {
     listarGruposEnganchables(tienda.id),
   ]);
 
+  // El tope de ancho lo pone cada pantalla desde que el tablero de pedidos necesita el ancho
+  // completo; salió de `<main>` en el layout.
   return (
-    <EditorCatalogo
-      categorias={categorias}
-      grupos={grupos}
-      esAdmin={sesion.rol === "admin"}
-    />
+    <div className="mx-auto w-full max-w-contenido">
+      <EditorCatalogo categorias={categorias} grupos={grupos} esAdmin={sesion.rol === "admin"} />
+    </div>
   );
 }

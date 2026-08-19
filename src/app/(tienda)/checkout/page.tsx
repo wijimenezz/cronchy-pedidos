@@ -1,9 +1,9 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { ArrowLeft } from "lucide-react";
-import { getStore } from "@/db/queries/store";
-import { obtenerUbicacionTienda } from "@/db/queries/zonas";
+import { getStore, obtenerUbicacionTienda } from "@/db/queries/store";
 import { opcionesDeEntrega } from "@/lib/pedidos/entrega";
+import { comoLlegarUrl } from "@/lib/tienda/local";
 import { puntoDesdeGeoJSON } from "@/lib/zonas";
 import { CheckoutForm } from "./CheckoutForm";
 
@@ -28,8 +28,16 @@ export default async function CheckoutPage() {
   // interruptor manual apagado, o ni hoy ni mañana con horario— se corta el paso.
   const sePuedePedir = Boolean(entrega.pronto) || entrega.dias.length > 0;
 
-  // Dónde abre el mapa cuando el cliente no da permiso de ubicación (regla 14).
-  const centroTienda = puntoDesdeGeoJSON(ubicacion) ?? CENTRO_POR_DEFECTO;
+  /**
+   * Dos valores distintos de la misma columna, y **no son intercambiables**.
+   *
+   * `centroTienda` es dónde abre el mapa mientras el cliente no ha puesto su pin (regla 14), y por
+   * eso cae al parque cuando no hay nada fijado: hay que abrir el mapa en algún sitio.
+   * `ubicacionLocal` es dónde queda la tienda de verdad, y si no está fijada vale `null` — usar el
+   * respaldo aquí mandaría al que va a recoger al parque principal con toda la confianza.
+   */
+  const ubicacionLocal = puntoDesdeGeoJSON(ubicacion);
+  const centroTienda = ubicacionLocal ?? CENTRO_POR_DEFECTO;
 
   return (
     <main className="mx-auto flex w-full max-w-[520px] flex-col gap-4 px-4 py-4">
@@ -52,6 +60,9 @@ export default async function CheckoutPage() {
             nombre: tienda.nombre,
             telefono: tienda.telefono,
             direccion: tienda.direccion,
+            // El enlace se arma en el servidor porque es donde está el pin: al navegador solo le
+            // llega la URL ya resuelta, o `null` si no hay ni pin ni dirección que buscar.
+            comoLlegar: comoLlegarUrl({ direccion: tienda.direccion, ubicacion: ubicacionLocal }),
             whatsappUrl: tienda.whatsappUrl,
             // `nequiNumero` y `nequiTitular` NO viajan: el pago se pide por llave y QR, y
             // mandar al navegador un número que ya no se muestra sería filtrar el celular

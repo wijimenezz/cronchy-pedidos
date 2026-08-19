@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
     "test": "vitest",
     "crear-usuario": "node scripts/crear-usuario.mjs",
     "configurar-purga": "node scripts/configurar-purga.mjs",
@@ -22,6 +23,7 @@
   "dependencies": {
     "@base-ui/react": "^1.6.0",
     "@geoman-io/leaflet-geoman-free": "^2.20.0",
+    "@sentry/nextjs": "^10.70.0",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

@@ -1,5 +1,5 @@
 import { cache } from "react";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { store } from "@/db/schema";
 
@@ -35,6 +35,49 @@ export async function actualizarTiempoEstimado(
     .returning({ id: store.id });
 
   return filas.length > 0;
+}
+
+/**
+ * Dónde queda el local y a qué número se le llama: lo que el cliente necesita para encontrarte.
+ *
+ * Se edita desde `/admin/ajustes` porque un traslado no puede depender de un despliegue. **El pin
+ * del mapa no está aquí**: vive en la misma columna `ubicacion` de siempre y se mueve en
+ * `/admin/zonas`, sobre el mapa donde ya se dibujan las zonas.
+ *
+ * Los dos son nullable y borrarlos tiene consecuencias que la pantalla anuncia: sin dirección, el
+ * checkout y el seguimiento se quedan sin decirle a nadie dónde recoger; sin teléfono desaparece el
+ * botón de "escríbenos y te cotizamos" de fuera de cobertura (regla 14).
+ */
+export async function actualizarDatosLocal(
+  storeId: string,
+  direccion: string | null,
+  telefono: string | null,
+): Promise<boolean> {
+  const filas = await db
+    .update(store)
+    .set({ direccion, telefono })
+    .where(eq(store.id, storeId))
+    .returning({ id: store.id });
+
+  return filas.length > 0;
+}
+
+/**
+ * El punto de la tienda, en GeoJSON.
+ *
+ * Vive aquí y no en `zonas.ts` —de donde vino— porque es un dato de la tienda: lo piden el mapa de
+ * zonas, el checkout, el seguimiento del cliente y los avisos de WhatsApp, y solo uno de esos cuatro
+ * tiene algo que ver con la cobertura.
+ *
+ * Se pide aparte de `getStore()` y no se puede evitar: un select normal sobre una columna
+ * `geometry` devuelve WKB en hexadecimal, que no le sirve a nadie.
+ */
+export async function obtenerUbicacionTienda(storeId: string): Promise<string | null> {
+  const [fila] = await db.execute<{ ubicacion: string | null }>(sql`
+    SELECT ST_AsGeoJSON(ubicacion) AS ubicacion FROM store WHERE id = ${storeId}
+  `);
+
+  return fila?.ubicacion ?? null;
 }
 
 /**

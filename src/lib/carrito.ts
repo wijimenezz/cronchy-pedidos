@@ -71,6 +71,16 @@ type EstadoCarrito = {
   comprobanteUrl: string | null;
   /** Tocó "Ya realicé mi pago": recién ahí se le ofrece adjuntar el comprobante. */
   pagoConfirmado: boolean;
+  /**
+   * El código de cupón que el cliente escribió, o que le llegó por un link `?cupon=`.
+   *
+   * Vive aquí y no en `datos-cliente` por la misma razón que el comprobante: este store se limpia
+   * con `vaciar()` al crear el pedido, así que un cupón nunca se hereda al siguiente. En el store
+   * que persiste entre pedidos, el cupón de la promo del mes pasado se seguiría aplicando solo.
+   *
+   * Guarda el **código** y no el descuento: cuánto vale lo dice el servidor cada vez (regla 1).
+   */
+  cupon: string | null;
   /** Paso del checkout, para volver donde estaba y no al principio. */
   paso: 1 | 2 | 3;
   /** Producto sin modificadores: agrega directo, igual que hoy. */
@@ -96,6 +106,7 @@ type EstadoCarrito = {
   setPago: (
     pago: Partial<Pick<EstadoCarrito, "metodoPago" | "comprobanteUrl" | "pagoConfirmado">>,
   ) => void;
+  setCupon: (cupon: string | null) => void;
   setPaso: (paso: 1 | 2 | 3) => void;
   incrementar: (lineId: string) => void;
   decrementar: (lineId: string) => void;
@@ -109,6 +120,7 @@ type CarritoPersistido = {
   metodoPago: MetodoPago;
   comprobanteUrl: string | null;
   pagoConfirmado: boolean;
+  cupon: string | null;
   paso: 1 | 2 | 3;
 };
 
@@ -117,6 +129,7 @@ const PERSISTIDO_VACIO: CarritoPersistido = {
   metodoPago: "efectivo",
   comprobanteUrl: null,
   pagoConfirmado: false,
+  cupon: null,
   paso: 1,
 };
 
@@ -135,6 +148,7 @@ export const useCarrito = create<EstadoCarrito>()(
       metodoPago: "efectivo",
       comprobanteUrl: null,
       pagoConfirmado: false,
+      cupon: null,
       paso: 1,
       agregarSimple: (producto) =>
         set((estado) => {
@@ -200,9 +214,11 @@ export const useCarrito = create<EstadoCarrito>()(
       },
       setNotas: (notas) => set({ notas }),
       setPago: (pago) => set(pago),
+      setCupon: (cupon) => set({ cupon }),
       setPaso: (paso) => set({ paso }),
       // Con el pedido ya creado se borra TODO lo del pedido en curso, incluido el
-      // comprobante: si sobreviviera, el próximo pedido nacería con un pago ajeno.
+      // comprobante y el cupón: si sobrevivieran, el próximo pedido nacería con un pago
+      // ajeno y con un descuento que nadie pidió.
       vaciar: () =>
         set({
           items: [],
@@ -210,6 +226,7 @@ export const useCarrito = create<EstadoCarrito>()(
           metodoPago: "efectivo",
           comprobanteUrl: null,
           pagoConfirmado: false,
+          cupon: null,
           paso: 1,
         }),
     }),
@@ -233,6 +250,11 @@ export const useCarrito = create<EstadoCarrito>()(
         metodoPago: estado.metodoPago,
         comprobanteUrl: estado.comprobanteUrl,
         pagoConfirmado: estado.pagoConfirmado,
+        // Se guarda por lo mismo que el comprobante: el cliente sale a la app de Nequi y vuelve,
+        // y perder el cupón en ese viaje sería cambiarle el total después de que transfirió. Y
+        // porque un link `?cupon=` se abre en la carta, no en el checkout: sin persistir no
+        // llegaría vivo hasta el paso 3.
+        cupon: estado.cupon,
         paso: estado.paso,
       }),
       // v1 agregó lineId/seleccion/modificadores/avisos/precioUnitarioEstimado
@@ -271,6 +293,10 @@ export const useCarrito = create<EstadoCarrito>()(
           metodoPago: guardado.metodoPago ?? "efectivo",
           comprobanteUrl: guardado.comprobanteUrl ?? null,
           pagoConfirmado: guardado.pagoConfirmado ?? false,
+          // Sin subir `version`: un carrito guardado antes de los cupones simplemente no tiene
+          // ninguno, y eso es exactamente lo que significa `null`. Descartarle el carrito a alguien
+          // por un campo que se puede suponer sería el castigo desproporcionado de la nota v4.
+          cupon: guardado.cupon ?? null,
           paso: guardado.paso ?? 1,
         };
       },

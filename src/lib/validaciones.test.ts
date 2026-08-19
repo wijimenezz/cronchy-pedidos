@@ -25,6 +25,7 @@ function payloadBase(overrides: Record<string, unknown> = {}) {
     clienteEmail: "ana@gmail.com",
     clienteCumple: "1990-12-16",
     metodoPago: "efectivo" as const,
+    politicaAceptada: true as const,
     items: [{ productId: PRODUCT_ID, cantidad: 1, seleccion: [] }],
     ...overrides,
   };
@@ -319,5 +320,36 @@ describe("pagaCon", () => {
   it("acepta un valor menor que el pedido: el total no se decide aquí", () => {
     const r = crearPedidoSchema.safeParse(payloadBase({ pagaCon: 1000 }));
     expect(r.success).toBe(true);
+  });
+});
+
+/**
+ * El consentimiento del tratamiento de datos. Antes era un `disabled` en un botón, o sea nada:
+ * cualquier POST a mano creaba el pedido sin dejar rastro. Aquí es donde deja de serlo.
+ */
+describe("politicaAceptada", () => {
+  it.each([
+    ["ausente", undefined],
+    ["en false", false],
+    // Un `"true"` de un formulario sin parsear no cuenta: si se aceptara, el día que alguien
+    // mande el payload como URL-encoded se estaría guardando un consentimiento inventado.
+    ["como texto", "true"],
+  ])("rechaza el pedido con el consentimiento %s", (_caso, valor) => {
+    const payload = payloadBase({ politicaAceptada: valor });
+    if (valor === undefined) delete (payload as Record<string, unknown>).politicaAceptada;
+
+    expect(crearPedidoSchema.safeParse(payload).success).toBe(false);
+  });
+
+  // La fecha NO viaja en el payload y no debe: la sella el servidor al insertar, porque el reloj
+  // del navegador lo cambia cualquiera y un sello elegido por el interesado no prueba nada.
+  it("solo transporta el sí, nunca la hora", () => {
+    const r = crearPedidoSchema.safeParse(payloadBase());
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.politicaAceptada).toBe(true);
+      expect(r.data).not.toHaveProperty("politicaAceptadaEn");
+    }
   });
 });

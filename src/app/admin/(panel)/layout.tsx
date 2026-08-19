@@ -27,15 +27,26 @@ export default async function PanelLayout({ children }: { children: React.ReactN
   const tienda = await getStore();
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="sticky top-0 z-30 border-b border-crema-oscura bg-tarjeta">
-        <div className="mx-auto flex w-full max-w-contenido items-center justify-between gap-3 px-4 py-3">
-          <span className="truncate font-titulo text-lg font-bold text-cafe">{tienda.nombre}</span>
-          <BotonSalir />
-        </div>
-        {/* `overflow-x-auto`: son seis pestañas y en un teléfono estrecho no caben. Antes
+    /**
+     * Alto exacto de viewport y el scroll dentro de `<main>`, no en el documento.
+     *
+     * Lo pide el tablero de pedidos, que necesita altura fija para que cada columna baje por su
+     * cuenta en vez de arrastrar las cuatro a la vez. Al resto de pantallas no les cambia nada
+     * visible —la cabecera ya era `sticky`, así que tampoco se iba antes—, pero es el punto que
+     * hay que probar una por una si algo deja de bajar.
+     */
+    <div className="flex h-dvh flex-col">
+      {/* Una sola fila, no dos. El nombre y las pestañas iban en filas separadas y eso costaba
+          ~60 px de alto en TODAS las pantallas del panel, no solo aquí. `min-w-0` en el nav es
+          lo que deja al `overflow-x-auto` hacer su trabajo dentro de un flex. */}
+      <header className="flex h-14 shrink-0 items-center gap-4 border-b border-crema-oscura bg-tarjeta px-4">
+        <span className="shrink-0 truncate font-titulo text-lg font-bold text-cafe">
+          {tienda.nombre}
+        </span>
+
+        {/* `overflow-x-auto`: son siete pestañas y en un teléfono estrecho no caben. Antes
             de que se desbordaran no hacía falta. */}
-        <nav className="mx-auto flex w-full max-w-contenido gap-1 overflow-x-auto px-4 pb-2">
+        <nav className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
           <Enlace href="/admin/pedidos">Pedidos</Enlace>
           <Enlace href="/admin/catalogo">Qué hay hoy</Enlace>
           {/* El colaborador entra: necesita ver la carta y marcar agotados. Los controles
@@ -47,12 +58,25 @@ export default async function PanelLayout({ children }: { children: React.ReactN
               enlace. Ocultarlo es cortesía; quien corta de verdad es el `exigirRol` de la
               propia pantalla (regla 12). */}
           {sesion.rol === "admin" && <Enlace href="/admin/zonas">Zonas</Enlace>}
+          {/* Igual que Zonas: un cupón decide cuánto se cobra. */}
+          {sesion.rol === "admin" && <Enlace href="/admin/cupones">Cupones</Enlace>}
           {/* Lo mismo que Zonas: la llave de pago decide a qué cuenta llega la plata. */}
           {sesion.rol === "admin" && <Enlace href="/admin/ajustes">Ajustes</Enlace>}
         </nav>
+
+        <div className="shrink-0">
+          <BotonSalir />
+        </div>
       </header>
 
-      <main className="mx-auto w-full max-w-contenido flex-1 px-4 py-4">{children}</main>
+      {/*
+        El tope de ancho NO vive aquí, y esa es la diferencia con la versión anterior.
+        Estaba en `<main>` y era lo que estrechaba el tablero a 1080 px en un monitor de 1920,
+        partiendo en dos líneas el nombre, el barrio y los productos de cada tarjeta. Ahora lo
+        pone cada pantalla que lo quiere (`mx-auto w-full max-w-contenido`), y la de pedidos
+        —la única que se opera de un vistazo y no se lee— se queda sin él.
+      */}
+      <main className="min-h-0 flex-1 overflow-y-auto px-4 py-4">{children}</main>
     </div>
   );
 }

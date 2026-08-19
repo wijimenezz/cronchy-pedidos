@@ -10,6 +10,8 @@
 // precios actuales (regla 2 del CLAUDE.md).
 // ============================================================
 
+import { comoLlegarUrl, type Local } from "@/lib/tienda/local";
+
 const SEP = "--------------------------------";
 
 // ------------------------------------------------------------
@@ -63,6 +65,11 @@ export type PedidoParaMensaje = {
   subtotal: number;
   costoDomicilio: number;
   descuento: number;
+  /**
+   * Con qué cupón se descontó, congelado en el pedido (regla 2). `null` cuando no hubo cupón, o
+   * cuando el descuento fue un ajuste manual del negocio — que no tiene código que nombrar.
+   */
+  cuponCodigo?: string | null;
   /**
    * Todavía no existe: el checkout no la pide y la base no la guarda. Viaja como número para
    * que el mensaje ya sepa pintarla, y hoy siempre llega en 0. El día que el checkout tenga
@@ -279,6 +286,16 @@ function bloqueTotales(pedido: PedidoParaMensaje): string {
   if (pedido.costoDomicilio > 0) {
     lineas.push(`*Domicilio:* ${pesos(pedido.costoDomicilio)}`);
   }
+  // Igual que en el mensaje del domiciliario: sin esta línea, con un cupón el subtotal y el
+  // domicilio no suman el total y el desglose se lee como un error de cuentas. Solo cuando lo
+  // hubo — este bloque es el resumen corto, no el recibo completo, que sí escribe todos los ceros.
+  if (pedido.descuento > 0) {
+    lineas.push(
+      pedido.cuponCodigo
+        ? `*Descuento (${pedido.cuponCodigo}):* -${pesos(pedido.descuento)}`
+        : `*Descuento:* -${pesos(pedido.descuento)}`,
+    );
+  }
   lineas.push(`*Total:* ${pesos(pedido.total)}`);
   lineas.push(`*Pago:* ${pedido.metodoPago}`);
 
@@ -315,7 +332,13 @@ function bloqueRecibo(pedido: PedidoParaMensaje): string[] {
     lineas.push(`*Costo Domicilio:* ${pesos(pedido.costoDomicilio)}`);
   }
 
-  lineas.push(`*Descuento:* ${pesos(pedido.descuento)}`);
+  // El código va entre paréntesis cuando lo hubo: en un recibo, un descuento sin explicación es
+  // una cifra que el cliente no sabe de dónde salió, y el cupón es justo lo que la explica.
+  lineas.push(
+    pedido.cuponCodigo
+      ? `*Descuento (${pedido.cuponCodigo}):* ${pesos(pedido.descuento)}`
+      : `*Descuento:* ${pesos(pedido.descuento)}`,
+  );
   lineas.push(`*Propina:* ${pesos(pedido.propina ?? 0)}`);
   lineas.push(`*Total a Pagar:* ${pesos(pedido.total)}`);
   lineas.push(`*Método de Pago:* ${etiquetaMetodo(pedido.metodoPago)}`);
@@ -496,6 +519,27 @@ export function llevaAviso(estado: EstadoPedido): boolean {
 }
 
 /**
+ * Dónde queda el local, para el que viene a recogerlo.
+ *
+ * Devuelve cero, una o dos líneas: sin dirección ni pin no se escribe nada, porque una etiqueta
+ * sin valor detrás se lee como un dato que se perdió por el camino.
+ *
+ * Solo entra en los mensajes de un pedido **para recoger**. Al de domicilio no le sirve —no se
+ * mueve de su casa— y al negocio menos, que ya está ahí.
+ */
+function lineasDelLocal(local: Local): string[] {
+  const lineas: string[] = [];
+
+  const direccion = local.direccion?.trim();
+  if (direccion) lineas.push(`*Dirección:* ${direccion}`);
+
+  const url = comoLlegarUrl(local);
+  if (url) lineas.push(`*Cómo llegar:* ${url}`);
+
+  return lineas;
+}
+
+/**
  * Devuelve null para los estados que NO llevan mensaje. Quien llama debe respetar el null.
  *
  * Ninguno de estos sale solo: el transporte es un link `wa.me` que un empleado toca desde el
@@ -507,12 +551,14 @@ export function cambioEstado(
   pedido: PedidoParaMensaje,
   tienda: Tienda,
   estimado: EstimadoEntrega,
+  recogida: Local,
   ahora: Date = new Date(),
 ): string | null {
   const titulo = TEXTO_ESTADO[estado]?.(tienda.nombre);
   if (!titulo) return null;
 
   const enlace = urlSeguimiento(tienda, pedido.tokenPublico);
+  const local = pedido.tipo === "recoger" ? lineasDelLocal(recogida) : [];
 
   // El de aceptación es el primer mensaje que recibe el cliente, así que es donde va el recibo
   // entero: acaba de decidir gastar esa plata y, si paga en efectivo, es lo que tiene que tener
@@ -532,6 +578,8 @@ export function cambioEstado(
       ...bloqueRecibo(pedido),
       SEP,
       lineaLlegada(pedido, estimado, pedido.tipo === "recoger" ? "Listo" : "Llega", ahora),
+      // Dónde recogerlo, junto a cuándo estará listo: son la misma pregunta partida en dos.
+      ...local,
       "",
       "Sigue tu pedido en tiempo real aquí:",
       "",
@@ -558,8 +606,12 @@ export function cambioEstado(
   // llamamos a explicar.
   if (estado === "cancelado") return titulo;
 
-  // `listo`: está en el mostrador. El link es lo único que hace falta.
-  return [titulo, "", enlace, "", "¡Estaremos en contacto!"].join("\n");
+  // `listo`: está en el mostrador, y este es el momento en que la persona sale de su casa. Aquí la
+  // dirección vale más que en ningún otro mensaje — antes solo iba el link de seguimiento, que
+  // obliga a abrir el navegador para saber a dónde ir.
+  return [titulo, "", ...local, local.length > 0 ? "" : null, enlace, "", "¡Estaremos en contacto!"]
+    .filter((l) => l !== null)
+    .join("\n");
 }
 
 // ------------------------------------------------------------
@@ -637,6 +689,8 @@ export type PedidoParaDomiciliario = {
   /** De qué se compone lo que va a cobrar. No cambia cuánto es: lo explica. */
   subtotal: number;
   costoDomicilio: number;
+  /** Lo que descontó el cupón. Sin esto el desglose no sumaría el total (regla 20). */
+  descuento: number;
   total: number;
   metodoPago: string;
   /** Con cuánto billete paga, para calcular la devuelta. `null` = no lo dijo. */
@@ -746,6 +800,13 @@ export function pedidoParaDomiciliario(
   partes.push("");
   partes.push(`*Valor Productos:* ${pesos(pedido.subtotal)}`);
   partes.push(`*Costo Domicilio:* ${pesos(pedido.costoDomicilio)}`);
+  // Sin esta línea, con un cupón el desglose NO suma la cifra de arriba —$53.500 + $6.000 no son
+  // los $54.150 que hay que cobrar— y el domiciliario se queda con dos números que se contradicen
+  // justo en el mensaje que mueve la plata. Solo cuando lo hubo: un "-$0" ocupa sitio en una URL
+  // `wa.me` a cambio de nada.
+  if (pedido.descuento > 0) {
+    partes.push(`*Descuento:* -${pesos(pedido.descuento)}`);
+  }
   partes.push(SEP);
   partes.push("Cuando entregues, confirma aquí Por Favor:");
   partes.push(urlEntrega(tienda, pedido.tokenEntrega));

@@ -9,6 +9,7 @@ import {
   pedidoParaDomiciliario,
 } from "./plantillas";
 import type { PedidoParaMensaje, PedidoParaTelegram } from "./plantillas";
+import type { Local } from "@/lib/tienda/local";
 
 /**
  * Los dos formateadores de hora, que es donde un error se lee como una promesa distinta de la
@@ -94,6 +95,12 @@ const PEDIDO: PedidoParaMensaje = {
 
 const TIENDA = { nombre: "Cronchy", baseUrl: "https://cronchy.co" };
 
+/** Dónde queda el local, que es lo único que necesita quien viene a recoger. */
+const LOCAL: Local = {
+  direccion: "Calle 17 # 7-44, Balmoral",
+  ubicacion: { lat: 4.3372, lng: -74.3653 },
+};
+
 /** Lo que promete la tienda en "lo antes posible", tal como se edita en el panel. */
 const ESTIMADO = { min: 30, max: 45 };
 
@@ -101,7 +108,7 @@ const ESTIMADO = { min: 30, max: 45 };
 const CUANDO_SE_ACEPTA = new Date("2026-08-14T17:00:00Z");
 
 function aceptacion(pedido: PedidoParaMensaje = PEDIDO): string {
-  return cambioEstado("preparando", pedido, TIENDA, ESTIMADO, CUANDO_SE_ACEPTA)!;
+  return cambioEstado("preparando", pedido, TIENDA, ESTIMADO, LOCAL, CUANDO_SE_ACEPTA)!;
 }
 
 // `preparando` es el mensaje de la aceptación: aceptar un pedido lo pone ahí de una vez, y
@@ -171,6 +178,7 @@ describe("cambioEstado al aceptar", () => {
       PEDIDO,
       TIENDA,
       { min: 45, max: 90 },
+      LOCAL,
       CUANDO_SE_ACEPTA,
     )!;
 
@@ -213,7 +221,7 @@ describe("cambioEstado al aceptar", () => {
   // Un pedido guardado en el estado retirado tiene que poder avisarse igual, y con el mismo
   // contenido: para el cliente `aceptado` y `preparando` siempre fueron la misma noticia.
   it("el estado retirado `aceptado` dice lo mismo", () => {
-    expect(cambioEstado("aceptado", PEDIDO, TIENDA, ESTIMADO, CUANDO_SE_ACEPTA)).toBe(
+    expect(cambioEstado("aceptado", PEDIDO, TIENDA, ESTIMADO, LOCAL, CUANDO_SE_ACEPTA)).toBe(
       aceptacion(),
     );
   });
@@ -224,8 +232,70 @@ describe("cambioEstado al aceptar", () => {
   });
 });
 
+/**
+ * Quien recoge tiene que saber a dónde ir, y el WhatsApp es lo único que mira: el mensaje llega al
+ * teléfono justo cuando la persona está saliendo de su casa.
+ */
+describe("cambioEstado en un pedido para recoger", () => {
+  const PARA_RECOGER: PedidoParaMensaje = {
+    ...PEDIDO,
+    tipo: "recoger",
+    direccion: null,
+    barrio: null,
+    costoDomicilio: 0,
+    total: 35000,
+  };
+
+  const listo = (pedido: PedidoParaMensaje, local = LOCAL) =>
+    cambioEstado("listo", pedido, TIENDA, ESTIMADO, local, CUANDO_SE_ACEPTA)!;
+
+  it("«listo para recoger» dice dónde queda el local y cómo llegar", () => {
+    const texto = listo(PARA_RECOGER);
+
+    expect(texto).toContain("listo para recoger");
+    expect(texto).toContain("Calle 17 # 7-44, Balmoral");
+    expect(texto).toContain("https://maps.google.com/maps?q=4.3372,-74.3653");
+  });
+
+  // Un pedido a domicilio no llega a este estado, pero si llegara no tiene por qué recibir la
+  // dirección de la tienda: a ese cliente no le toca moverse.
+  it("un pedido a domicilio no recibe la dirección de la tienda", () => {
+    const texto = listo(PEDIDO);
+
+    expect(texto).not.toContain("Calle 17 # 7-44");
+    expect(texto).not.toContain("maps.google.com");
+  });
+
+  it("la aceptación de un pedido para recoger también la lleva", () => {
+    const texto = aceptacion(PARA_RECOGER);
+
+    expect(texto).toContain("Calle 17 # 7-44, Balmoral");
+    expect(texto).toContain("https://maps.google.com/maps?q=4.3372,-74.3653");
+  });
+
+  it("la aceptación de un domicilio no", () => {
+    expect(aceptacion()).not.toContain("Calle 17 # 7-44");
+  });
+
+  // Sin dirección ni pin no hay nada que decir, y una etiqueta sin valor detrás se lee como un
+  // dato que se perdió por el camino.
+  it("sin dirección ni pin no escribe una línea vacía", () => {
+    const texto = listo(PARA_RECOGER, { direccion: null, ubicacion: null });
+
+    expect(texto).toContain("listo para recoger");
+    expect(texto).not.toContain("Dirección");
+    expect(texto).not.toContain("Cómo llegar");
+  });
+
+  // Viaja dentro de una URL `wa.me`, igual que el de domicilio: la rama de recoger es más corta
+  // pero acaba de crecer, así que el tope se comprueba también aquí.
+  it("la aceptación de recoger cabe en un link de WhatsApp", () => {
+    expect(encodeURIComponent(aceptacion(PARA_RECOGER)).length).toBeLessThan(1800);
+  });
+});
+
 describe("cambioEstado al salir el pedido", () => {
-  const enCamino = () => cambioEstado("en_camino", PEDIDO, TIENDA, ESTIMADO, CUANDO_SE_ACEPTA)!;
+  const enCamino = () => cambioEstado("en_camino", PEDIDO, TIENDA, ESTIMADO, LOCAL, CUANDO_SE_ACEPTA)!;
 
   it("avisa, agradece y deja el link de seguimiento", () => {
     const texto = enCamino();
@@ -258,6 +328,7 @@ describe("pedidoParaDomiciliario", () => {
     ubicacion: { lat: 4.34, lng: -74.36 },
     subtotal: 53500,
     costoDomicilio: 6000,
+    descuento: 0,
     total: 59500,
     metodoPago: "efectivo",
     pagaCon: 70000,
@@ -286,6 +357,28 @@ describe("pedidoParaDomiciliario", () => {
     expect(texto).toContain("*COBRAR:* $59.500 en efectivo");
     expect(texto).toContain("*Paga con:* $70.000");
     expect(texto).toContain("*Devuelta:* $10.500");
+  });
+
+  /**
+   * Con cupón, el desglose deja de sumar el total: $53.500 + $6.000 son $59.500, pero hay que
+   * cobrar $54.150. El domiciliario lee las dos cifras de arriba como algo que compone lo de
+   * abajo, así que sin la línea del descuento parece que el "COBRAR" está mal.
+   */
+  it("con descuento, el desglose lo dice y vuelve a cuadrar", () => {
+    const texto = pedidoParaDomiciliario(
+      { ...DOMI, descuento: 5350, total: 54150, pagaCon: null },
+      TIENDA,
+      MEDIODIA,
+    );
+
+    expect(texto).toContain("*COBRAR:* $54.150 en efectivo");
+    expect(texto).toContain("*Descuento:* -$5.350");
+  });
+
+  // Sin descuento no se escribe la línea: en un mensaje que viaja dentro de una URL `wa.me`, un
+  // "-$0" es un renglón que no dice nada y ocupa.
+  it("sin descuento no aparece la línea", () => {
+    expect(pedidoParaDomiciliario(DOMI, TIENDA, MEDIODIA)).not.toContain("Descuento");
   });
 
   it("sin `pagaCon` no habla de devuelta", () => {
@@ -400,8 +493,8 @@ describe("llevaAviso", () => {
   it("es falso para `nuevo` y `entregado`, que no llevan mensaje", () => {
     expect(llevaAviso("nuevo")).toBe(false);
     expect(llevaAviso("entregado")).toBe(false);
-    expect(cambioEstado("nuevo", PEDIDO, TIENDA, ESTIMADO)).toBeNull();
-    expect(cambioEstado("entregado", PEDIDO, TIENDA, ESTIMADO)).toBeNull();
+    expect(cambioEstado("nuevo", PEDIDO, TIENDA, ESTIMADO, LOCAL)).toBeNull();
+    expect(cambioEstado("entregado", PEDIDO, TIENDA, ESTIMADO, LOCAL)).toBeNull();
   });
 
   it("no arma el texto para responder", () => {

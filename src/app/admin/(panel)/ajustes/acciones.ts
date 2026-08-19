@@ -3,10 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { guardarCorrecciones } from "@/db/queries/barrios";
-import { actualizarLlaveNequi, guardarQrPago } from "@/db/queries/store";
+import { actualizarDatosLocal, actualizarLlaveNequi, guardarQrPago } from "@/db/queries/store";
+import { guardarUbicacionTienda } from "@/db/queries/zonas";
 import { exigirRol } from "@/lib/autorizacion";
 import { esUrlDeFotoProducto } from "@/lib/imagenes";
+import { esTelefonoValido } from "@/lib/notificaciones/transporte";
 import { borrarFotoProducto } from "@/lib/storage";
+import { buscarUbicacion } from "@/lib/tienda/geocodificar";
+import { esPuntoValido } from "@/lib/zonas";
 
 /**
  * Los datos con los que el cliente paga. Todo esto es de admin (regla 12): cambiar la llave
@@ -18,6 +22,53 @@ import { borrarFotoProducto } from "@/lib/storage";
  */
 
 export type ResultadoAjuste = { ok: true } | { ok: false; error: string };
+
+/**
+ * La dirección y el teléfono del local. Existe para que un traslado no dependa de un despliegue.
+ *
+ * Los dos se pueden vaciar a propósito, y por eso son `nullable` en vez de obligatorios: una tienda
+ * a la que todavía no le han puesto dirección es un estado real. Lo que no se puede es guardar un
+ * teléfono con una forma que después rompa el `wa.me` que se arma con él, así que se valida con
+ * **`esTelefonoValido`**, exactamente el mismo que usa `crearPedidoSchema` para el del cliente.
+ */
+const localSchema = z.object({
+  direccion: z
+    .string()
+    .trim()
+    .max(160, "Máximo 160 caracteres")
+    .nullable()
+    .transform((v) => v || null),
+  telefono: z
+    .string()
+    .trim()
+    .nullable()
+    .transform((v) => v || null)
+    .refine((v) => v === null || esTelefonoValido(v), "Teléfono inválido"),
+});
+
+export async function guardarDatosLocal(entrada: unknown): Promise<ResultadoAjuste> {
+  const sesion = await exigirRol("admin");
+
+  const parsed = localSchema.safeParse(entrada);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
+  }
+
+  const guardado = await actualizarDatosLocal(
+    sesion.storeId,
+    parsed.data.direccion,
+    parsed.data.telefono,
+  );
+  if (!guardado) return { ok: false, error: "No pudimos guardar los datos del local." };
+
+  // La carta es ISR y su pie —y el menú lateral— muestran la dirección: sin esto, un traslado
+  // tardaría hasta un minuto en aparecer, o más en una pestaña ya abierta.
+  revalidatePath("/");
+  revalidatePath("/checkout");
+  revalidatePath("/admin/ajustes");
+
+  return { ok: true };
+}
 
 const llaveSchema = z.object({
   // Una llave Bre-B puede ser un número, un correo o una @arroba, así que no se valida el
@@ -56,6 +107,73 @@ export async function guardarLlaveNequi(entrada: unknown): Promise<ResultadoAjus
   revalidatePath("/admin/ajustes");
 
   return { ok: true };
+}
+
+/**
+ * El pin del local. Es el mismo dato que se arrastra en el mapa de Zonas y escribe la misma columna
+ * (`guardarUbicacionTienda`): dos editores para un solo hecho, a propósito — el mapa grande sirve
+ * para colocarlo mirando las zonas, y este para no salir de Ajustes al mudarse.
+ *
+ * De este punto sale el mapa que se le abre al cliente cuando el GPS le falla (regla 14) y el
+ * «Cómo llegar» de quien viene a recoger, así que se valida antes de escribirlo.
+ */
+export async function guardarUbicacionLocal(entrada: {
+  lat: number;
+  lng: number;
+}): Promise<ResultadoAjuste> {
+  const sesion = await exigirRol("admin");
+
+  if (!esPuntoValido(entrada)) return { ok: false, error: "Ubicación inválida" };
+
+  await guardarUbicacionTienda(sesion.storeId, entrada);
+
+  // El checkout usa este punto para centrar su mapa y el seguimiento para el «Cómo llegar».
+  revalidatePath("/checkout");
+  revalidatePath("/admin/ajustes");
+  revalidatePath("/admin/zonas");
+
+  return { ok: true };
+}
+
+/**
+ * Dónde cae la dirección escrita, según OpenStreetMap.
+ *
+ * **No guarda nada**: devuelve el punto para que la pantalla mueva el pin y el admin lo confirme.
+ * Los datos de OSM en Fusagasugá son pobres (regla 14) y una dirección colombiana puede caer a
+ * varias cuadras; guardar el resultado a ciegas sería dejar un pin equivocado que nadie revisa.
+ *
+ * Es una server action y no un route handler porque solo la usa el panel: no hay razón para poner
+ * una llamada a un tercero en la superficie pública.
+ */
+export type ResultadoBusqueda =
+  | { ok: true; punto: { lat: number; lng: number } }
+  | { ok: false; error: string };
+
+/**
+ * Dónde se busca. Sin acotar, "Calle 17 # 7-44" hace match en media Latinoamérica y el primer
+ * resultado por relevancia puede estar a mil kilómetros con la misma pinta de correcto.
+ *
+ * Está escrita aquí y no en la base porque `store` no tiene columna de ciudad y hoy hay una sola
+ * tienda. El día del multi-tenant (regla 5) esto sale de la fila de la tienda, igual que todo lo
+ * demás — y es el único sitio que habría que tocar.
+ */
+const CIUDAD = "Fusagasugá, Cundinamarca";
+
+export async function buscarDireccionEnMapa(entrada: {
+  direccion: string;
+}): Promise<ResultadoBusqueda> {
+  await exigirRol("admin");
+
+  const parsed = z.object({ direccion: z.string().trim().min(1).max(160) }).safeParse(entrada);
+  if (!parsed.success) return { ok: false, error: "Escribe la dirección antes de buscarla." };
+
+  const punto = await buscarUbicacion(parsed.data.direccion, CIUDAD);
+
+  if (!punto) {
+    return { ok: false, error: "No encontramos esa dirección en el mapa. Arrastra el pin a mano." };
+  }
+
+  return { ok: true, punto };
 }
 
 const qrSchema = z.object({

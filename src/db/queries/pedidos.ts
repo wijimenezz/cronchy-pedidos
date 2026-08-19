@@ -54,6 +54,10 @@ export async function crearPedidoEnDB(
         // NULL = "lo más pronto posible". El route handler ya comprobó que esta hora es una de
         // las que la tienda ofrece; aquí solo se guarda.
         programadoPara: input.programadoPara ?? null,
+        // El reloj de la base, el mismo que pone `creado_en`. Del navegador llegó el sí
+        // (`politicaAceptada`, que el esquema exige `true`) y el cuándo se sella aquí: una hora
+        // que manda el interesado no es evidencia de nada.
+        politicaAceptadaEn: sql`now()`,
         notas: input.notas ?? null,
         metodoPago: input.metodoPago,
         // Solo tiene sentido en efectivo: en Nequi no hay devuelta que llevar.
@@ -62,6 +66,10 @@ export async function crearPedidoEnDB(
         subtotal: calculo.subtotal,
         costoDomicilio: calculo.costoDomicilio,
         descuento: calculo.descuento,
+        // Snapshot del cupón (regla 2), igual que `zonaNombre`: el id para reportes agregados y el
+        // código congelado para mostrar. Apagar o renombrar el cupón no puede reescribir esto.
+        cuponId: calculo.cuponId,
+        cuponCodigo: calculo.cuponCodigo,
         total: calculo.total,
       })
       .returning({ id: order.id, numero: order.numero, tokenPublico: order.tokenPublico });
@@ -110,6 +118,8 @@ export type PedidoPublico = {
   subtotal: number;
   costoDomicilio: number;
   descuento: number;
+  /** El cupón que se usó, congelado (regla 2). `null` si no hubo. */
+  cuponCodigo: string | null;
   total: number;
 };
 
@@ -163,6 +173,7 @@ export async function obtenerPedidoPorToken(
     subtotal: fila.subtotal,
     costoDomicilio: fila.costoDomicilio,
     descuento: fila.descuento,
+    cuponCodigo: fila.cuponCodigo,
     total: fila.total,
   };
 }

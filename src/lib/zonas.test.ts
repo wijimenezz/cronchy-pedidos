@@ -17,6 +17,18 @@ config({ path: ".env.local" });
  *
  * Todo ocurre dentro de una transacción que termina en ROLLBACK, así que no queda una sola
  * fila. Si no hay base configurada, la suite se salta en vez de fallar.
+ *
+ * **NUNCA escribas aquí el UUID de una tienda a mano.** El caso de aislamiento entre tiendas
+ * preguntaba por `11111111-1111-1111-1111-111111111111` dando por hecho que no existía, y ese
+ * es exactamente el id de la tienda real de Cronchy. El test pasó hasta el día en que los
+ * dueños dibujaron una zona sobre el punto de prueba en `/admin/zonas`, y entonces empezó a
+ * recibir "zona 2" a $6.000. Peor: mientras "pasaba", no probaba nada — con un id que no
+ * existe, la consulta devuelve vacío aunque `resolverZona` ignore el `store_id` por completo.
+ * Las tiendas se crean aquí dentro y su id llega por parámetro.
+ *
+ * Por lo mismo, las coordenadas pueden seguir estando en Fusagasugá —donde están las zonas
+ * reales— sin volver a chocar: ya no queda ninguna consulta contra una tienda que no haya
+ * creado el propio test.
  */
 
 const URL_BASE = process.env.DATABASE_URL;
@@ -56,12 +68,21 @@ const CENTRO_Y_CONJUNTO: Escenario[] = [
 /**
  * Monta las zonas dadas en una tienda recién creada, corre el caso y deshace todo.
  *
- * La tienda es propia y no la real: así el filtro por `store_id` (regla 5) queda probado de
- * paso — si `resolverZona` se lo saltara, encontraría las zonas de Cronchy.
+ * Crea **dos** tiendas: la que recibe las zonas y una vecina que se queda vacía. La vecina es
+ * lo que necesita el caso de aislamiento — para probar que el filtro por `store_id` (regla 5)
+ * funciona hay que preguntarle a una tienda que existe de verdad, parados sobre un punto que
+ * sí está cubierto por las zonas de la otra. Un id inventado no prueba nada.
+ *
+ * El tercer parámetro solo lo usa ese caso; los demás declaran dos y siguen valiendo, porque
+ * en TypeScript una función con menos parámetros es asignable.
  */
 async function conZonas<T>(
   zonas: Escenario[],
-  caso: (storeId: string, ejecutor: Parameters<typeof resolverZona>[2]) => Promise<T>,
+  caso: (
+    storeId: string,
+    ejecutor: Parameters<typeof resolverZona>[2],
+    tiendaVecina: string,
+  ) => Promise<T>,
 ): Promise<T> {
   if (!base) throw new Error("sin base");
 
@@ -72,6 +93,12 @@ async function conZonas<T>(
     await base.transaction(async (tx) => {
       const [tienda] = await tx.execute<{ id: string }>(sql`
         INSERT INTO store (slug, nombre) VALUES (${marca}, ${marca}) RETURNING id
+      `);
+
+      // La vecina: existe, es de otro dueño y no tiene ni una zona. Nunca recibe polígonos.
+      const vecina = `${marca}-vecina`;
+      const [ajena] = await tx.execute<{ id: string }>(sql`
+        INSERT INTO store (slug, nombre) VALUES (${vecina}, ${vecina}) RETURNING id
       `);
 
       for (const zona of zonas) {
@@ -85,7 +112,7 @@ async function conZonas<T>(
         `);
       }
 
-      resultado = await caso(tienda.id, tx);
+      resultado = await caso(tienda.id, tx, ajena.id);
 
       // Nada de esto debe sobrevivir al test.
       throw new Error("ROLLBACK_INTENCIONAL");
@@ -187,9 +214,12 @@ describe.skipIf(!base)("resolverZona", () => {
   });
 
   it("no se cuela una zona de otra tienda", async () => {
-    // Las zonas se crean en la tienda de prueba; se pregunta por otra distinta.
-    const zona = await conZonas(CENTRO_Y_CONJUNTO, (_storeId, tx) =>
-      resolverZona("11111111-1111-1111-1111-111111111111", DENTRO_DE_CENTRO, tx),
+    // La vecina existe de verdad y no tiene ni una zona, y el punto está dentro de las de la
+    // otra: si `resolverZona` se saltara el `store_id` devolvería "Centro" y esto fallaría.
+    // Ese es el único montaje que prueba el filtro — con un id inventado, la consulta sale
+    // vacía haya filtro o no.
+    const zona = await conZonas(CENTRO_Y_CONJUNTO, (_storeId, tx, tiendaVecina) =>
+      resolverZona(tiendaVecina, DENTRO_DE_CENTRO, tx),
     );
 
     expect(zona).toBeNull();

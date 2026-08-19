@@ -2,6 +2,11 @@
 
 import "leaflet/dist/leaflet.css";
 import { useEffect, useRef } from "react";
+import {
+  ANCLA_PIN_CLIENTE,
+  SVG_PIN_CLIENTE,
+  TAMANO_PIN_CLIENTE,
+} from "@/components/mapas/iconos";
 import type { Punto } from "@/components/checkout/MapaUbicacion";
 
 /**
@@ -17,12 +22,8 @@ import type { Punto } from "@/components/checkout/MapaUbicacion";
  * `dynamic(..., { ssr: false })` como el resto: toca `window`.
  */
 
-/** El mismo pin naranja del checkout, para que el cliente reconozca su punto. */
-const ICONO_SVG = `
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="42" viewBox="0 0 32 42">
-  <path d="M16 0C7.2 0 0 7.2 0 16c0 11 16 26 16 26s16-15 16-26c0-8.8-7.2-16-16-16z" fill="#F26B1D"/>
-  <circle cx="16" cy="16" r="6" fill="#FAF3E8"/>
-</svg>`;
+// El mismo pin naranja del checkout, para que el cliente reconozca su punto. Ahora se importa en vez
+// de copiarse: eran dos copias idénticas que había que acordarse de cambiar a la vez.
 
 export default function MapaPedido({ punto }: { punto: Punto }) {
   const contenedor = useRef<HTMLDivElement>(null);
@@ -55,7 +56,12 @@ export default function MapaPedido({ punto }: { punto: Punto }) {
       }).addTo(m);
 
       L.marker([punto.lat, punto.lng], {
-        icon: L.divIcon({ html: ICONO_SVG, className: "", iconSize: [32, 42], iconAnchor: [16, 42] }),
+        icon: L.divIcon({
+          html: SVG_PIN_CLIENTE,
+          className: "",
+          iconSize: TAMANO_PIN_CLIENTE,
+          iconAnchor: ANCLA_PIN_CLIENTE,
+        }),
         keyboard: false,
       }).addTo(m);
 

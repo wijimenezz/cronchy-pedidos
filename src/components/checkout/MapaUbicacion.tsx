@@ -2,6 +2,11 @@
 
 import "leaflet/dist/leaflet.css";
 import { useEffect, useRef } from "react";
+import {
+  ANCLA_PIN_CLIENTE,
+  SVG_PIN_CLIENTE,
+  TAMANO_PIN_CLIENTE,
+} from "@/components/mapas/iconos";
 
 /**
  * El mapa donde el cliente pone su pin (regla 14).
@@ -16,12 +21,8 @@ import { useEffect, useRef } from "react";
 
 export type Punto = { lat: number; lng: number };
 
-/** El icono por defecto de Leaflet apunta a rutas que el bundler no resuelve; se dibuja uno. */
-const ICONO_SVG = `
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="42" viewBox="0 0 32 42">
-  <path d="M16 0C7.2 0 0 7.2 0 16c0 11 16 26 16 26s16-15 16-26c0-8.8-7.2-16-16-16z" fill="#F26B1D"/>
-  <circle cx="16" cy="16" r="6" fill="#FAF3E8"/>
-</svg>`;
+// El pin vive en `components/mapas/iconos.ts`: estaba escrito igual aquí y en el mapa del
+// seguimiento, y tienen que ser el mismo para que el cliente reconozca su punto en los dos sitios.
 
 export default function MapaUbicacion({
   centro,
@@ -61,10 +62,10 @@ export default function MapaUbicacion({
       }).addTo(m);
 
       const icono = L.divIcon({
-        html: ICONO_SVG,
+        html: SVG_PIN_CLIENTE,
         className: "",
-        iconSize: [32, 42],
-        iconAnchor: [16, 42],
+        iconSize: TAMANO_PIN_CLIENTE,
+        iconAnchor: ANCLA_PIN_CLIENTE,
       });
 
       const marca = L.marker([inicial.lat, inicial.lng], {

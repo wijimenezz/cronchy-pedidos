@@ -44,34 +44,46 @@ export default async function PedidosPage({
   const esAdmin = sesion.rol === "admin";
   const resumen = esAdmin ? await resumenDelDia(tienda.id, dia) : null;
 
-  return (
-    <div className="flex flex-col gap-3">
-      {/* Solo admin: el estimado es una promesa comercial, no una operación de turno. El
-          `exigirRol("admin")` de la acción es quien corta de verdad (regla 12). */}
-      {esAdmin && esHoy && (
-        <TiempoEstimado min={tienda.minutosEstimadoMin} max={tienda.minutosEstimadoMax} />
-      )}
+  const acciones = (
+    <>
+      {resumen && <ResumenDia resumen={resumen} rotulo={rotulo} />}
+      {esAdmin && <DescargarPedidos hoy={hoy} />}
+    </>
+  );
 
-      {/* Tres zonas: la fecha queda centrada en la pantalla y las acciones a la derecha, aunque
-          el hueco de la izquierda esté vacío. Los `flex-1` son lo que sostiene ese centrado. */}
-      <div className="flex items-center gap-2">
-        <div className="hidden flex-1 sm:block" />
-
-        <SelectorDia dia={dia} hoy={hoy} rotulo={rotulo} />
-
-        <div className="flex flex-1 items-center justify-end gap-2">
-          {resumen && <ResumenDia resumen={resumen} rotulo={rotulo} />}
-          {esAdmin && <DescargarPedidos hoy={hoy} />}
-        </div>
-      </div>
-
-      {esHoy ? (
+  // El tablero de hoy ocupa el alto del viewport y hace scroll por columna, así que se lleva
+  // su propia barra: el contador y el botón de avisos son estado suyo y tienen que compartir
+  // fila con estos controles, que son de servidor. Se los pasamos como nodos; nada de estado
+  // se mueve de sitio.
+  if (esHoy) {
+    return (
+      <ListaPedidos
         // Se renderiza en el servidor la primera carga y de ahí en adelante manda el polling:
         // así el empleado ve los pedidos de inmediato al abrir, sin un salto de pantalla vacía.
-        <ListaPedidos iniciales={await listarPedidos(tienda.id)} />
-      ) : (
-        <PedidosDelDia pedidos={await listarPedidosDelDia(tienda.id, dia)} rotulo={rotulo} />
-      )}
+        iniciales={await listarPedidos(tienda.id)}
+        selectorDia={<SelectorDia dia={dia} hoy={hoy} rotulo={rotulo} />}
+        /* Solo admin: el estimado es una promesa comercial, no una operación de turno. El
+           `exigirRol("admin")` de la acción es quien corta de verdad (regla 12). */
+        estimado={
+          esAdmin ? (
+            <TiempoEstimado min={tienda.minutosEstimadoMin} max={tienda.minutosEstimadoMax} />
+          ) : null
+        }
+        acciones={acciones}
+      />
+    );
+  }
+
+  // Un día pasado es una consulta, no una operación: barra más corta —sin contador, sin avisos
+  // y sin estimado— y el ancho vuelve al tope del panel, porque esto se lee.
+  return (
+    <div className="mx-auto flex w-full max-w-contenido flex-col gap-2">
+      <div className="flex h-12 items-center gap-3">
+        <SelectorDia dia={dia} hoy={hoy} rotulo={rotulo} />
+        <div className="ml-auto flex items-center gap-2">{acciones}</div>
+      </div>
+
+      <PedidosDelDia pedidos={await listarPedidosDelDia(tienda.id, dia)} rotulo={rotulo} />
     </div>
   );
 }

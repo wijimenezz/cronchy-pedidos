@@ -24,6 +24,7 @@ import {
   esVariante,
   gruposIncompletos,
   precioDesde,
+  valorarItems,
   type EngancheParaPrecio,
   type ItemSolicitado,
   type OpcionParaPrecio,
@@ -958,6 +959,42 @@ describe("precioDesde", () => {
   });
 });
 
+/**
+ * `valorarItems` es lo que usa `/api/cupones/validar`: pone precio a un carrito sin exigir un pin
+ * ni resolver zonas, porque ahí todavía no hay pedido.
+ *
+ * Lo que hay que fijar es que **el tipo se respeta aunque no se cobre domicilio**: es lo que decide
+ * si cada producto se vende por ese canal, y valorar un carrito de domicilio como "recoger" —que es
+ * lo que hacía el endpoint antes— convierte un carrito válido en un error sin explicación.
+ */
+describe("valorarItems", () => {
+  beforeEach(() => {
+    vi.mocked(obtenerProductosConEngancles).mockReset();
+  });
+
+  it("suma los subtotales sin exigir pin ni resolver zona", async () => {
+    const p = producto();
+    vi.mocked(obtenerProductosConEngancles).mockResolvedValue(new Map([[p.id, p]]));
+
+    const r = await valorarItems("store-1", [item()], "domicilio");
+
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.valor.subtotal).toBe(5000);
+    expect(resolverZona).not.toHaveBeenCalled();
+  });
+
+  it("un producto que no se vende por ese canal no se puede valorar", async () => {
+    const p = producto({ disponiblePickup: false });
+    vi.mocked(obtenerProductosConEngancles).mockResolvedValue(new Map([[p.id, p]]));
+
+    const enDomicilio = await valorarItems("store-1", [item()], "domicilio");
+    const enRecoger = await valorarItems("store-1", [item()], "recoger");
+
+    expect(enDomicilio.ok).toBe(true);
+    expect(enRecoger.ok).toBe(false);
+  });
+});
+
 describe("calcularPedido", () => {
   beforeEach(() => {
     vi.mocked(obtenerProductosConEngancles).mockReset();
@@ -1046,6 +1083,129 @@ describe("calcularPedido", () => {
     const r = await calcularPedido("store-1", { tipo: "recoger", items: [item()], descuento: 999999 });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.valor.total).toBe(0);
+  });
+
+  /**
+   * El cupón entra por aquí y no por el `descuento` a pelo: quien decide cuánto descuenta es
+   * `aplicarCupon` sobre los items que este mismo cálculo acaba de valorar (regla 1). Lo que llega
+   * del navegador es el código, nunca el monto.
+   */
+  describe("con cupón", () => {
+    const CUPON = {
+      id: "cupon-1",
+      codigo: "CHURRO10",
+      porcentaje: 10,
+      venceEl: null,
+      activo: true,
+      productosElegibles: null,
+    };
+
+    it("descuenta sobre el subtotal y congela el código", async () => {
+      const p = producto();
+      vi.mocked(obtenerProductosConEngancles).mockResolvedValue(new Map([[p.id, p]]));
+
+      const r = await calcularPedido("store-1", {
+        tipo: "recoger",
+        items: [item()],
+        cupon: CUPON,
+        hoy: "2026-08-18",
+      });
+
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        expect(r.valor.descuento).toBe(500);
+        expect(r.valor.cuponCodigo).toBe("CHURRO10");
+        expect(r.valor.total).toBe(4500);
+      }
+    });
+
+    /**
+     * Regla 13: el domicilio lo ejecuta un courier externo que cobra igual, así que no existe
+     * descuento sobre él. Un 10 % aquí son $500 (sobre los $5.000 del churro) y jamás $800
+     * (sobre los $8.000 con el envío).
+     */
+    it("el costo del domicilio nunca entra en la base del descuento", async () => {
+      const p = producto();
+      vi.mocked(obtenerProductosConEngancles).mockResolvedValue(new Map([[p.id, p]]));
+      vi.mocked(resolverZona).mockResolvedValue({ id: "z", nombre: "Centro", precio: 3000 });
+
+      const r = await calcularPedido("store-1", {
+        tipo: "domicilio",
+        items: [item()],
+        punto: PIN,
+        cupon: CUPON,
+        hoy: "2026-08-18",
+      });
+
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        expect(r.valor.descuento).toBe(500);
+        expect(r.valor.total).toBe(5000 + 3000 - 500);
+      }
+    });
+
+    // El cliente vio un total con descuento y puede haberlo transferido ya por Nequi: cobrarle el
+    // precio lleno en silencio sería peor que rechazar el pedido y decirle por qué.
+    it("un cupón que ya no sirve corta el pedido en vez de cobrar el precio lleno", async () => {
+      const p = producto();
+      vi.mocked(obtenerProductosConEngancles).mockResolvedValue(new Map([[p.id, p]]));
+
+      const r = await calcularPedido("store-1", {
+        tipo: "recoger",
+        items: [item()],
+        cupon: { ...CUPON, activo: false },
+        hoy: "2026-08-18",
+      });
+
+      expect(r).toEqual({ ok: false, error: { tipo: "cupon_invalido", motivo: "apagado" } });
+    });
+
+    // Dos fuentes para el mismo número es justo lo que este proyecto no hace.
+    it("mandar cupón y descuento manual a la vez es error", async () => {
+      const p = producto();
+      vi.mocked(obtenerProductosConEngancles).mockResolvedValue(new Map([[p.id, p]]));
+
+      const r = await calcularPedido("store-1", {
+        tipo: "recoger",
+        items: [item()],
+        cupon: CUPON,
+        descuento: 1000,
+        hoy: "2026-08-18",
+      });
+
+      expect(r).toEqual({ ok: false, error: { tipo: "descuento_invalido" } });
+    });
+
+    /**
+     * `null` significa "escribió un código y no existe", que NO es lo mismo que no haber escrito
+     * ninguno (`undefined`). Si se confundieran, un cupón mal tecleado se ignoraría en silencio y
+     * el cliente pagaría el precio lleno creyendo que le descontaron.
+     */
+    it("un código que no existe se rechaza, no se ignora", async () => {
+      const p = producto();
+      vi.mocked(obtenerProductosConEngancles).mockResolvedValue(new Map([[p.id, p]]));
+
+      const r = await calcularPedido("store-1", {
+        tipo: "recoger",
+        items: [item()],
+        cupon: null,
+        hoy: "2026-08-18",
+      });
+
+      expect(r).toEqual({ ok: false, error: { tipo: "cupon_invalido", motivo: "no_existe" } });
+    });
+
+    it("sin cupón no hay descuento ni código", async () => {
+      const p = producto();
+      vi.mocked(obtenerProductosConEngancles).mockResolvedValue(new Map([[p.id, p]]));
+
+      const r = await calcularPedido("store-1", { tipo: "recoger", items: [item()] });
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        expect(r.valor.descuento).toBe(0);
+        expect(r.valor.cuponCodigo).toBeNull();
+      }
+    });
   });
 
   it("un upsell se agrega como item propio en el pedido y su precio suma al subtotal", async () => {

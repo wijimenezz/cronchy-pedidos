@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   Banknote,
   Bike,
+  CalendarClock,
   MapPin,
   MessageCircle,
   Phone,
@@ -95,7 +96,7 @@ export default async function DetallePedidoPage({
   const cuenta = contarPreparacion(pedido.items);
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="mx-auto flex w-full max-w-contenido flex-col gap-4">
       <Link
         href="/admin/pedidos"
         className="flex min-h-11 items-center gap-2 self-start font-cuerpo text-sm font-bold text-cafe-suave underline-offset-2 hover:underline"
@@ -117,6 +118,17 @@ export default async function DetallePedidoPage({
         </span>
 
         <ChipPago pedido={pedido} />
+
+        {/* El azul de la tarjeta del tablero, otra vez aquí: se entra a este detalle tocando
+            una tarjeta azul y la pantalla tiene que seguir diciendo lo mismo. Va con el día y
+            no solo con la hora —`cuandoCorto`, igual que la tarjeta— porque con pedidos de hoy
+            y de mañana mezclados una hora suelta es una promesa ambigua. */}
+        {pedido.programadoPara && (
+          <span className="flex items-center gap-1.5 rounded-full bg-programado/15 px-3 py-1 font-cuerpo text-sm font-bold text-programado">
+            <CalendarClock className="size-4" />
+            Programado · {cuandoCorto(pedido.programadoPara)}
+          </span>
+        )}
 
         {/* El total y la hora se van al otro extremo: la izquierda es qué es este pedido, la
             derecha cuánto y cuándo. Al envolverse caen juntos a la línea siguiente. */}
@@ -173,7 +185,12 @@ export default async function DetallePedidoPage({
                 <Total etiqueta="Domicilio" valor={pesos(pedido.costoDomicilio)} />
               )}
               {pedido.descuento > 0 && (
-                <Total etiqueta="Descuento" valor={`− ${pesos(pedido.descuento)}`} />
+                <Total
+                  // El código al lado del monto: quien cuadra la caja necesita saber por qué este
+                  // pedido cobró menos, y "Descuento" a secas no lo dice.
+                  etiqueta={pedido.cuponCodigo ? `Descuento ${pedido.cuponCodigo}` : "Descuento"}
+                  valor={`− ${pesos(pedido.descuento)}`}
+                />
               )}
               <Total etiqueta="Total" valor={pesos(pedido.total)} destacado />
             </dl>
@@ -199,7 +216,10 @@ export default async function DetallePedidoPage({
           </details>
         </div>
 
-        <Seccion titulo={esDomicilio ? "Entrega" : "Recoge"}>
+        <Seccion
+          titulo={esDomicilio ? "Entrega" : "Recoge"}
+          programado={pedido.programadoPara !== null}
+        >
           {/* Lo primero: es lo que cambia cuándo hay que empezar a freír. */}
           <Dato
             etiqueta={esDomicilio ? "Entregar" : "Recoge"}
@@ -470,9 +490,31 @@ function ItemPreparar({ item }: { item: ItemSnapshot }) {
   );
 }
 
-function Seccion({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+/**
+ * `programado` tiñe la sección con **las mismas dos clases que la tarjeta del tablero**, y que
+ * sean literalmente las mismas es el punto: la continuidad entre las dos pantallas es lo único
+ * que compra este color. Si algún día cambia una, cambian las dos.
+ *
+ * Solo la usa la columna de la entrega, que es donde vive la hora. Teñir también "Qué preparar"
+ * dejaría la pantalla entera azul y el color perdería justo el contraste que lo hace útil.
+ */
+function Seccion({
+  titulo,
+  programado,
+  children,
+}: {
+  titulo: string;
+  programado?: boolean;
+  children: React.ReactNode;
+}) {
   return (
-    <section className="rounded-md border border-crema-oscura bg-tarjeta p-4">
+    <section
+      className={`rounded-md border p-4 ${
+        programado
+          ? "border-programado/30 border-l-4 border-l-programado bg-programado-suave"
+          : "border-crema-oscura bg-tarjeta"
+      }`}
+    >
       <h2 className="mb-3 font-titulo text-base font-bold text-cafe">{titulo}</h2>
       {children}
     </section>

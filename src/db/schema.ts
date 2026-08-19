@@ -1,7 +1,28 @@
-import { pgTable, unique, uuid, text, boolean, timestamp, foreignKey, check, smallint, time, date, integer, index, bigint, serial, jsonb, pgEnum } from "drizzle-orm/pg-core"
+import { pgTable, unique, uniqueIndex, primaryKey, uuid, text, boolean, timestamp, foreignKey, check, smallint, time, date, integer, index, bigint, serial, jsonb, pgEnum } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 import { geometria } from "./tipos-geo"
 
+/**
+ * TODAS las tablas llevan `.enableRLS()`, y ninguna lleva políticas. Es a propósito.
+ *
+ * Una tabla con RLS y cero políticas **deniega todo** a cualquier rol que no salte RLS, que es
+ * exactamente el contrato de este proyecto: a la base se entra por `DATABASE_URL` —el rol
+ * `postgres`, que tiene `bypassrls` y es dueño de estas tablas— y por ningún otro sitio. La app no
+ * usa PostgREST, ni `supabase-js`, ni la llave `anon`.
+ *
+ * Antes no estaba activado y la consecuencia era real, no teórica: con la llave `anon` —un secreto
+ * que vive en un dashboard, no en el código— se podían leer y escribir las 20 tablas, incluidos el
+ * teléfono y la dirección de cada cliente y el hash de la clave del panel. Supabase lo reporta como
+ * `rls_disabled_in_public`.
+ *
+ * **Una tabla nueva nace SIN RLS**: hay que acordarse del `.enableRLS()`. Si se olvida, lo vuelve a
+ * cazar el linter de Supabase.
+ *
+ * **Lo que NO se debe hacer nunca aquí: `FORCE ROW LEVEL SECURITY`.** Con eso el dueño dejaría de
+ * saltar RLS y, sin políticas, la aplicación entera se quedaría sin poder leer nada.
+ */
+
+export const alcanceCupon = pgEnum("alcance_cupon", ['todo', 'seleccion'])
 export const estadoPedido = pgEnum("estado_pedido", ['nuevo', 'aceptado', 'preparando', 'en_camino', 'listo', 'entregado', 'cancelado'])
 export const metodoPago = pgEnum("metodo_pago", ['efectivo', 'nequi', 'transferencia', 'datafono'])
 export const modoGrupo = pgEnum("modo_grupo", ['incluido', 'adicional'])
@@ -49,7 +70,7 @@ export const store = pgTable("store", {
 		"store_estimado_check",
 		sql`minutos_estimado_min > 0 AND minutos_estimado_max >= minutos_estimado_min`,
 	),
-]);
+]).enableRLS();
 
 export const storeHours = pgTable("store_hours", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
@@ -65,7 +86,7 @@ export const storeHours = pgTable("store_hours", {
 		}).onDelete("cascade"),
 	check("store_hours_check", sql`cierra > abre`),
 	check("store_hours_dia_semana_check", sql`(dia_semana >= 0) AND (dia_semana <= 6)`),
-]);
+]).enableRLS();
 
 export const storeClosure = pgTable("store_closure", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
@@ -82,7 +103,7 @@ export const storeClosure = pgTable("store_closure", {
 			name: "store_closure_store_id_fkey"
 		}).onDelete("cascade"),
 	unique("store_closure_store_id_fecha_key").on(table.storeId, table.fecha),
-]);
+]).enableRLS();
 
 export const appUser = pgTable("app_user", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
@@ -100,7 +121,7 @@ export const appUser = pgTable("app_user", {
 			name: "app_user_store_id_fkey"
 		}).onDelete("cascade"),
 	unique("app_user_email_key").on(table.email),
-]);
+]).enableRLS();
 
 export const category = pgTable("category", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
@@ -117,7 +138,7 @@ export const category = pgTable("category", {
 			name: "category_store_id_fkey"
 		}).onDelete("cascade"),
 	unique("category_store_id_slug_key").on(table.storeId, table.slug),
-]);
+]).enableRLS();
 
 export const product = pgTable("product", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
@@ -151,7 +172,7 @@ export const product = pgTable("product", {
 	unique("product_store_id_slug_key").on(table.storeId, table.slug),
 	check("product_precio_base_check", sql`precio_base >= 0`),
 	check("product_imagenes_check", sql`cardinality(imagenes) <= 3`),
-]);
+]).enableRLS();
 
 export const modifierGroup = pgTable("modifier_group", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
@@ -176,7 +197,7 @@ export const modifierGroup = pgTable("modifier_group", {
 			foreignColumns: [store.id],
 			name: "modifier_group_store_id_fkey"
 		}).onDelete("cascade"),
-]);
+]).enableRLS();
 
 export const modifierOption = pgTable("modifier_option", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
@@ -206,7 +227,7 @@ export const modifierOption = pgTable("modifier_option", {
 			foreignColumns: [product.id],
 			name: "modifier_option_producto_ref_fkey"
 		}),
-]);
+]).enableRLS();
 
 export const productModifierGroup = pgTable("product_modifier_group", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
@@ -240,7 +261,7 @@ export const productModifierGroup = pgTable("product_modifier_group", {
 		}).onDelete("cascade"),
 	unique("product_modifier_group_product_id_group_id_modo_key").on(table.productId, table.groupId, table.modo),
 	check("product_modifier_group_check", sql`max_select >= min_select`),
-]);
+]).enableRLS();
 
 export const deliveryZone = pgTable("delivery_zone", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
@@ -267,7 +288,7 @@ export const deliveryZone = pgTable("delivery_zone", {
 	unique("delivery_zone_store_id_nombre_key").on(table.storeId, table.nombre),
 	// Regla 13: no existe zona a $0. El domicilio lo ejecuta un courier externo y siempre se cobra.
 	check("delivery_zone_precio_check", sql`precio > 0`),
-]);
+]).enableRLS();
 
 /**
  * Diccionario para traducir lo que OpenStreetMap llama barrio a lo que se llama aquí.
@@ -300,7 +321,105 @@ export const barrio = pgTable("barrio", {
 			name: "barrio_store_id_fkey"
 		}).onDelete("cascade"),
 	unique("barrio_store_id_nombre_osm_key").on(table.storeId, table.nombreOsm),
-]);
+]).enableRLS();
+
+/**
+ * Un cupón de descuento por porcentaje. `CHURRO10` → 10 % sobre lo que cubra.
+ *
+ * El monto que descuentó cada pedido NO se recalcula nunca desde aquí: se congela en
+ * `order.descuento` y `order.cupon_codigo` (regla 2). Cambiarle el porcentaje a un cupón o
+ * borrarlo jamás debe reescribir lo que un cliente ya pagó.
+ */
+export const cupon = pgTable("cupon", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	storeId: uuid("store_id").notNull(),
+	/** Siempre normalizado a mayúsculas sin espacios (`normalizarCodigo`), o no se encontraría. */
+	codigo: text().notNull(),
+	porcentaje: integer().notNull(),
+	/**
+	 * `todo` = toda la carta. `seleccion` = lo que digan `cupon_categoria` y `cupon_producto`.
+	 *
+	 * Existe aunque el alcance ya se lea de esas dos tablas, y no es redundante: sin esta columna,
+	 * "toda la carta" y "elegí acotar pero todavía no marqué nada" son las dos cero filas, y la
+	 * segunda descontaría sobre todo el pedido — exactamente lo contrario de lo que se pidió.
+	 */
+	alcance: alcanceCupon().default('todo').notNull(),
+	/**
+	 * El último día en que sirve, en el calendario de Bogotá. NULL = no vence.
+	 *
+	 * `date` y no `timestamptz` a propósito: "vence el 30 de septiembre" es un día, no un instante,
+	 * y con un timestamp habría que inventarle una hora que a nadie le importa. Peor: comparado
+	 * contra `now()` a secas, un cupón así vencería a las 7 pm del día anterior (UTC). Se compara
+	 * como cadena contra `diaDeBogota()`, así que vale durante todo su último día.
+	 */
+	venceEl: date("vence_el"),
+	/**
+	 * El aviso que sale en la carta. NULL = no se anuncia.
+	 *
+	 * Cuelga del cupón y no de `store` para que **el aviso muera con el cupón**: un texto suelto en
+	 * la tienda seguiría anunciando un cupón vencido hasta que alguien se acordara de borrarlo.
+	 */
+	anuncio: text(),
+	/** Apagar, no borrar (regla 9): un pedido viejo tiene que poder decir con qué cupón se pagó. */
+	activo: boolean().default(true).notNull(),
+	creadoEn: timestamp("creado_en", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	foreignKey({
+			columns: [table.storeId],
+			foreignColumns: [store.id],
+			name: "cupon_store_id_fkey"
+		}).onDelete("cascade"),
+	unique("cupon_store_id_codigo_key").on(table.storeId, table.codigo),
+	// La carta tiene un solo sitio para el aviso, así que solo un cupón puede ocuparlo. Índice
+	// parcial y no un `activo`-como-radio: lo que hace único al anunciado es tener texto.
+	uniqueIndex("idx_cupon_anuncio_unico")
+		.on(table.storeId)
+		.where(sql`anuncio IS NOT NULL`),
+	check("cupon_porcentaje_check", sql`porcentaje >= 1 AND porcentaje <= 50`),
+]).enableRLS();
+
+/**
+ * Las categorías que cubre un cupón acotado.
+ *
+ * El alcance se expande a ids de producto **en cada lectura** (`db/queries/cupones.ts`), no al
+ * guardar: así un producto que entre mañana a una categoría cubierta queda cubierto solo.
+ */
+export const cuponCategoria = pgTable("cupon_categoria", {
+	cuponId: uuid("cupon_id").notNull(),
+	categoryId: uuid("category_id").notNull(),
+}, (table) => [
+	primaryKey({ columns: [table.cuponId, table.categoryId], name: "cupon_categoria_pkey" }),
+	foreignKey({
+			columns: [table.cuponId],
+			foreignColumns: [cupon.id],
+			name: "cupon_categoria_cupon_id_fkey"
+		}).onDelete("cascade"),
+	// CASCADE porque esto es configuración del cupón, no historial: si la categoría desaparece,
+	// deja de haber nada que cubrir. Lo que un pedido pagó vive en `order.descuento` (regla 2).
+	foreignKey({
+			columns: [table.categoryId],
+			foreignColumns: [category.id],
+			name: "cupon_categoria_category_id_fkey"
+		}).onDelete("cascade"),
+]).enableRLS();
+
+/** Los productos sueltos que cubre un cupón acotado. Mismo trato que `cupon_categoria`. */
+export const cuponProducto = pgTable("cupon_producto", {
+	cuponId: uuid("cupon_id").notNull(),
+	productId: uuid("product_id").notNull(),
+}, (table) => [
+	primaryKey({ columns: [table.cuponId, table.productId], name: "cupon_producto_pkey" }),
+	foreignKey({
+			columns: [table.cuponId],
+			foreignColumns: [cupon.id],
+			name: "cupon_producto_cupon_id_fkey"
+		}).onDelete("cascade"),
+	foreignKey({
+			columns: [table.productId],
+			foreignColumns: [product.id],
+			name: "cupon_producto_product_id_fkey"
+		}).onDelete("cascade"),
+]).enableRLS();
 
 export const customer = pgTable("customer", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
@@ -320,7 +439,7 @@ export const customer = pgTable("customer", {
 			name: "customer_store_id_fkey"
 		}).onDelete("cascade"),
 	unique("customer_store_id_telefono_key").on(table.storeId, table.telefono),
-]);
+]).enableRLS();
 
 // Los domiciliarios de la tienda: una agenda, no empleados. El domicilio lo ejecuta un courier
 // externo (regla 13), así que esto es la lista de a quién se le puede pasar un pedido.
@@ -342,7 +461,7 @@ export const courier = pgTable("courier", {
 			name: "courier_store_id_fkey"
 		}).onDelete("cascade"),
 	unique("courier_store_id_telefono_key").on(table.storeId, table.telefono),
-]);
+]).enableRLS();
 
 export const order = pgTable("order", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
@@ -396,12 +515,29 @@ export const order = pgTable("order", {
 	subtotal: integer().notNull(),
 	costoDomicilio: integer("costo_domicilio").default(0).notNull(),
 	descuento: integer().default(0).notNull(),
+	cuponId: uuid("cupon_id"),
+	// Snapshot del cupón (regla 2), misma pareja que `zona_id`/`zona_nombre` y el domiciliario: el
+	// id sirve para reportes agregados y este texto es lo que se muestra y lo que va al XLSX.
+	// Renombrar o borrar un cupón jamás debe cambiar lo que dice un pedido ya cobrado. Cuánto
+	// descontó está al lado, en `descuento`.
+	cuponCodigo: text("cupon_codigo"),
 	total: integer().notNull(),
 	// La hora que el cliente eligió, o NULL si pidió "lo más pronto posible". El nullable ES
 	// el modelo: un booleano al lado admitiría "programado sin hora" y la base no podría
 	// impedirlo. Es un instante absoluto, no un "19:00": la conversión desde la hora de Bogotá
 	// se hace una sola vez, en el servidor (regla 6).
 	programadoPara: timestamp("programado_para", { withTimezone: true, mode: 'string' }),
+	// Cuándo aceptó el cliente el tratamiento de datos. NULL = no hay consentimiento registrado,
+	// y eso incluye todo lo que se cobró antes de que existiera esta columna: no se rellena hacia
+	// atrás, porque inventar una fecha de consentimiento es justo lo que un registro de
+	// consentimiento no puede hacer.
+	//
+	// El nullable ES el modelo, igual que `programado_para` (regla 16): un booleano al lado
+	// admitiría la fila imposible "aceptó sin hora", que es la que no sirve de evidencia.
+	//
+	// La hora la pone el SERVIDOR (regla 1 aplicada al consentimiento): del navegador llega el sí,
+	// nunca el cuándo. Un sello de tiempo que el propio interesado elige no prueba nada.
+	politicaAceptadaEn: timestamp("politica_aceptada_en", { withTimezone: true, mode: 'string' }),
 	creadoEn: timestamp("creado_en", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	index("idx_order_estado").using("btree", table.storeId.asc().nullsLast().op("timestamptz_ops"), table.estado.asc().nullsLast().op("uuid_ops"), table.creadoEn.desc().nullsFirst().op("enum_ops")),
@@ -426,6 +562,13 @@ export const order = pgTable("order", {
 			foreignColumns: [courier.id],
 			name: "order_courier_id_fkey"
 		}),
+	// Sin `onDelete`: es historial, igual que `order_item.product_id`. Postgres impide borrar un
+	// cupón que ya se usó, y la salida es apagarlo (regla 9).
+	foreignKey({
+			columns: [table.cuponId],
+			foreignColumns: [cupon.id],
+			name: "order_cupon_id_fkey"
+		}),
 	unique("order_token_publico_key").on(table.tokenPublico),
 	unique("order_token_entrega_key").on(table.tokenEntrega),
 	// Un domicilio sin pin ya no es posible: el pin es lo que determinó el precio (regla 14),
@@ -434,7 +577,7 @@ export const order = pgTable("order", {
 		"order_check",
 		sql`(tipo = 'recoger'::tipo_pedido) OR (direccion IS NOT NULL AND punto IS NOT NULL)`,
 	),
-]);
+]).enableRLS();
 
 export const orderItem = pgTable("order_item", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
@@ -464,7 +607,7 @@ export const orderItem = pgTable("order_item", {
 			name: "order_item_product_id_fkey"
 		}),
 	check("order_item_cantidad_check", sql`cantidad > 0`),
-]);
+]).enableRLS();
 
 // A qué dispositivos empujar el aviso de pedido nuevo.
 //
@@ -498,7 +641,7 @@ export const pushSubscription = pgTable("push_subscription", {
 			name: "push_subscription_user_id_fkey"
 		}).onDelete("cascade"),
 	unique("push_subscription_endpoint_key").on(table.endpoint),
-]);
+]).enableRLS();
 
 export const orderStatusEvent = pgTable("order_status_event", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
@@ -524,4 +667,4 @@ export const orderStatusEvent = pgTable("order_status_event", {
 			foreignColumns: [appUser.id],
 			name: "order_status_event_user_id_fkey"
 		}),
-]);
+]).enableRLS();

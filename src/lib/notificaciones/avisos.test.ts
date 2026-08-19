@@ -31,6 +31,7 @@ function pedidoPublico(overrides: Partial<PedidoPublico> = {}): PedidoPublico {
     subtotal: 10000,
     costoDomicilio: 3000,
     descuento: 0,
+    cuponCodigo: null,
     total: 13000,
     ...overrides,
   };

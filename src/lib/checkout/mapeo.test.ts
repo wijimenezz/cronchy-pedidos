@@ -277,6 +277,7 @@ describe("carritoAItems contra crearPedidoSchema", () => {
       clienteNombre: "Ana",
       clienteTelefono: "3001234567",
       metodoPago: "efectivo" as const,
+      politicaAceptada: true as const,
       items: carritoAItems(items).items,
     };
   }

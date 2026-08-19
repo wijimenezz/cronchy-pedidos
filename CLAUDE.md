@@ -67,6 +67,7 @@ src/
                               ResumenDia + DescargarPedidos: cifras y export (admin)
         catalogo/             switches de agotado (US21)
         zonas/                mapa con polígonos de cobertura — solo admin
+      cupones/              CRUD de cupones de descuento — solo admin
         productos/            CRUD completo: 3 columnas categoría/producto/detalle
         opciones/             salsas, toppings, sabores: 2 columnas lista/opciones
     api/
@@ -81,13 +82,16 @@ src/
       disponibilidad.ts       switches de agotado
       catalogo.ts             CRUD de categorías, productos y enganches
       opciones.ts             CRUD de las listas de opciones y sus opciones
+      cupones.ts              busca el cupón y expande su alcance + CRUD del panel
   lib/
     precios.ts                CÁLCULO DE PRECIOS — fuente única de verdad
     zonas.ts                  CÁLCULO DE DOMICILIO — fuente única de verdad
+    cupones.ts                CÁLCULO DEL DESCUENTO (regla 20) — puro, testeado
     barrio.ts                 SUGERENCIA de barrio desde el pin (OSM) — nunca fuente de verdad
     horario.ts                ¿está abierta la tienda en tal instante?
     fechas.ts                 nombres de meses y días + calendario sin zona horaria
                               (el único módulo de fechas que puede usar el cliente)
+    tienda/local.ts           DÓNDE QUEDA EL LOCAL y cómo se llega — puro, testeado
     export/
       hojas.ts                LAS CIFRAS del XLSX — puro, testeado
       libro.ts                el archivo: celdas, formatos y hojas
@@ -370,6 +374,36 @@ lectura cruda del GPS ni sobre la dirección escrita.
   resultante **siempre es arrastrable**: el GPS de escritorio se ubica por IP y falla
   por cuadras.
 - Si el cliente niega el permiso: mapa centrado en la tienda, pin manual.
+
+  **Ojo: `centroTienda` NO es la ubicación del local.** Es `store.ubicacion` **con respaldo al
+  parque principal de Fusagasugá** cuando nadie ha fijado el pin, porque el mapa hay que abrirlo en
+  algún sitio. Para decirle a alguien dónde recoger su pedido se usa la ubicación de verdad, que es
+  nullable (`comoLlegarUrl` en `lib/tienda/local.ts`): con el respaldo, quien viene a recoger
+  acabaría en el parque y con toda la confianza. Son dos valores de la misma columna y por eso se
+  llaman distinto.
+
+  **Y hay que decírselo, porque en iPhone el fallo es invisible.** Un cliente real tocó el botón
+  y no pasó nada: tenía la Localización apagada para Safari a nivel de sistema, así que iOS ni
+  llegó a mostrar el diálogo —contestó `PERMISSION_DENIED` en un milisegundo, sin preguntar— y
+  acabó saliendo a los Ajustes del teléfono por su cuenta. El componente recibía el error, lo
+  **tiraba** (callback sin parámetro) y pintaba una frase gris debajo del mapa de 256 px, o sea
+  fuera de pantalla en un teléfono.
+
+  `src/lib/checkout/ubicacion.ts` traduce el `code` a instrucciones, puro y probado, y el aviso
+  se pinta pegado al botón. Tres cosas que no se pueden hacer y por eso no se intentan:
+
+  - **No se puede reabrir el diálogo de permiso desde JavaScript**, ni enlazar a los Ajustes de
+    iOS (`App-Prefs:` está bloqueado en Safari). Solo queda explicar dónde está el interruptor.
+  - **No se puede consultar el permiso antes de pedirlo**: WebKit no implementa
+    `permissions.query({name:"geolocation"})`. El `code` del callback es la única señal.
+  - **Tras conceder el permiso, iOS no lo reevalúa sin recargar**, así que ahí el botón ofrece
+    recargar y no reintentar. Se puede prometer que no se pierde nada porque el paso, el carrito
+    y los datos viven en `localStorage`.
+
+  El texto depende del navegador: todos los de iOS son WebKit y fallan igual, pero cada uno tiene
+  su entrada en la lista de Localización. Ojo con el orden al leer el UA — el de Chrome en iPhone
+  también termina en `Safari/…`, y mandar a un usuario de Chrome a "Ajustes › Safari" es mandarlo
+  a una pantalla donde su navegador no está.
 - Si el pin queda a más de 500 m de la lectura GPS original: aviso
   ("verifica que el pin esté en tu dirección exacta"), **sin bloquear**.
 - La dirección escrita, **el barrio** y las observaciones son referencia para el
@@ -473,7 +507,8 @@ pueda saltar generando franjas por otro camino.
 | `admin/productos` | solo Visible↔Agotado (ni ocultar ni reactivar)               | CRUD completo, precios, fotos (de producto y de categoría), categorías, enganches |
 | `admin/opciones`  | solo switch `disponible` (sabores de la semana)              | crear/renombrar/ordenar opciones, precio propio, archivar listas  |
 | `admin/zonas`     | sin acceso (ni lectura)                                      | mapa: dibujar, editar vértices, precio, prioridad, activar/apagar |
-| `admin/ajustes`   | sin acceso (ni lectura)                                      | con qué se paga (llave, titular, QR) y los nombres de barrio que OSM devuelve mal |
+| `admin/cupones`   | sin acceso (ni lectura)                                      | crear cupones, porcentaje, a qué aplican, vencimiento, aviso de la carta, apagar |
+| `admin/ajustes`   | sin acceso (ni lectura)                                      | dirección y teléfono del local, con qué se paga (llave, titular, QR) y los nombres de barrio que OSM devuelve mal |
 
 Estados de un producto (independientes entre sí — no colapsarlos en un enum):
 
@@ -486,6 +521,24 @@ Estados de un producto (independientes entre sí — no colapsarlos en un enum):
 Los toggles del panel son a **un clic, sin confirmación** (operación diaria). Las
 acciones destructivas (eliminar producto) piden confirmación explícita y solo admin.
 Al guardar cualquier cambio de catálogo o zonas se revalida el menú público (ISR).
+
+**Eliminar un producto sí existe, y su regla es: se borra lo que nunca se pidió; lo que se vendió
+se oculta.** Es el único DELETE del catálogo, y no es una excepción a la regla 9 sino la misma
+doctrina leída sobre las tres FKs que apuntan a `product.id`, que no significan lo mismo:
+`product_modifier_group.product_id` va en CASCADE porque los enganches son **configuración** de
+ese producto y se van con él; `order_item.product_id` no lleva `ON DELETE` porque es **historial**
+(la regla 2 lo reserva para reportes agregados); y `modifier_option.producto_ref` tampoco, porque
+es el catálogo **vivo** de otro producto — es lo que hace que un upsell se cobre por el
+`precio_base` de su bebida (regla 8). Postgres ya rechaza los dos últimos casos, así que lo que
+aporta `eliminarProducto` es comprobarlos antes y devolver el motivo: un 500 de la base no le dice
+a nadie que la salida es Oculto, ni a qué lista de Opciones ir. El caso que esto resuelve es el
+producto de prueba o duplicado, que nunca se vendió y hasta ahora se quedaba en el panel para
+siempre.
+
+**No se avisa antes de pulsar, a propósito.** Saber si un producto se vendió exige un agregado
+sobre `order_item`, que no tiene índice por `product_id`, y pagarlo en cada carga del panel para
+adornar un botón que se usa dos veces al año no vale. Quien decide es el servidor y la UI traduce
+su error, igual que en el checkout; el panel de confirmación adelanta la condición con palabras.
 
 **El panel se opera en una tablet de 12" y en escritorio**, no en un teléfono. Se diseña para
 ≥1024 px; por debajo sigue siendo usable, pero no es el caso principal. Esto **no reabre la
@@ -583,8 +636,8 @@ Falta una hoja que sí tiene la referencia de la que se copió el formato, y fal
 `Sedes`, porque hay una sola tienda. `Domiciliarios` tampoco está, pero por otro motivo: son una
 agenda de contactos externos, no una nómina con turnos ni pagos que reportar — quién llevó cada
 pedido viaja en su columna de la hoja `Pedidos`, que es donde se puede cruzar con las ventas. La
-columna de cupón no existe todavía: cuando llegue va junto a `Descuento $`. **No se añade vacía**,
-que se leería como un dato perdido.
+columna **`Cupón`** ya llegó y va justo donde se dijo, junto a `Descuento $`: quien lee la fila
+quiere el porqué al lado de la cifra (regla 20).
 
 ### 18. El domiciliario tiene su propia llave, y solo abre una puerta
 
@@ -717,6 +770,115 @@ abrir el panel por lo que ya estaba —la lista de vistos se siembra con lo que 
 servidor— y el audio necesita **un gesto del usuario** antes de poder sonar: de ahí el botón de
 "Activar sonido", que no es un adorno sino el requisito del navegador.
 
+**El volumen del aviso no sale de la ganancia, y por eso está escrito.** El pitido original —dos
+notas triangulares a 880 y 1320 Hz con la ganancia en `0.35`— no se oía en la tablet del mostrador,
+y subir ese `0.35` no era el arreglo: el techo digital es `1.0`, así que por amplitud sola hay 2,8×
+y pasarse recorta la onda. Las 4-6 veces que se pidieron salen de **la frecuencia** (3100 Hz, donde
+converge el diseño de las alarmas de humo: un altavoz de tablet no rinde abajo y el oído es más
+sensible entre 2 y 4 kHz), de **la onda cuadrada** (√3 más de valor eficaz a igual pico, y sus
+armónicos caen en esa misma banda) y del pico al `0.9`. No hay compresor a propósito: una cuadrada
+ya tiene el eficaz pegado al pico, así que no queda nada que recuperar. Medido en un
+`OfflineAudioContext` sobre la misma ventana y sin contar la ventaja acústica de la frecuencia, el
+eficaz sube **+21,8 dB** en Alto sin que el pico recorte —y la sonoridad percibida se dobla cada
+~10 dB—, así que las 4-6× se cumplen con margen. Devolver esto a una triangular de 880 Hz porque
+suena más agradable es devolver el aviso que no se oye.
+
+El volumen se ajusta desde el tablero en tres niveles recordados (`cronchy_volumen_panel`), y
+**cambiarlo suena en el momento**: un pedido real no se puede provocar a voluntad, así que sin esa
+previsualización se estaría ajustando a ciegas. **Bajo sigue siendo más fuerte que el aviso viejo**
+(+7,9 dB medidos), porque frecuencia y onda no dependen del nivel. Y lo que ningún nivel arregla:
+la web no puede tocar el volumen de **multimedia** de Android — si está a media asta, no hay código
+que lo suba.
+
+### 20. El cupón descuenta un porcentaje, y lo decide el servidor
+
+Un cupón (`CHURRO10`) descuenta un **porcentaje** sobre la parte del pedido que cubre. El cálculo
+vive entero en `src/lib/cupones.ts`, puro y testeado como `precios.ts`: si necesitas saber cuánto
+descuenta un cupón, importa de ahí.
+
+Es **la regla 1 aplicada al descuento**, igual que la 16 lo es al tiempo y `metodosDePago` al
+dinero: del navegador llega el **código**, nunca el monto. `POST /api/pedidos` lo busca
+(`buscarCuponPorCodigo`), lo aplica desde cero y solo entonces sabe cuánto vale.
+`/api/cupones/validar` existe para pintarlo en vivo mientras el cliente escribe, con el mismo
+contrato que `/api/zonas/cotizar`: **no es la fuente del precio**.
+
+Tres cosas del cálculo que no se cambian:
+
+- **La base son los items elegibles. El domicilio no entra**, y no es un olvido: la regla 13 dice
+  que el domicilio siempre se cobra porque lo ejecuta un courier externo. Ni siquiera llega como
+  parámetro a `aplicarCupon`.
+- **Se redondea una sola vez sobre la base**, nunca línea por línea: redondear por item deriva unos
+  pesos y el total deja de cuadrar con el que el cliente vio.
+- **Un upsell se evalúa como cualquier otro item.** La bebida agregada desde la ficha de un churro
+  es su propio `order_item` con su propio `productId` (regla 8), así que un cupón de churros **no**
+  la descuenta. Es correcto, y hay un test que lo fija.
+
+**Un cupón que no sirve corta el pedido; no se ignora en silencio.** `calcularPedido` devuelve
+`cupon_invalido` con su motivo y el checkout lo traduce con `mensajeDeRechazo` — la misma función
+que usa la comprobación en vivo, para que el mismo problema no se explique de dos maneras. Cobrarle
+el precio lleno a quien vio un total con descuento es peor que rechazarle el pedido: puede haberlo
+transferido ya por Nequi. Ojo con el `null`: significa "escribió un código que no existe", que **no**
+es lo mismo que no haber escrito ninguno (`undefined`).
+
+El alcance se guarda como categorías y productos (`cupon_categoria`, `cupon_producto`) y se expande
+a ids de producto **en cada lectura**: así un producto que entre mañana a una categoría cubierta
+queda cubierto solo. La columna `alcance` no sobra —sin ella, "toda la carta" y "acoté pero no marqué
+nada" son las dos cero filas, y la segunda descontaría sobre todo.
+
+**Solo hay dos frenos: la fecha (`vence_el`) y el switch `activo`.** No hay tope de usos ni límite
+por cliente, y es una decisión tomada, no un olvido: un código filtrado lo puede reusar la misma
+persona hasta que venza. Si algún día hace falta, `usos_maximos` se cuenta sobre `order` (así un
+pedido cancelado devuelve el cupo solo) con un `SELECT … FOR UPDATE` sobre la fila del cupón.
+`vence_el` es `date` y no `timestamptz` porque "vence el 30 de septiembre" es un día de Bogotá: se
+compara como cadena contra `diaDeBogota()`, y el cupón vale **durante todo** su último día.
+
+Nada se borra (regla 9): se apaga. Por eso `order.cupon_id` no lleva `ON DELETE` — es historial—, y
+`order.cupon_codigo` es el snapshot que se muestra, igual que `zona_nombre` (regla 2).
+
+**El cupón llega por tres caminos y los tres escriben en el mismo sitio** (`carrito.cupon`): el campo
+del paso 3, el link `?cupon=CHURRO10` y el aviso de la carta. Ese aviso (`cupon.anuncio`) cuelga del
+cupón y no de `store` a propósito: así **muere con él** en vez de seguir anunciando una promo vencida.
+Un índice único parcial garantiza que solo haya uno anunciado a la vez.
+
+Y el detalle que hay que mirar dos veces al tocar el checkout: **el total con descuento se usa en
+cuatro sitios** —el resumen, el «Transfiere este valor» de Nequi, el botón de confirmar y la devuelta
+del efectivo—. Por eso existe `totalAPagar` como una sola constante: olvidar la del `DatoCopiable`
+no cobra de más, hace algo peor, que es que el cliente **transfiera** de más.
+
+### 21. El consentimiento de datos lo sella el servidor
+
+El check del tratamiento de datos (Ley 1581) se guarda en `order.politica_aceptada_en`, un
+`timestamptz` **nullable, y ese nullable es el modelo** — igual que `programado_para` (regla 16):
+un booleano al lado admitiría la fila imposible "aceptó sin hora", que es justo la que no sirve
+de evidencia. `NULL` significa "no hay consentimiento registrado".
+
+Es **la regla 1 aplicada al consentimiento**: del navegador llega el **sí** (`politicaAceptada`,
+que `crearPedidoSchema` exige `true`) y **nunca el cuándo**. La hora la pone `crearPedidoEnDB` con
+`now()`, el mismo reloj que escribe `creado_en`. Un sello de tiempo que elige el propio interesado
+no prueba nada, y el reloj de un teléfono se cambia en dos toques.
+
+**Era un `disabled` en un botón, o sea nada.** Hasta la migración `0029` el check vivía solo como
+`useState` en el checkout: no viajaba en el payload, no estaba en Zod y no había columna. Cualquier
+POST armado a mano creaba el pedido sin dejar rastro. Por eso el campo es **requerido** en el
+esquema y no opcional — si vuelve a ser opcional, la columna deja de significar algo.
+
+Tres cosas que no se cambian:
+
+- **No se rellena hacia atrás.** Los pedidos anteriores a la columna se quedan en `NULL` y el XLSX
+  dice "No". Inventarles una fecha es exactamente lo que un registro de consentimiento no puede
+  hacer: quedaría escrito que aceptaron el día que se corrió la migración.
+- **No vive en el store persistido.** `datos-cliente.ts` ya lo decía de antes: el visto bueno es
+  una decisión de UN pedido, no un dato del cliente. Se vuelve a marcar cada vez, y eso es lo que
+  hace que cada pedido tenga su propia evidencia.
+- **En el XLSX son dos columnas** (`Aceptó datos` + `Aceptó el`) más la hoja `Clientes`, que agrega
+  por teléfono y responde "¿este cliente consintió, y desde cuándo?". Ahí el criterio es **al menos
+  una** aceptación entre sus pedidos: el cliente de siempre tiene pedidos viejos sin marca y nuevos
+  con ella, y decir "No" por el primero sería falso.
+
+Falta la **página** de la política a la que apunta el check —hoy el texto no enlaza a ninguna
+parte—. Cuando llegue, el pedido debería guardar además **qué versión** aceptó: un registro que
+dice "aceptó" sin poder mostrar qué decía el documento ese día se sostiene a medias.
+
 ---
 
 ## Convenciones
@@ -724,11 +886,30 @@ servidor— y el audio necesita **un gesto del usuario** antes de poder sonar: d
 - **Conexión a Supabase:** usar el transaction pooler (puerto 6543) con
   `postgres(url, { prepare: false })`. Las migraciones y el introspect usan el session
   pooler (5432). La conexión directa NO sirve: es IPv6.
-- **Sin RLS, y por eso la llave `anon` NUNCA sale al cliente.** Las tablas no tienen
-  Row Level Security porque todo el acceso pasa por el servidor. Como consecuencia:
-  prohibido usar `NEXT_PUBLIC_SUPABASE_ANON_KEY` o el cliente de Supabase en
-  componentes del navegador. Si esa llave se filtra, las tablas quedan expuestas.
-  Las subidas a Storage también van desde el servidor.
+- **RLS activado y sin políticas: a la base se entra por `DATABASE_URL` y por ningún otro sitio.**
+  Las 20 tablas llevan `.enableRLS()` en `schema.ts` y **cero políticas**, que en Postgres significa
+  denegar todo a cualquier rol que no salte RLS. La app no se entera: conecta como `postgres`, que
+  tiene `bypassrls` y es dueño de las tablas — igual que las migraciones, los tests y el `pg_cron`
+  de la purga.
+
+  **Esto estuvo apagado y no era teórico.** Con la llave `anon` —un secreto que vive en un
+  dashboard, no en el código— se leían y escribían las 20 tablas: teléfono y dirección de cada
+  cliente, y el hash de la clave del panel. Lo reportó Supabase como `rls_disabled_in_public`.
+
+  Sigue **prohibido** usar `NEXT_PUBLIC_SUPABASE_ANON_KEY` o el cliente de Supabase en el navegador,
+  y ahora por un motivo más fuerte: sin políticas no devolvería ni una fila. Las subidas a Storage
+  también van desde el servidor.
+
+  Tres cosas que hay que saber antes de tocar esto:
+
+  - **Una tabla nueva nace SIN RLS.** Hay que acordarse del `.enableRLS()`; si se olvida, lo vuelve
+    a cazar el linter de Supabase.
+  - **Nunca `FORCE ROW LEVEL SECURITY`.** Con eso el dueño dejaría de saltar RLS y, sin políticas,
+    la aplicación entera se quedaría sin leer nada.
+  - **RLS protege tablas, no funciones.** `purgar_comprobantes` quedaba invocable por RPC con la
+    llave `anon`, y el `REVOKE` hay que hacérselo a **PUBLIC**, no a `anon`: Postgres concede
+    EXECUTE a PUBLIC en toda función nueva, así que revocar por rol es un no-op (pasó en la
+    migración 0027 y lo arregla la 0028).
 - **Storage: dos buckets, y la diferencia importa.** `comprobantes` es **privado**
   —guarda datos personales y se lee por un proxy autenticado del panel— y se purga a
   los 60 días con **`pg_cron` dentro de Supabase** (no un cron de Vercel: corre en la
@@ -850,8 +1031,10 @@ servidor— y el audio necesita **un gesto del usuario** antes de poder sonar: d
 - Validación con Zod en el borde de cada route handler, antes de tocar la base.
 - Los estados del pedido se registran en `order_status_event`, no solo actualizando
   `order.estado`.
-- Tests con Vitest para `precios.ts`, `horario.ts`, `zonas.ts`, `pedidos/franjas.ts` y
-  `pedidos/dias.ts` como mínimo — es donde un bug cuesta plata real. Para `zonas.ts`: punto
+- Tests con Vitest para `precios.ts`, `horario.ts`, `zonas.ts`, `cupones.ts`, `pedidos/franjas.ts` y
+  `pedidos/dias.ts` como mínimo — es donde un bug cuesta plata real. Para `cupones.ts`: el alcance
+  acotado, que un upsell no entre, que el domicilio nunca entre en la base, el redondeo sobre el
+  total y no por línea, y que el último día de vigencia todavía valga. Para `zonas.ts`: punto
   dentro, fuera, en el borde, en solapamiento (gana prioridad) y con todas las zonas apagadas.
   Para `franjas.ts`: la anticipación de hoy, que mañana no la arrastre, el turno partido, el
   límite del cierre y que el instante guardado sea el de Bogotá y no el de UTC. Para `dias.ts`:

@@ -1,0 +1,47 @@
+# Lo que Vercel NO hace.
+#
+# Vercel ya construye en cada push y bloquea el deploy si el build falla, asi que aqui NO se
+# repite `pnpm build`: duplicarlo obligaria ademas a meter una DATABASE_URL como secreto —la
+# home es SSG y consulta la tienda al construir— y darle a GitHub acceso a la base real.
+#
+# Lo que falta cubrir es lint, tipos y tests, y eso corre SIN un solo secreto: el unico test que
+# habla con PostGIS (`zonas.test.ts`) se protege con `describe.skipIf(!base)`, asi que sin
+# DATABASE_URL se salta solo. Si algun dia alguien anade un test que exija base, este workflow se
+# pondra rojo — y esa es la senal correcta, no un fallo del CI.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Un push encima de otro cancela el anterior: interesa el resultado del ultimo commit.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Sin `version:`, lee la del campo `packageManager` del package.json. Asi no hay un numero
+      # duplicado aqui que se desincronice del que usa todo el mundo en local.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm lint
+
+      # `next build` typechequea, pero el build no corre aqui: sin esto un error de tipos solo
+      # aparecería en Vercel, o sea despues de fusionar.
+      - run: pnpm typecheck
+
+      # Vitest desactiva el watch solo cuando ve CI=true, que Actions siempre define.
+      - run: pnpm test

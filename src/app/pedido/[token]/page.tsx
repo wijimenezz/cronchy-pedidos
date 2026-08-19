@@ -16,8 +16,10 @@ import {
   User,
   Wallet,
 } from "lucide-react";
-import { getStore } from "@/db/queries/store";
+import { getStore, obtenerUbicacionTienda } from "@/db/queries/store";
 import { obtenerPedidoPorToken, type PedidoPublico } from "@/db/queries/pedidos";
+import { comoLlegarUrl } from "@/lib/tienda/local";
+import { puntoDesdeGeoJSON } from "@/lib/zonas";
 import { linkContactoWhatsapp, normalizarTelefono } from "@/lib/notificaciones/transporte";
 import { cuandoCorto, horaCorta, pesos } from "@/lib/notificaciones/plantillas";
 import {
@@ -90,6 +92,19 @@ export default async function SeguimientoPedido({
   if (!pedido) notFound();
 
   const esDomicilio = pedido.tipo === "domicilio";
+
+  /**
+   * Dónde queda el local, para quien viene a recoger. Se pide aparte porque en `getStore()` la
+   * columna `ubicacion` llega como WKB en hexadecimal.
+   *
+   * Solo hace falta en los pedidos para recoger, así que no se consulta en los de domicilio: ahí el
+   * mapa que importa es el del cliente, que ya viaja en el propio pedido.
+   */
+  const ubicacionLocal = esDomicilio ? null : puntoDesdeGeoJSON(await obtenerUbicacionTienda(tienda.id));
+  const comoLlegar = esDomicilio
+    ? null
+    : comoLlegarUrl({ direccion: tienda.direccion, ubicacion: ubicacionLocal });
+
   const hitos = hitosDelPedido(pedido.tipo);
   const actual = indiceDeHito(pedido.estado, pedido.tipo);
   const cancelado = pedido.estado === "cancelado";
@@ -176,7 +191,12 @@ export default async function SeguimientoPedido({
           {esDomicilio ? "Datos de entrega" : "Recoges en tienda"}
         </h2>
 
-        {esDomicilio && pedido.punto && <MapaPedido punto={pedido.punto} />}
+        {/* En domicilio, el pin del cliente; en recoger, el del local. El mismo componente, porque
+            la pregunta que responde es la misma —dónde queda esto— y solo cambia de quién es el
+            punto. Sin pin no se pinta nada: un mapa centrado en un respaldo diría una mentira. */}
+        {esDomicilio
+          ? pedido.punto && <MapaPedido punto={pedido.punto} />
+          : ubicacionLocal && <MapaPedido punto={ubicacionLocal} />}
 
         <dl className="flex flex-col gap-2.5">
           {esDomicilio ? (
@@ -197,6 +217,20 @@ export default async function SeguimientoPedido({
                 {tienda.direccion}
               </Dato>
             )
+          )}
+
+          {/* El botón que de verdad lleva a alguien hasta la puerta. Abre Maps con el pin del local
+              y, si no lo han fijado, busca por la dirección escrita (`comoLlegarUrl`). */}
+          {comoLlegar && (
+            <a
+              href={comoLlegar}
+              target="_blank"
+              rel="noopener"
+              className="flex min-h-11 items-center justify-center gap-2 self-start rounded-full border border-crema-oscura px-5 font-cuerpo text-sm font-bold text-cafe"
+            >
+              <MapPin className="size-4" />
+              Cómo llegar
+            </a>
           )}
 
           <Dato icono={User} etiqueta="A nombre de">
@@ -282,8 +316,10 @@ export default async function SeguimientoPedido({
             </div>
           )}
           {pedido.descuento > 0 && (
-            <div className="flex justify-between">
-              <dt>Descuento</dt>
+            <div className="flex justify-between text-exito">
+              {/* Con el código si lo hubo: es lo que le recuerda al cliente que su cupón sí
+                  entró, y de paso qué código usar la próxima vez. */}
+              <dt>{pedido.cuponCodigo ? `Descuento ${pedido.cuponCodigo}` : "Descuento"}</dt>
               <dd>−{pesos(pedido.descuento)}</dd>
             </div>
           )}

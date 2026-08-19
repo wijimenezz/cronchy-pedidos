@@ -91,7 +91,8 @@ export function DescargarPedidos({ hoy }: { hoy: string }) {
             </p>
 
             <p className="font-cuerpo text-[12px] text-cafe-tenue">
-              Cuatro hojas: resumen por día, pedidos, detalle por producto y productos vendidos.
+              Cinco hojas: resumen por día, pedidos, detalle por producto, productos vendidos y
+              clientes.
             </p>
 
             <a
