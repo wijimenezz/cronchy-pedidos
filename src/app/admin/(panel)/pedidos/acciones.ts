@@ -120,6 +120,10 @@ async function avisoDelAvance(
   const encontrado = await obtenerPedidoPorNumero(storeId, numero);
   if (!encontrado) return null;
 
+  // Antes de marcar, igual que la comprobación de arriba y por la misma razón: quemar el candado
+  // de un aviso que nunca se envía dejaría ese estado contado como notificado para siempre.
+  if (!encontrado.pedido.aceptaAvisos) return null;
+
   const marcado = await marcarEstadoNotificado(storeId, encontrado.pedido.id, estado);
   if (!marcado) return null;
 
@@ -208,6 +212,12 @@ export async function prepararAviso(entrada: {
   const tienda = await getStore();
   const encontrado = await obtenerPedidoPorNumero(tienda.id, parsed.data.numero);
   if (!encontrado) return { ok: false, error: "Ese pedido ya no existe." };
+
+  // El botón no debería estar en pantalla —`avisoPendiente` ya lo apaga—, pero una server action
+  // se invoca sin pasar por la UI. Y va antes del candado por lo mismo que el resto.
+  if (!encontrado.pedido.aceptaAvisos) {
+    return { ok: false, error: "Este cliente no quiso avisos por WhatsApp." };
+  }
 
   const marcado = await marcarEstadoNotificado(
     tienda.id,

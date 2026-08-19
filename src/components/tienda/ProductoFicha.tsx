@@ -379,10 +379,31 @@ function GrupoEnganche({
   if (plegable) {
     return (
       <div>
+        {/* Lo que se puede AGREGAR se separa de lo que ya está resuelto: sin esto, esta caja se
+            veía igual que el resumen plegado de un grupo obligatorio —misma crema, sin borde—, y
+            la única sección que hace vender pasaba por "esto ya lo llenaste".
+
+            El naranja va en el borde y en un tinte al 10 %, nunca en el texto ni de relleno: el
+            rótulo mide 14 px y DESIGN.md §1 no lo deja ("para texto pequeño usa café", "nunca
+            crema sobre naranja en texto chico"). Medido sobre este fondo, el naranja de marca da
+            2,5:1 y el oscuro 3,1:1, y un relleno con texto crema 2,8:1 — los tres por debajo del
+            4,5:1 de AA. En café son 11,8:1. Es el mismo documento el que dice que "color/opacidad
+            sirve para píldoras y bordes", y esto es justo eso.
+
+            Solo cuando `cobra`: los plegables gratis (Azúcar y canela, Gas, Nivel de dulce) se
+            abren para QUITAR algo, y pintarlos del naranja de acción diría lo contrario. Es la
+            misma condición que decide el rótulo unas líneas abajo, no un criterio nuevo.
+
+            El `border` está en la parte común y el caso gratis lo neutraliza en transparente,
+            para que las dos variantes queden alineadas al píxel al apilarse. */}
         <button
           type="button"
           onClick={onToggleExpandir}
-          className="flex w-full items-center justify-between rounded-md bg-crema-oscura/50 px-3 py-2 text-sm font-semibold text-cafe"
+          className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-sm font-semibold text-cafe ${
+            cobra
+              ? "border-naranja bg-naranja/10"
+              : "border-transparent bg-crema-oscura/50"
+          }`}
         >
           {/* El mismo texto abierto y cerrado: quien lo lee ya sabe qué hay dentro, y el estado
               lo dice el chevron. Antes cambiaba entre dos frases distintas.
@@ -401,8 +422,10 @@ function GrupoEnganche({
               ? `+ Agregar ${etiquetaCorta(enganche.nombreGrupo).toLowerCase()} adicionales`
               : etiquetaCorta(enganche.nombreGrupo)}
           </span>
+          {/* El acento que remata la caja. Hereda el café del botón salvo cuando hay algo que
+              agregar, y es el sitio donde el naranja sí puede ir sin tocar el texto. */}
           <ChevronDown
-            className={`size-4 transition-transform ${expandido ? "rotate-180" : ""}`}
+            className={`size-4 transition-transform ${cobra ? "text-naranja" : ""} ${expandido ? "rotate-180" : ""}`}
           />
         </button>
         {/* Alineado con el `px-3` del botón de arriba, para que se lea como su subtítulo. */}

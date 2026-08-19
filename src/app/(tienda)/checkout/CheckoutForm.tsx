@@ -39,7 +39,9 @@ import { Campo, claseControl } from "@/components/checkout/Campo";
 import { CampoCupon, type EstadoCupon } from "@/components/checkout/CampoCupon";
 import { DatoCopiable } from "@/components/checkout/DatoCopiable";
 import { QrDePago } from "@/components/checkout/QrDePago";
+import { PoliticaDatos } from "@/components/checkout/PoliticaDatos";
 import { SelectorFecha } from "@/components/checkout/SelectorFecha";
+import { VERSION_POLITICA } from "@/lib/legal/politica-datos";
 import { SubidaComprobante } from "@/components/checkout/SubidaComprobante";
 import {
   SelectorUbicacion,
@@ -358,6 +360,10 @@ export function CheckoutForm({
   const { recibeOtro, recibeNombre, recibeTelefono } = datos;
 
   const [aceptaPolitica, setAceptaPolitica] = useState(false);
+  // Los avisos del estado del pedido. Arranca en `true` —es lo que el negocio hace por defecto y
+  // lo que el cliente espera— y, como `aceptaPolitica`, NO se persiste: es una decisión de este
+  // pedido, y arrastrar un "no" de hace tres semanas sería decidir por él.
+  const [aceptaAvisos, setAceptaAvisos] = useState(true);
   // Con cuánto va a pagar en efectivo. NO va al carrito persistido, a diferencia del método
   // de pago: aquel se guarda porque el cliente sale a la app de Nequi y vuelve, y aquí no hay
   // adónde salir. Un "pago con $50.000" heredado del pedido de la semana pasada sería peor
@@ -707,6 +713,10 @@ export function CheckoutForm({
       // Viaja el sí, no la hora: cuándo aceptó lo sella el servidor al insertar. Igual que con el
       // pin y el cupón, el navegador manda *qué* eligió y no *cuánto vale*.
       politicaAceptada: aceptaPolitica,
+      // QUÉ versión aceptó. Sin esto, el registro dice que aceptó sin poder mostrar qué decía el
+      // documento ese día — que es la mitad de lo que la propia política promete conservar.
+      politicaVersion: VERSION_POLITICA,
+      aceptaAvisos,
       items: itemsPedido,
     };
   }
@@ -1642,18 +1652,54 @@ export function CheckoutForm({
             )}
           </section>
 
-          <label className="flex cursor-pointer items-start gap-3 rounded-md bg-tarjeta p-4 font-cuerpo text-[13px] text-cafe-suave shadow-tarjeta">
+          <div className="flex flex-col gap-3 rounded-md bg-tarjeta p-4 shadow-tarjeta">
+            {/* "Avisos" y no "notificaciones automáticas": el mensaje lo dispara un empleado desde
+                el panel (regla 10), y prometer un envío automático que no ocurre es prometer de
+                más. Marcada por defecto porque es finalidad necesaria del servicio —quien pide
+                quiere saber cuándo sale su comida—, no publicidad. */}
+            <label className="flex cursor-pointer items-start gap-3 font-cuerpo text-[13px] text-cafe-suave">
+              <input
+                type="checkbox"
+                checked={aceptaAvisos}
+                onChange={(e) => setAceptaAvisos(e.target.checked)}
+                className="mt-0.5 size-4 shrink-0 accent-[var(--naranja)]"
+              />
+              <span>
+                Recibir avisos por WhatsApp sobre el estado de tu pedido{" "}
+                <span className="text-cafe-tenue">(Recomendado)</span>
+              </span>
+            </label>
+
+            {!aceptaAvisos && (
+              // Si dice que no, hay que decirle cómo se entera. El seguimiento existe siempre; sin
+              // esta línea, rechazar los avisos se siente como quedarse a ciegas.
+              <p className="rounded-sm bg-crema p-3 font-cuerpo text-[13px] text-cafe-suave">
+                No te escribiremos. Podrás seguir tu pedido en el enlace que te
+                mostramos al confirmarlo.
+              </p>
+            )}
+          </div>
+
+          {/* El input va FUERA del label, enlazado por `id`, y no envuelto como el de arriba.
+              Es lo que deja meter el "Ver más" en la misma frase sin que abrir la política
+              marque o desmarque la aceptación: el botón no es descendiente del label, así que
+              no hay nada que burbujee. Y el nombre accesible de la casilla sigue siendo solo
+              la frase, sin el "Ver más" pegado detrás. */}
+          <div className="flex items-start gap-3 rounded-md bg-tarjeta p-4 shadow-tarjeta">
             <input
               type="checkbox"
+              id="acepta-politica"
               checked={aceptaPolitica}
               onChange={(e) => setAceptaPolitica(e.target.checked)}
               className="mt-0.5 size-4 shrink-0 accent-[var(--naranja)]"
             />
-            <span>
-              Al continuar, aceptas nuestra política de tratamiento de datos
-              personales.
-            </span>
-          </label>
+            <p className="font-cuerpo text-[13px] text-cafe-suave">
+              <label htmlFor="acepta-politica" className="cursor-pointer">
+                Acepto la política de tratamiento de datos personales.
+              </label>{" "}
+              <PoliticaDatos />
+            </p>
+          </div>
         </>
       )}
 
