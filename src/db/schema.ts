@@ -527,6 +527,17 @@ export const order = pgTable("order", {
 	// impedirlo. Es un instante absoluto, no un "19:00": la conversión desde la hora de Bogotá
 	// se hace una sola vez, en el servidor (regla 6).
 	programadoPara: timestamp("programado_para", { withTimezone: true, mode: 'string' }),
+	// Cuándo aceptó el cliente el tratamiento de datos. NULL = no hay consentimiento registrado,
+	// y eso incluye todo lo que se cobró antes de que existiera esta columna: no se rellena hacia
+	// atrás, porque inventar una fecha de consentimiento es justo lo que un registro de
+	// consentimiento no puede hacer.
+	//
+	// El nullable ES el modelo, igual que `programado_para` (regla 16): un booleano al lado
+	// admitiría la fila imposible "aceptó sin hora", que es la que no sirve de evidencia.
+	//
+	// La hora la pone el SERVIDOR (regla 1 aplicada al consentimiento): del navegador llega el sí,
+	// nunca el cuándo. Un sello de tiempo que el propio interesado elige no prueba nada.
+	politicaAceptadaEn: timestamp("politica_aceptada_en", { withTimezone: true, mode: 'string' }),
 	creadoEn: timestamp("creado_en", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	index("idx_order_estado").using("btree", table.storeId.asc().nullsLast().op("timestamptz_ops"), table.estado.asc().nullsLast().op("uuid_ops"), table.creadoEn.desc().nullsFirst().op("enum_ops")),

@@ -3,6 +3,7 @@ import type { PedidoParaExport } from "@/db/queries/resumen";
 import { enHoraDeBogota, rotuloDeDia } from "@/lib/pedidos/dias";
 import { METODO_PAGO_ETIQUETA } from "@/lib/pedidos/estados";
 import {
+  hojaClientes,
   hojaDetalle,
   hojaPedidos,
   hojaProductos,
@@ -148,9 +149,13 @@ function datosPedidos(pedidos: PedidoParaExport[]): SheetData {
       "Domicilio",
       "Descuento",
       // Junto a "Descuento" y no al final: quien lee la fila quiere el porqué al lado de la cifra.
+      "Usó cupón",
       "Cupón",
       "Total",
       "Notas",
+      // El consentimiento va al final: es metadato de auditoría, no operación del pedido.
+      "Aceptó datos",
+      "Aceptó el",
       "Id de orden",
     ]),
     ...hojaPedidos(pedidos).map((p) => [
@@ -177,9 +182,12 @@ function datosPedidos(pedidos: PedidoParaExport[]): SheetData {
       dinero(p.productos),
       dinero(p.domicilio),
       dinero(p.descuento),
+      texto(p.usoCupon),
       texto(p.cupon),
       dinero(p.total),
       texto(p.notas),
+      texto(p.aceptoDatos),
+      momento(p.aceptoEl),
       texto(p.id),
     ]),
   ];
@@ -222,14 +230,51 @@ function datosProductos(pedidos: PedidoParaExport[]): SheetData {
   ];
 }
 
+function datosClientes(pedidos: PedidoParaExport[]): SheetData {
+  return [
+    cabecera([
+      // Primero el teléfono: es lo que identifica al cliente, y el nombre solo lo acompaña.
+      "Teléfono",
+      "Cliente",
+      "Pedidos",
+      "Cancelados",
+      "Gastado",
+      "Aceptó datos",
+      "Aceptó por primera vez",
+      "Aceptó por última vez",
+    ]),
+    ...hojaClientes(pedidos).map((c) => [
+      texto(c.telefono),
+      texto(c.cliente),
+      { value: c.pedidos, type: Number },
+      { value: c.cancelados, type: Number },
+      dinero(c.gastado),
+      texto(c.aceptoDatos),
+      momento(c.primeraAceptacion),
+      momento(c.ultimaAceptacion),
+    ]),
+  ];
+}
+
+/**
+ * Un ancho por columna, en el mismo orden que la cabecera.
+ *
+ * `write-excel-file` no se queja si el array no cuadra: si sobran anchos los ignora, y si faltan
+ * deja el resto en el default de Excel. Eso ya pasó una vez —`pedidos` tenía 25 anchos para 26
+ * columnas desde que se añadió "Cupón", así que el UUID de "Id de orden" salía estrecho y todo lo
+ * demás corrido un puesto—, y como nada falla, la única forma de notarlo es contando. Al tocar una
+ * cabecera hay que tocar su fila de aquí.
+ */
 const ANCHOS = {
   resumen: [16, 10, 12, 12, 10, 14, 14, 12, 14],
+  // 29 columnas.
   pedidos: [
-    10, 18, 18, 14, 18, 22, 16, 22, 16, 18, 34, 26, 12, 12, 16, 20, 18, 16, 12, 14, 12, 12, 14, 30,
-    38,
+    10, 18, 18, 14, 18, 22, 16, 22, 16, 18, 34, 26, 12, 12, 16, 20, 18, 16, 12, 14, 12, 12, 12, 14,
+    14, 30, 14, 18, 38,
   ],
   detalle: [10, 18, 14, 30, 10, 44, 14, 26],
   productos: [34, 18, 20, 14],
+  clientes: [16, 22, 10, 12, 14, 14, 18, 18],
 };
 
 export type LibroDePedidos = {
@@ -238,7 +283,11 @@ export type LibroDePedidos = {
 };
 
 /**
- * El libro completo: Resumen, Pedidos, Detalle y Productos vendidos.
+ * El libro completo: Resumen, Pedidos, Detalle, Productos vendidos y Clientes.
+ *
+ * `Clientes` va al final y no junto a `Pedidos` porque es la única que no se lee por pedido:
+ * responde "quién compra aquí y qué consintió", que es la pregunta de una auditoría, no la del
+ * cierre de caja.
  *
  * Falta una hoja que sí tiene el panel del que se tomó la referencia, y falta a propósito:
  * `Sedes`, porque aquí hay una sola tienda.
@@ -263,7 +312,7 @@ export async function libroDePedidos(
       sheet: "Pedidos",
       data: datosPedidos(pedidos),
       columns: ANCHOS.pedidos.map((width) => ({ width })),
-      // La cabecera se queda a la vista al bajar: son veinticuatro columnas y sin esto no se
+      // La cabecera se queda a la vista al bajar: son veintinueve columnas y sin esto no se
       // sabe qué se está mirando en la fila 200.
       stickyRowsCount: 1,
     },
@@ -277,6 +326,12 @@ export async function libroDePedidos(
       sheet: "Productos vendidos",
       data: datosProductos(pedidos),
       columns: ANCHOS.productos.map((width) => ({ width })),
+      stickyRowsCount: 1,
+    },
+    {
+      sheet: "Clientes",
+      data: datosClientes(pedidos),
+      columns: ANCHOS.clientes.map((width) => ({ width })),
       stickyRowsCount: 1,
     },
   ]).toBuffer();

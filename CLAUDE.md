@@ -845,6 +845,40 @@ cuatro sitios** —el resumen, el «Transfiere este valor» de Nequi, el botón 
 del efectivo—. Por eso existe `totalAPagar` como una sola constante: olvidar la del `DatoCopiable`
 no cobra de más, hace algo peor, que es que el cliente **transfiera** de más.
 
+### 21. El consentimiento de datos lo sella el servidor
+
+El check del tratamiento de datos (Ley 1581) se guarda en `order.politica_aceptada_en`, un
+`timestamptz` **nullable, y ese nullable es el modelo** — igual que `programado_para` (regla 16):
+un booleano al lado admitiría la fila imposible "aceptó sin hora", que es justo la que no sirve
+de evidencia. `NULL` significa "no hay consentimiento registrado".
+
+Es **la regla 1 aplicada al consentimiento**: del navegador llega el **sí** (`politicaAceptada`,
+que `crearPedidoSchema` exige `true`) y **nunca el cuándo**. La hora la pone `crearPedidoEnDB` con
+`now()`, el mismo reloj que escribe `creado_en`. Un sello de tiempo que elige el propio interesado
+no prueba nada, y el reloj de un teléfono se cambia en dos toques.
+
+**Era un `disabled` en un botón, o sea nada.** Hasta la migración `0029` el check vivía solo como
+`useState` en el checkout: no viajaba en el payload, no estaba en Zod y no había columna. Cualquier
+POST armado a mano creaba el pedido sin dejar rastro. Por eso el campo es **requerido** en el
+esquema y no opcional — si vuelve a ser opcional, la columna deja de significar algo.
+
+Tres cosas que no se cambian:
+
+- **No se rellena hacia atrás.** Los pedidos anteriores a la columna se quedan en `NULL` y el XLSX
+  dice "No". Inventarles una fecha es exactamente lo que un registro de consentimiento no puede
+  hacer: quedaría escrito que aceptaron el día que se corrió la migración.
+- **No vive en el store persistido.** `datos-cliente.ts` ya lo decía de antes: el visto bueno es
+  una decisión de UN pedido, no un dato del cliente. Se vuelve a marcar cada vez, y eso es lo que
+  hace que cada pedido tenga su propia evidencia.
+- **En el XLSX son dos columnas** (`Aceptó datos` + `Aceptó el`) más la hoja `Clientes`, que agrega
+  por teléfono y responde "¿este cliente consintió, y desde cuándo?". Ahí el criterio es **al menos
+  una** aceptación entre sus pedidos: el cliente de siempre tiene pedidos viejos sin marca y nuevos
+  con ella, y decir "No" por el primero sería falso.
+
+Falta la **página** de la política a la que apunta el check —hoy el texto no enlaza a ninguna
+parte—. Cuando llegue, el pedido debería guardar además **qué versión** aceptó: un registro que
+dice "aceptó" sin poder mostrar qué decía el documento ese día se sostiene a medias.
+
 ---
 
 ## Convenciones
