@@ -116,13 +116,20 @@ export async function POST(request: Request) {
   // serverless, disparar sin esperar mata la instancia antes de que salgan las peticiones. Van en
   // paralelo porque son canales independientes —el push despierta al panel, Telegram cuenta el
   // pedido— y encadenarlos le sumaría al cliente la espera de los dos.
-  try {
-    await Promise.all([
-      enviarPushPedidoNuevo(tienda.id, pedido.numero),
-      avisarPedidoNuevo(input, resultado.valor, pedido, tienda),
-    ]);
-  } catch (error) {
-    console.error("No se pudo avisar al panel del pedido nuevo:", error);
+  //
+  // `allSettled` y no `all`, que es lo que había: `all` rechaza en el primer fallo y devuelve el
+  // control con la otra petición todavía en vuelo — justo la instancia muerta a medio camino que
+  // el `await` venía a evitar. Hoy ninguna de las dos rechaza (las dos se tragan sus errores por
+  // dentro), así que esto es el seguro para el día en que una deje de hacerlo.
+  const avisos = await Promise.allSettled([
+    enviarPushPedidoNuevo(tienda.id, pedido.numero),
+    avisarPedidoNuevo(input, resultado.valor, pedido, tienda),
+  ]);
+
+  for (const aviso of avisos) {
+    if (aviso.status === "rejected") {
+      console.error("No se pudo avisar al panel del pedido nuevo:", aviso.reason);
+    }
   }
 
   return NextResponse.json(

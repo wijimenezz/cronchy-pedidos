@@ -55,18 +55,31 @@ export default async function PedidosPage({
   // su propia barra: el contador y el botón de avisos son estado suyo y tienen que compartir
   // fila con estos controles, que son de servidor. Se los pasamos como nodos; nada de estado
   // se mueve de sitio.
+  //
+  // **Los dos que van sueltos en esa barra llevan `key` y no es decorativo.** `ListaPedidos` los
+  // pinta como hermanos del contador, y una fila de hermanos es un array para el reconciliador.
+  // Un elemento creado en posición de **prop** —no de child— nunca pasa por `validateChildKeys`,
+  // así que cruza la frontera RSC sin marcar y React reclama la key al reconciliar. `acciones` no
+  // la necesita: es un Fragment, y ahí lo que se reconcilia es el fragmento entero. Tampoco la
+  // rama de abajo, donde estos mismos componentes sí son children estáticos y quedan marcados al
+  // crearse. Es un aviso solo de desarrollo, pero uno que sale en cada carga enseña a no mirar la
+  // consola.
   if (esHoy) {
     return (
       <ListaPedidos
         // Se renderiza en el servidor la primera carga y de ahí en adelante manda el polling:
         // así el empleado ve los pedidos de inmediato al abrir, sin un salto de pantalla vacía.
         iniciales={await listarPedidos(tienda.id)}
-        selectorDia={<SelectorDia dia={dia} hoy={hoy} rotulo={rotulo} />}
+        selectorDia={<SelectorDia key="selector-dia" dia={dia} hoy={hoy} rotulo={rotulo} />}
         /* Solo admin: el estimado es una promesa comercial, no una operación de turno. El
            `exigirRol("admin")` de la acción es quien corta de verdad (regla 12). */
         estimado={
           esAdmin ? (
-            <TiempoEstimado min={tienda.minutosEstimadoMin} max={tienda.minutosEstimadoMax} />
+            <TiempoEstimado
+              key="estimado"
+              min={tienda.minutosEstimadoMin}
+              max={tienda.minutosEstimadoMax}
+            />
           ) : null
         }
         acciones={acciones}

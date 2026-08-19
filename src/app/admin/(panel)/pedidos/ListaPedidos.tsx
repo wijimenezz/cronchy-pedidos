@@ -545,7 +545,15 @@ function Columna({
           />
         )}
         <span className="font-titulo text-sm font-bold text-cafe">{titulo}</span>
-        <span className="font-cuerpo text-xs text-cafe-tenue">{pedidos.length}</span>
+        {/* La cifra de lo que urge se lee desde el otro lado del mostrador: misma talla que el
+            título y en naranja, no el gris de 12 px con el que se contaba lo ya despachado.
+            Quien manda es `urge` —la prop que ya distingue esa columna— y no el rótulo: un
+            `titulo === "Sin aceptar"` se rompería en silencio al renombrar la columna. */}
+        <span
+          className={`font-cuerpo text-sm font-bold ${urge ? "text-naranja-osc" : "text-cafe-tenue"}`}
+        >
+          {pedidos.length}
+        </span>
       </h2>
 
       {pedidos.length === 0 ? (
