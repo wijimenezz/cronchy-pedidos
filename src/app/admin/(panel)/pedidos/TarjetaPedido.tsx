@@ -1,12 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { CalendarClock } from "lucide-react";
+import { Bike, CalendarClock, type LucideIcon, MessageCircle, Printer } from "lucide-react";
 import { useState, useSyncExternalStore, useTransition } from "react";
+import type { Domiciliario } from "@/db/queries/domiciliarios";
 import type { PedidoEnLista } from "@/db/queries/panel";
 import { cuandoCorto, horaCorta, pesos } from "@/lib/notificaciones/plantillas";
-import { ETIQUETA_ESTADO, METODO_PAGO_ETIQUETA } from "@/lib/pedidos/estados";
+import { ETIQUETA_AVANCE, METODO_PAGO_ETIQUETA } from "@/lib/pedidos/estados";
+import { accionesDeTarjeta } from "./acciones-tarjeta";
 import { cambiarEstado, prepararAviso } from "./acciones";
+import { ModalAsignar } from "./ModalAsignar";
 
 /** Cuánto puede esperar un pedido sin aceptar antes de que sea un problema. */
 const AVISO_MIN = 10;
@@ -87,14 +90,22 @@ const hora = horaCorta;
 
 export function TarjetaPedido({
   pedido,
+  domiciliarios,
   alCambiar,
 }: {
   pedido: PedidoEnLista;
+  /**
+   * La agenda, cargada una vez en el servidor y bajada hasta aquí. No se pide por tarjeta: son
+   * los mismos tres o cuatro nombres para todas, y `ModalAsignar` ya añade en local al que se
+   * cree sobre la marcha.
+   */
+  domiciliarios: Domiciliario[];
   alCambiar: () => void;
 }) {
   const [pendiente, iniciar] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [urlBloqueada, setUrlBloqueada] = useState<string | null>(null);
+  const [asignando, setAsignando] = useState(false);
   const ahora = useAhora();
 
   // El polling entrega las fechas como string al pasar por JSON; el render del servidor las
@@ -129,6 +140,20 @@ export function TarjetaPedido({
         : minutosEsperando >= AVISO_MIN
           ? "aviso"
           : "normal";
+
+  // Qué botones lleva esta tarjeta. La tabla vive en un módulo puro y probado porque desde que
+  // los secundarios son iconos sin texto, uno de más no se lee como un error: se lee como un
+  // botón, y quien lo pulse llama a un domiciliario para un pedido que nadie va a llevar.
+  const acciones = accionesDeTarjeta({
+    estado: pedido.estado,
+    tipo: pedido.tipo,
+    siguiente: pedido.siguiente,
+    avisoPendiente: pedido.avisoPendiente,
+  });
+
+  // A una constante y no leído desde `acciones` dentro del JSX: TypeScript pierde el estrechado
+  // al cruzar la frontera del `onClick`, y esto evita el `!` que había antes.
+  const avance = acciones.avanzar;
 
   /**
    * `_blank` y no `location.href`: el panel se queda abierto en su pestaña, que es donde el
@@ -213,8 +238,13 @@ export function TarjetaPedido({
         )}
       </div>
 
-      {/* Tipo y barrio como dos píldoras y no como una frase con puntos: son dos datos que se
-          buscan por separado —cómo sale y a dónde va— y así se distinguen sin leer. */}
+      {/* Tipo, barrio y quién lo lleva como píldoras y no como una frase con puntos: son datos
+          que se buscan por separado —cómo sale, a dónde va y con quién— y así se distinguen sin
+          leer.
+
+          El barrio es el que cede anchura (`truncate` sobre el único que no es `shrink-0`): un
+          nombre a medias sigue orientando, y las otras dos píldoras o están enteras o no dicen
+          nada. */}
       <div className="flex min-w-0 items-center gap-1">
         <span className="shrink-0 rounded-full bg-crema px-1.5 py-0.5 font-cuerpo text-[11px] font-bold text-cafe-suave">
           {pedido.tipo === "domicilio" ? "Domicilio" : "Recoge"}
@@ -222,6 +252,19 @@ export function TarjetaPedido({
         {pedido.barrio && (
           <span className="truncate rounded-full bg-crema px-1.5 py-0.5 font-cuerpo text-[11px] text-cafe-suave">
             {pedido.barrio}
+          </span>
+        )}
+        {/* Quién lo lleva. Antes se leía en el rótulo del botón —"Asignar" contra "Cambiar"—, y
+            al pasar ese botón a icono esa información se habría perdido justo cuando el trabajo
+            en curso la bajó hasta aquí. Sin ella el operador no distingue el pedido que nadie ha
+            llamado del que ya tiene domiciliario, y llama dos veces al mismo. */}
+        {pedido.domiciliarioNombre && (
+          <span
+            title={`Lo lleva ${pedido.domiciliarioNombre}`}
+            className="flex max-w-28 shrink-0 items-center gap-1 rounded-full bg-crema px-1.5 py-0.5 font-cuerpo text-[11px] text-cafe-suave"
+          >
+            <Bike className="size-3 shrink-0" />
+            <span className="truncate">{pedido.domiciliarioNombre}</span>
           </span>
         )}
       </div>
@@ -276,64 +319,202 @@ export function TarjetaPedido({
       </Link>
 
       {/*
-        Dinero y acción en la MISMA fila. Eran dos bloques apilados —el total en su párrafo y
-        debajo un botón a todo el ancho— y entre los dos se llevaban ~80 px de una tarjeta de
-        290. El botón no gana nada por ser ancho: es el único de su fila.
+        El total, en su propia línea y a todo el ancho.
 
-        El texto se queda FUERA del `z-10`: ese enlace invisible que cubre la tarjeta abre el
-        detalle, y subir el total por encima dejaría un trozo muerto donde tocar no hace nada.
+        Compartía fila con el botón naranja, y salió de ahí porque los ~215 px útiles de la
+        tarjeta —columna de ~239 en la tablet en vertical— no dan para el total, tres iconos y el
+        rótulo del botón que avanza el pedido. Antes se resolvía apilando DOS filas de
+        botones; ahora la que cede es esta, que no necesita compañía: aquí no compite con nada y
+        los avisos que cuelgan de él —"sin comprobante", "sin avisos"— dejaron de estrujarlo.
+
+        Se queda FUERA del `z-10`: ese enlace invisible que cubre la tarjeta abre el detalle, y
+        subir el total por encima dejaría un trozo muerto donde tocar no hace nada.
       */}
-      <div className="mt-0.5 flex items-center gap-2">
-        <p className="min-w-0 flex-1 font-cuerpo text-xs text-cafe-suave">
-          <span className="font-bold text-cafe">{pesos(pedido.total)}</span> ·{" "}
-          {METODO_PAGO_ETIQUETA[pedido.metodoPago] ?? pedido.metodoPago}
-          {/* Un Nequi sin comprobante no puede avanzar: mejor decirlo aquí que dejar que
-              el empleado descubra el bloqueo al tocar el botón. */}
-          {pedido.metodoPago === "nequi" && !pedido.tieneComprobante && (
-            <span className="font-bold text-error"> · sin comprobante</span>
-          )}
-          {/* Este cliente no quiso avisos, así que el botón ámbar no aparece para su pedido.
-              Sin decirlo, un botón que falta se lee como que el panel está roto —y el tablero
-              es donde se opera, no el detalle—. Va aquí y no en su propia fila porque la
-              tarjeta se mide en píxeles: es la misma línea y el mismo patrón que el aviso de
-              arriba. En gris y no en rojo: no es un problema que resolver, es lo que el
-              cliente pidió. El detalle explica el resto, incluido que llamarlo sí se puede. */}
-          {!pedido.aceptaAvisos && (
-            <span className="font-bold text-cafe-tenue"> · sin avisos</span>
-          )}
-        </p>
-
-        {(pedido.siguiente || pedido.avisoPendiente) && (
-          <div className="relative z-10 flex shrink-0 items-center gap-1.5">
-            {/* 44 px de alto aunque el resto de la tarjeta encoja: esto se pulsa con el dedo en
-                la tablet del mostrador, y es el único objetivo táctil que tiene. */}
-            {pedido.siguiente && (
-              <button
-                type="button"
-                onClick={() => avanzar(pedido.siguiente!)}
-                disabled={pendiente}
-                className="min-h-11 rounded-full bg-naranja px-3 font-cuerpo text-xs font-bold text-crema transition-colors hover:bg-naranja-osc focus:outline-none focus:ring-2 focus:ring-naranja focus:ring-offset-2 disabled:opacity-50"
-              >
-                {pedido.estado === "nuevo" ? "Aceptar" : ETIQUETA_ESTADO[pedido.siguiente]}
-              </button>
-            )}
-
-            {/* Ámbar y no el gris de antes: avanzar y avisar son dos toques, y el segundo se
-                olvidaba. Los mismos tokens que el badge de espera de arriba, para que el
-                naranja sólido siga siendo solo del botón que mueve el pedido. */}
-            {pedido.avisoPendiente && (
-              <button
-                type="button"
-                onClick={avisar}
-                disabled={pendiente}
-                className="min-h-11 rounded-full border border-alerta bg-alerta/20 px-2.5 font-cuerpo text-xs font-bold text-cafe transition-colors hover:bg-alerta/35 focus:outline-none focus:ring-2 focus:ring-naranja disabled:opacity-50"
-              >
-                Avisar
-              </button>
-            )}
-          </div>
+      <p className="mt-0.5 font-cuerpo text-xs text-cafe-suave">
+        <span className="font-bold text-cafe">{pesos(pedido.total)}</span> ·{" "}
+        {METODO_PAGO_ETIQUETA[pedido.metodoPago] ?? pedido.metodoPago}
+        {/* Un Nequi sin comprobante no puede avanzar: mejor decirlo aquí que dejar que
+            el empleado descubra el bloqueo al tocar el botón. */}
+        {pedido.metodoPago === "nequi" && !pedido.tieneComprobante && (
+          <span className="font-bold text-error"> · sin comprobante</span>
         )}
-      </div>
+        {/* Este cliente no quiso avisos, así que el botón ámbar no aparece para su pedido.
+            Sin decirlo, un botón que falta se lee como que el panel está roto —y el tablero
+            es donde se opera, no el detalle—. En gris y no en rojo: no es un problema que
+            resolver, es lo que el cliente pidió. El detalle explica el resto, incluido que
+            llamarlo sí se puede. */}
+        {!pedido.aceptaAvisos && (
+          <span className="font-bold text-cafe-tenue"> · sin avisos</span>
+        )}
+      </p>
+
+      {/* TODAS las acciones en UNA fila, ancladas al borde DERECHO y cada una a su tamaño.
+
+          Nadie crece: la fila mide 188 px en su caso normal y la tarjeta suele dejar más, así que
+          el sobrante tiene que caer en algún lado y cae **antes del primer icono**. A cambio, el
+          borde derecho del naranja queda en el mismo sitio en todas las tarjetas, mida lo que mida
+          la columna y lleve los iconos que lleve — con la fila pegada a la izquierda su posición
+          bailaba según cuántos hubiera al lado.
+
+          Los tres secundarios son iconos de 40×40 sin texto y el naranja se queda con el rótulo.
+          No es simetría mal resuelta: el naranja es la única acción irreversible de la tarjeta
+          —cambia el estado y dispara el WhatsApp al cliente— y su significado cambia con la
+          columna, así que es justo el que no puede ser un dibujo. De paso se evita que "En camino"
+          y "Asignar" acaben siendo la misma bici, uno al lado del otro.
+
+          Nada de esto se estira para llenar la columna, y el porqué está en el botón naranja.
+
+          `flex-wrap` cubre el único caso de cuatro botones: tres iconos y sus huecos son 138 px y
+          el naranja pide 96, así que en la columna estrecha de la tablet —215 px útiles— no caben
+          los 234 y el naranja baja a la segunda línea. Es raro y se ve; un rótulo truncado no se
+          vería. En preparación, que es el caso de todos los días, son 188 y sobra.
+
+          `relative z-10` es lo que mantiene los botones por encima del enlace que cubre la
+          tarjeta. Sin él dejan de ser pulsables. */}
+      {/* Las cuatro, aunque hoy `asignar` implique `imprimir`: el día que la impresión deje de
+          salir en alguna columna, esa implicación se rompe y la fila entera desaparecería con
+          los otros botones dentro. */}
+      {(acciones.imprimir || acciones.asignar || acciones.avisar || avance) && (
+        <div className="relative z-10 flex flex-wrap items-center justify-end gap-1.5">
+          {/* Reservado. Se pinta apagado en vez de esperar a que exista: el hueco queda tomado y
+              nadie lo pulsa esperando algo que todavía no pasa. `impresion.ts` sigue pendiente,
+              como dice el CLAUDE.md. */}
+          {acciones.imprimir && (
+            <BotonIcono
+              icono={Printer}
+              etiqueta={`Imprimir el pedido #${pedido.numero} — la impresión llega pronto`}
+              tono="apagado"
+              disabled
+            />
+          )}
+
+          {/* Mismo criterio de tono que el detalle: mientras nadie lo lleve esto es una tarea
+              pendiente y va en ámbar; asignado baja de tono, porque reasignar es la excepción.
+              Ámbar y nunca naranja lleno — ese es del botón que mueve el pedido de columna, y
+              aquí queda en la misma fila: un naranja al lado insinuaría que asignar lo avanza, y
+              no lo hace (regla 18).
+
+              Sin rótulo, el tono y la píldora del nombre de arriba son lo que distingue "nadie lo
+              lleva" de "ya salió con alguien". */}
+          {acciones.asignar && (
+            <BotonIcono
+              icono={Bike}
+              etiqueta={
+                pedido.domiciliarioNombre
+                  ? `Cambiar el domiciliario del pedido #${pedido.numero} · ahora lo lleva ${pedido.domiciliarioNombre}`
+                  : `Asignar domiciliario al pedido #${pedido.numero}`
+              }
+              tono={pedido.domiciliarioNombre ? "neutro" : "alerta"}
+              onClick={() => setAsignando(true)}
+              disabled={pendiente}
+              abreDialogo
+            />
+          )}
+
+          {/* Ámbar y no gris: avanzar y avisar son dos toques, y el segundo se olvidaba. Los
+              mismos tokens que el badge de espera de arriba. */}
+          {acciones.avisar && (
+            <BotonIcono
+              icono={MessageCircle}
+              etiqueta={`Avisar al cliente del pedido #${pedido.numero} por WhatsApp`}
+              tono="alerta"
+              onClick={avisar}
+              disabled={pendiente}
+            />
+          )}
+
+          {/* NUNCA `flex-1` aquí, por más espacio libre que sobre a la derecha.
+
+              Lo llevó, y en un monitor de 1850 px —donde las columnas miden ~579 y no los 239 de
+              la tablet, porque este tablero renunció al tope de ancho a propósito (ver
+              `layout.tsx`)— el elemento más gritón de la tarjeta se estiraba a ~470 px, cambiaba
+              de tamaño según cuántos iconos tuviera al lado y dejaba a los tres apretados contra
+              el borde. La fila es una barra de herramientas: cada botón mide lo suyo.
+
+              Con el `justify-end` de la fila hay un motivo más: un botón que crece empujaría a los
+              iconos y el grupo dejaría de estar anclado a la derecha, que es justo lo que le da su
+              posición fija.
+
+              `min-w-24` es lo que hace que "Aceptar", "En camino", "Listo" y "Entregado" midan
+              igual; a su ancho natural iban de 62 a 90 px y el botón bailaba al cambiar de
+              columna. Y `shrink-0` para que, cuando la fila vaya apretada, baje de línea en vez
+              de comprimirse hasta enseñar "En cami…". */}
+          {avance && (
+            <button
+              type="button"
+              onClick={() => avanzar(avance)}
+              disabled={pendiente}
+              className="h-10 min-w-24 shrink-0 rounded-full bg-naranja px-4 font-cuerpo text-xs font-bold text-crema transition-colors hover:bg-naranja-osc focus:outline-none focus:ring-2 focus:ring-naranja focus:ring-offset-2 disabled:opacity-50"
+            >
+              {ETIQUETA_AVANCE[avance]}
+            </button>
+          )}
+        </div>
+      )}
+
+      {asignando && (
+        <ModalAsignar
+          pedidoId={pedido.id}
+          numero={pedido.numero}
+          domiciliarios={domiciliarios}
+          onCerrar={() => setAsignando(false)}
+          onAsignado={(url) => {
+            abrirWhatsapp(url);
+            alCambiar();
+          }}
+        />
+      )}
     </article>
+  );
+}
+
+/** Ámbar = tarea pendiente · neutro = se puede hacer · apagado = todavía no existe. */
+type TonoIcono = "neutro" | "alerta" | "apagado";
+
+const TONO_ICONO: Record<TonoIcono, string> = {
+  neutro: "border-crema-oscura text-cafe-suave hover:bg-crema",
+  alerta: "border-alerta bg-alerta/20 text-cafe hover:bg-alerta/35",
+  // Sin `hover`: un fondo que reacciona al pasar por encima promete un botón que funciona.
+  apagado: "border-crema-oscura text-cafe-tenue opacity-60",
+};
+
+/**
+ * Una acción secundaria de la tarjeta: 40×40, solo icono.
+ *
+ * **`etiqueta` no es decorativa y por eso es obligatoria.** Sin texto visible, es lo único que
+ * queda para el lector de pantalla y para el tooltip de quien opera en escritorio, así que dice la
+ * acción entera —con el número del pedido— y no la palabra suelta que llevaba el botón cuando
+ * tenía rótulo.
+ *
+ * El naranja que avanza el pedido NO usa esto: conserva su texto, que es lo que lo distingue.
+ */
+function BotonIcono({
+  icono: Icono,
+  etiqueta,
+  tono = "neutro",
+  onClick,
+  disabled,
+  abreDialogo,
+}: {
+  icono: LucideIcon;
+  etiqueta: string;
+  tono?: TonoIcono;
+  onClick?: () => void;
+  disabled?: boolean;
+  /** Avisa de que detrás hay un modal y no una acción inmediata. */
+  abreDialogo?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={etiqueta}
+      aria-label={etiqueta}
+      aria-haspopup={abreDialogo ? "dialog" : undefined}
+      className={`flex size-10 shrink-0 items-center justify-center rounded-full border transition-colors focus:outline-none focus:ring-2 focus:ring-naranja disabled:opacity-50 ${TONO_ICONO[tono]}`}
+    >
+      <Icono className="size-5" />
+    </button>
   );
 }
