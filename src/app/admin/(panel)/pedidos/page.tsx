@@ -1,4 +1,5 @@
 import { getStore } from "@/db/queries/store";
+import { listarDomiciliarios } from "@/db/queries/domiciliarios";
 import { listarPedidos, listarPedidosDelDia } from "@/db/queries/panel";
 import { resumenDelDia } from "@/db/queries/resumen";
 import { exigirRol } from "@/lib/autorizacion";
@@ -70,6 +71,9 @@ export default async function PedidosPage({
         // Se renderiza en el servidor la primera carga y de ahí en adelante manda el polling:
         // así el empleado ve los pedidos de inmediato al abrir, sin un salto de pantalla vacía.
         iniciales={await listarPedidos(tienda.id)}
+        // La agenda para el botón de asignar de cada tarjeta. Va solo en esta rama: la vista de
+        // un día pasado es de consulta y no opera nada, así que no tiene a quién asignar.
+        domiciliarios={await listarDomiciliarios(tienda.id)}
         selectorDia={<SelectorDia key="selector-dia" dia={dia} hoy={hoy} rotulo={rotulo} />}
         /* Solo admin: el estimado es una promesa comercial, no una operación de turno. El
            `exigirRol("admin")` de la acción es quien corta de verdad (regla 12). */

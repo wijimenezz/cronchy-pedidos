@@ -99,6 +99,10 @@ export type PedidoEnLista = Pick<
   | "metodoPago"
   | "total"
   | "aceptaAvisos"
+  // Quién lo lleva ya, para que la tarjeta del tablero sepa si "Asignar" es una tarea pendiente o
+  // una reasignación. Sin esto el operador no distingue el pedido que nadie ha llamado del que ya
+  // tiene domiciliario en camino, y llama dos veces al mismo. Es el snapshot de la regla 18.
+  | "domiciliarioNombre"
 > & {
   tieneComprobante: boolean;
   cantidadItems: number;
@@ -165,6 +169,7 @@ type FilaDeLista = {
   total: number;
   comprobanteUrl: string | null;
   aceptaAvisos: boolean;
+  domiciliarioNombre: string | null;
   orderItems: { cantidad: number; snapshot: unknown }[];
   orderStatusEvents: { estado: EstadoPedido; notificadoEn: string | null }[];
 };
@@ -189,6 +194,7 @@ function aPedidoEnLista(fila: FilaDeLista): PedidoEnLista {
     total: fila.total,
     tieneComprobante: Boolean(fila.comprobanteUrl),
     aceptaAvisos: fila.aceptaAvisos,
+    domiciliarioNombre: fila.domiciliarioNombre,
     cantidadItems: fila.orderItems.reduce((n, i) => n + i.cantidad, 0),
     resumenItems: resumirItems(aItems(fila.orderItems)),
     // Quien no quiso avisos no tiene ninguno pendiente: sin esto el tablero seguiría ofreciendo

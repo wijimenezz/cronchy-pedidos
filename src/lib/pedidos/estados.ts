@@ -11,6 +11,31 @@ export const ETIQUETA_ESTADO: Record<EstadoPedido, string> = {
   cancelado: "Cancelado",
 };
 
+/**
+ * Cómo se rotula el botón que **lleva** a cada estado, en la tarjeta del tablero.
+ *
+ * No es `ETIQUETA_ESTADO` con otro nombre: aquel dice cómo se le llama al estado **al cliente**,
+ * y aquí quien lee es quien fríe. La diferencia se nota en dos sitios. `preparando` no se rotula
+ * "En preparación" sino "Aceptar", que es la acción y no el destino —era un ternario suelto en el
+ * componente, y el ternario no sabía que `aceptado` también cae ahí—. Y `listo` se acorta a
+ * "Listo": "Listo para recoger" es la promesa que se le hace al cliente y no cabe en los ~115 px
+ * que le deja la fila de acciones, donde ahora comparte línea con los iconos.
+ *
+ * Exhaustivo como el resto de los `Record` del módulo, aunque `nuevo` y `aceptado` no sean destino
+ * de ningún avance: `pasosDelPedido` arranca en el primero y ya no genera el segundo.
+ *
+ * El detalle del pedido (`AccionesPedido`) NO usa esto: ahí sobra el ancho y dice "Aceptar pedido".
+ */
+export const ETIQUETA_AVANCE: Record<EstadoPedido, string> = {
+  nuevo: "Recibido",
+  aceptado: "Aceptar",
+  preparando: "Aceptar",
+  en_camino: "En camino",
+  listo: "Listo",
+  entregado: "Entregado",
+  cancelado: "Cancelar",
+};
+
 /** Frase que acompaña al estado en el seguimiento. */
 export const DETALLE_ESTADO: Record<EstadoPedido, string> = {
   nuevo: "Tu pedido llegó. Estamos por confirmarlo.",
