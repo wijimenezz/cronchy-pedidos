@@ -9,6 +9,7 @@ import { cuandoCorto, horaCorta, pesos } from "@/lib/notificaciones/plantillas";
 import { ETIQUETA_AVANCE, METODO_PAGO_ETIQUETA } from "@/lib/pedidos/estados";
 import { accionesDeTarjeta } from "./acciones-tarjeta";
 import { cambiarEstado, prepararAviso } from "./acciones";
+import { DesgloseDomicilio } from "./DesgloseDomicilio";
 import { ModalAsignar } from "./ModalAsignar";
 
 /** Cuánto puede esperar un pedido sin aceptar antes de que sea un problema. */
@@ -347,6 +348,11 @@ export function TarjetaPedido({
           <span className="font-bold text-cafe-tenue"> · sin avisos</span>
         )}
       </p>
+
+      {/* Cuánto de ese total es el envío, que es lo que se le paga al domiciliario. Va FUERA del
+          `z-10` igual que el total: el enlace invisible que cubre la tarjeta abre el detalle, y
+          subir esto por encima dejaría un trozo muerto donde tocar no hace nada. */}
+      <DesgloseDomicilio pedido={pedido} />
 
       {/* TODAS las acciones en UNA fila, ancladas al borde DERECHO y cada una a su tamaño.
 
