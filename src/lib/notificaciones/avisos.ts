@@ -98,10 +98,6 @@ export function pedidoParaMensaje(pedido: PedidoParaAviso): PedidoParaMensaje {
     costoDomicilio: pedido.costoDomicilio,
     descuento: pedido.descuento,
     cuponCodigo: pedido.cuponCodigo,
-    // Todavía no existe: ni el checkout la pide ni la base la guarda. Se manda en 0 para que el
-    // recibo del cliente ya tenga su renglón; el día que el checkout tenga propina, se cambia
-    // esta línea y nada más.
-    propina: 0,
     total: pedido.total,
     metodoPago: pedido.metodoPago,
     // Un comprobante cargado es la única prueba de pago que maneja este negocio. En efectivo

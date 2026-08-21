@@ -70,12 +70,6 @@ export type PedidoParaMensaje = {
    * cuando el descuento fue un ajuste manual del negocio — que no tiene código que nombrar.
    */
   cuponCodigo?: string | null;
-  /**
-   * Todavía no existe: el checkout no la pide y la base no la guarda. Viaja como número para
-   * que el mensaje ya sepa pintarla, y hoy siempre llega en 0. El día que el checkout tenga
-   * propina, solo cambia quién la rellena.
-   */
-  propina?: number;
   total: number;
   metodoPago: string;
   /**
@@ -108,6 +102,24 @@ export type EstimadoEntrega = { min: number; max: number };
 /** 14000 -> "$14.000" */
 export function pesos(valor: number): string {
   return `$${valor.toLocaleString("es-CO")}`;
+}
+
+/**
+ * Lo que valen los productos **ya con el cupón aplicado**, antes del domicilio.
+ *
+ * Es una resta, y aun así tiene nombre propio porque es lo que la palabra "Subtotal" significa
+ * ahora en las cinco pantallas que enseñan plata —el detalle del panel, el seguimiento del cliente
+ * y los tres mensajes—. Antes cada una escribía el desglose a su manera y el descuento iba después
+ * del domicilio, así que no había ninguna línea que dijera esto y había que hacer la cuenta a ojo.
+ *
+ * El domicilio NO entra, y no es un olvido: por la regla 20 el cupón nunca descuenta sobre el
+ * envío, así que sumarlo aquí sería insinuar que sí.
+ *
+ * Para el domiciliario esta es, además, **la única cifra de productos que ve** (ver
+ * `pedidoParaDomiciliario`): él no cobra un descuento, cobra un número.
+ */
+export function subtotalConDescuento(subtotal: number, descuento: number): number {
+  return subtotal - descuento;
 }
 
 /**
@@ -280,22 +292,38 @@ function bloqueItems(pedido: PedidoParaMensaje): string {
   return pedido.items.flatMap((i) => lineasItem(i)).join("\n");
 }
 
+/**
+ * El resumen corto de la plata, en el mismo orden que todas las demás pantallas: los productos,
+ * lo que quita el cupón, lo que queda, el envío y el total.
+ *
+ * **El descuento va ANTES del domicilio y no después**, porque es el orden en que las cifras se
+ * forman: el cupón se aplica sobre los productos y el envío se suma al final (regla 20 — el
+ * domicilio nunca entra en la base del descuento). Al revés había que hacer la cuenta a ojo para
+ * saber de dónde salía el total.
+ *
+ * A diferencia del recibo del cliente, aquí las líneas que valen cero no se escriben: esto es un
+ * resumen, no un recibo.
+ */
 function bloqueTotales(pedido: PedidoParaMensaje): string {
-  const lineas = [`*Subtotal:* ${pesos(pedido.subtotal)}`];
+  const lineas = [`*Productos:* ${pesos(pedido.subtotal)}`];
 
-  if (pedido.costoDomicilio > 0) {
-    lineas.push(`*Domicilio:* ${pesos(pedido.costoDomicilio)}`);
-  }
-  // Igual que en el mensaje del domiciliario: sin esta línea, con un cupón el subtotal y el
-  // domicilio no suman el total y el desglose se lee como un error de cuentas. Solo cuando lo
-  // hubo — este bloque es el resumen corto, no el recibo completo, que sí escribe todos los ceros.
+  // Las dos van juntas o no va ninguna: sin descuento, "Subtotal" sería la misma cifra de arriba
+  // repetida, y una línea que repite a la anterior se lee como un error.
   if (pedido.descuento > 0) {
     lineas.push(
       pedido.cuponCodigo
         ? `*Descuento (${pedido.cuponCodigo}):* -${pesos(pedido.descuento)}`
         : `*Descuento:* -${pesos(pedido.descuento)}`,
     );
+    lineas.push(
+      `*Subtotal:* ${pesos(subtotalConDescuento(pedido.subtotal, pedido.descuento))}`,
+    );
   }
+
+  if (pedido.costoDomicilio > 0) {
+    lineas.push(`*Domicilio:* ${pesos(pedido.costoDomicilio)}`);
+  }
+
   lineas.push(`*Total:* ${pesos(pedido.total)}`);
   lineas.push(`*Pago:* ${pedido.metodoPago}`);
 
@@ -318,29 +346,46 @@ function lineaCuando(pedido: PedidoParaMensaje, etiqueta: string): string {
 /**
  * El desglose de la plata, tal como lo lee el cliente cuando le aceptan el pedido.
  *
- * Se escribe entero aunque haya ceros: es un recibo, y en un recibo la ausencia de la línea
- * "Descuento" no se lee como "no hubo descuento" sino como "aquí falta algo". La única que se
- * calla es el domicilio cuando el cliente recoge, porque ahí no existe el concepto.
+ * El orden es el de todas las demás pantallas —productos, descuento, lo que queda, envío, total—
+ * porque es el orden en que las cifras se forman: el cupón se aplica sobre los productos y el
+ * domicilio se suma al final (regla 20). Antes el descuento iba después del envío y el cliente
+ * tenía que hacer la resta de cabeza para cuadrar el total.
+ *
+ * **La línea de descuento se escribe aunque valga cero**: es un recibo, y en un recibo su ausencia
+ * no se lee como "no hubo descuento" sino como "aquí falta algo". La de `Subtotal`, en cambio,
+ * solo aparece cuando hubo — sin descuento repetiría la cifra de arriba. Y el domicilio se calla
+ * cuando el cliente recoge, porque ahí no existe el concepto.
  *
  * Las cifras salen del snapshot del pedido y no se recalculan (regla 2), así que suman solas:
- * productos + domicilio − descuento + propina = total.
+ * productos − descuento + domicilio = total.
  */
 function bloqueRecibo(pedido: PedidoParaMensaje): string[] {
   const lineas = [`*Valor Productos:* ${pesos(pedido.subtotal)}`];
 
-  if (pedido.tipo === "domicilio") {
-    lineas.push(`*Costo Domicilio:* ${pesos(pedido.costoDomicilio)}`);
-  }
-
   // El código va entre paréntesis cuando lo hubo: en un recibo, un descuento sin explicación es
   // una cifra que el cliente no sabe de dónde salió, y el cupón es justo lo que la explica.
+  const etiquetaDescuento = pedido.cuponCodigo
+    ? `Descuento (${pedido.cuponCodigo})`
+    : "Descuento";
+
+  // El signo menos solo cuando hay algo que restar: "-$0" no es una cifra, es un adorno.
   lineas.push(
-    pedido.cuponCodigo
-      ? `*Descuento (${pedido.cuponCodigo}):* ${pesos(pedido.descuento)}`
-      : `*Descuento:* ${pesos(pedido.descuento)}`,
+    pedido.descuento > 0
+      ? `*${etiquetaDescuento}:* -${pesos(pedido.descuento)}`
+      : `*${etiquetaDescuento}:* ${pesos(0)}`,
   );
-  lineas.push(`*Propina:* ${pesos(pedido.propina ?? 0)}`);
-  lineas.push(`*Total a Pagar:* ${pesos(pedido.total)}`);
+
+  if (pedido.descuento > 0) {
+    lineas.push(
+      `*Subtotal:* ${pesos(subtotalConDescuento(pedido.subtotal, pedido.descuento))}`,
+    );
+  }
+
+  if (pedido.tipo === "domicilio") {
+    lineas.push(`*Domicilio:* ${pesos(pedido.costoDomicilio)}`);
+  }
+
+  lineas.push(`*Total:* ${pesos(pedido.total)}`);
   lineas.push(`*Método de Pago:* ${etiquetaMetodo(pedido.metodoPago)}`);
   lineas.push(`*Estado del Pago:* ${pedido.pagado ? "Pagado" : "Pendiente"}`);
 
@@ -734,9 +779,17 @@ const NOMBRE_METODO: Record<string, string> = {
 /**
  * El bloque de plata, que es la razón de ser de este mensaje.
  *
- * Un domiciliario que cobra un pedido ya pagado es un incidente con el cliente, no un descuido,
- * así que el "NO COBRAR" va solo y en negrita, sin ninguna cifra al lado que se pueda confundir
- * con algo a recibir.
+ * **El domiciliario no se entera del cupón.** Él no cobra un descuento, cobra un número, así que
+ * "Valor Productos" aquí es el subtotal **ya descontado** — al contrario que en el recibo del
+ * cliente, donde el descuento es justo lo que hay que explicar. De paso las dos líneas del
+ * desglose suman exactamente el Total Cobrar, y por eso desapareció la línea `*Descuento:*` que
+ * existía solo para que las cuentas cuadraran.
+ *
+ * **Un pedido ya pagado no lleva ninguna cifra de cobro**, porque cobrarle a quien ya pagó es un
+ * incidente con el cliente y no un descuido: sale el aviso, con qué pagó, y nada más que se pueda
+ * confundir con algo a recibir. Lo único que sí acompaña es el **costo del domicilio**, que no es
+ * una cifra a cobrar sino lo que él gana por el viaje — el courier es externo al negocio (regla
+ * 13) y tiene que saberlo lleve o no plata de vuelta.
  *
  * La devuelta se calcula porque `order.paga_con` existe exactamente para eso y hasta ahora no la
  * leía nadie: sin ella el domiciliario sale sin sencillo. Solo se escribe cuando de verdad hay
@@ -744,12 +797,24 @@ const NOMBRE_METODO: Record<string, string> = {
  * inventa una devuelta negativa (mismo criterio que el panel, ver `validaciones.ts`).
  */
 function bloqueCobro(pedido: PedidoParaDomiciliario): string[] {
+  const domicilio = `*Costo Domicilio:* ${pesos(pedido.costoDomicilio)}`;
+
   if (pedido.pagado) {
-    return [`*NO COBRAR* — ya pagó ${NOMBRE_METODO[pedido.metodoPago] ?? pedido.metodoPago}`];
+    return [
+      `*NO COBRAR* — ya pagó ${NOMBRE_METODO[pedido.metodoPago] ?? pedido.metodoPago}`,
+      domicilio,
+    ];
   }
 
   const lineas = [
-    `*COBRAR:* ${pesos(pedido.total)} ${NOMBRE_METODO[pedido.metodoPago] ?? pedido.metodoPago}`,
+    `*Valor Productos:* ${pesos(subtotalConDescuento(pedido.subtotal, pedido.descuento))}`,
+    domicilio,
+    // La línea en blanco y la negrita son lo que separa el desglose de la cifra que hay que
+    // cobrar. El desglose iba DEBAJO para que quien lee esto de una ojeada en la moto encontrara
+    // primero un solo número; ahora va encima y sigue siendo seguro porque esas dos líneas suman
+    // exactamente el Total Cobrar, así que ya no pueden contradecirlo.
+    "",
+    `*Total Cobrar:* ${pesos(pedido.total)} ${NOMBRE_METODO[pedido.metodoPago] ?? pedido.metodoPago}`,
   ];
 
   if (pedido.pagaCon) {
@@ -793,20 +858,10 @@ export function pedidoParaDomiciliario(
   if (pedido.ubicacion) partes.push(`*Google Maps:* ${mapsUrl(pedido.ubicacion)}`);
 
   partes.push(SEP);
+  // Desglose y cobro salen juntos de `bloqueCobro`: son la misma decisión —qué cifras ve quien
+  // lleva el pedido— y partirlos en dos sitios fue lo que dejó un "Descuento" para el domiciliario,
+  // que no cobra descuentos.
   partes.push(...bloqueCobro(pedido));
-  // El desglose va DEBAJO de la línea de cobro y nunca en su lugar: quien lee esto de una ojeada
-  // en la moto tiene que encontrar primero una sola cifra —o el NO COBRAR—, y solo después de
-  // qué se compone. Al revés, las dos cifras del desglose se leen como algo que hay que sumar.
-  partes.push("");
-  partes.push(`*Valor Productos:* ${pesos(pedido.subtotal)}`);
-  partes.push(`*Costo Domicilio:* ${pesos(pedido.costoDomicilio)}`);
-  // Sin esta línea, con un cupón el desglose NO suma la cifra de arriba —$53.500 + $6.000 no son
-  // los $54.150 que hay que cobrar— y el domiciliario se queda con dos números que se contradicen
-  // justo en el mensaje que mueve la plata. Solo cuando lo hubo: un "-$0" ocupa sitio en una URL
-  // `wa.me` a cambio de nada.
-  if (pedido.descuento > 0) {
-    partes.push(`*Descuento:* -${pesos(pedido.descuento)}`);
-  }
   partes.push(SEP);
   partes.push("Cuando entregues, confirma aquí Por Favor:");
   partes.push(urlEntrega(tienda, pedido.tokenEntrega));

@@ -18,7 +18,12 @@ import { obtenerPedidoPorNumero, type PedidoPanel } from "@/db/queries/panel";
 import { historialDelCliente, type HistorialCliente } from "@/db/queries/customers";
 import { listarDomiciliarios } from "@/db/queries/domiciliarios";
 import { exigirRol } from "@/lib/autorizacion";
-import { cuandoCorto, pesos, type ItemSnapshot } from "@/lib/notificaciones/plantillas";
+import {
+  cuandoCorto,
+  pesos,
+  subtotalConDescuento,
+  type ItemSnapshot,
+} from "@/lib/notificaciones/plantillas";
 import { normalizarTelefono } from "@/lib/notificaciones/transporte";
 import { puedeAvisarse } from "@/lib/notificaciones/avisos";
 import {
@@ -180,18 +185,31 @@ export default async function DetallePedidoPage({
             {/* El desglose va al pie de los ítems y no en una tarjeta aparte: cada línea ya
                 trae su precio a la derecha, así que la suma se lee en la misma columna donde
                 se formó. Lo que decide —cómo paga y si el comprobante llegó— está arriba. */}
+            {/* El descuento va ANTES del domicilio, que es el orden en que las cifras se forman:
+                el cupón se aplica sobre los productos y el envío se suma al final (regla 20). Con
+                el descuento al final había que restar de cabeza para saber de dónde salía el total.
+
+                Por eso la primera línea ya no se llama "Subtotal": esa palabra pasó a significar
+                los productos YA con el cupón, aquí y en las cuatro pantallas que enseñan plata. */}
             <dl className="mt-3 border-t border-crema-oscura pt-3">
-              <Total etiqueta="Subtotal" valor={pesos(pedido.subtotal)} />
+              <Total etiqueta="Productos" valor={pesos(pedido.subtotal)} />
+              {/* Las dos juntas o ninguna: sin descuento, "Subtotal" repetiría la cifra de arriba. */}
+              {pedido.descuento > 0 && (
+                <>
+                  <Total
+                    // El código al lado del monto: quien cuadra la caja necesita saber por qué este
+                    // pedido cobró menos, y "Descuento" a secas no lo dice.
+                    etiqueta={pedido.cuponCodigo ? `Descuento ${pedido.cuponCodigo}` : "Descuento"}
+                    valor={`− ${pesos(pedido.descuento)}`}
+                  />
+                  <Total
+                    etiqueta="Subtotal"
+                    valor={pesos(subtotalConDescuento(pedido.subtotal, pedido.descuento))}
+                  />
+                </>
+              )}
               {esDomicilio && (
                 <Total etiqueta="Domicilio" valor={pesos(pedido.costoDomicilio)} />
-              )}
-              {pedido.descuento > 0 && (
-                <Total
-                  // El código al lado del monto: quien cuadra la caja necesita saber por qué este
-                  // pedido cobró menos, y "Descuento" a secas no lo dice.
-                  etiqueta={pedido.cuponCodigo ? `Descuento ${pedido.cuponCodigo}` : "Descuento"}
-                  valor={`− ${pesos(pedido.descuento)}`}
-                />
               )}
               <Total etiqueta="Total" valor={pesos(pedido.total)} destacado />
             </dl>
