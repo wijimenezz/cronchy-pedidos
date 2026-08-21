@@ -133,10 +133,7 @@ describe("pedidoParaMensaje", () => {
     expect(pedidoParaMensaje(pedidoPublico({ tieneComprobante: true })).pagado).toBe(true);
   });
 
-  // La propina todavía no existe en ningún sitio. Viaja en 0 para que el recibo ya tenga su
-  // renglón; el día que el checkout la pida, se cambia aquí y el mensaje no se entera.
-  it("la propina llega en cero mientras el checkout no la pida", () => {
-    expect(pedidoParaMensaje(pedidoPublico()).propina).toBe(0);
+  it("el descuento viaja tal cual al mensaje", () => {
     expect(pedidoParaMensaje(pedidoPublico({ descuento: 2000 })).descuento).toBe(2000);
   });
 });

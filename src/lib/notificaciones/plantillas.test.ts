@@ -127,7 +127,7 @@ describe("cambioEstado al aceptar", () => {
     const texto = aceptacion();
 
     expect(texto).toContain("#124");
-    expect(texto).toContain("*Total a Pagar:* $41.000");
+    expect(texto).toContain("*Total:* $41.000");
     expect(texto).toContain(`https://cronchy.co/pedido/${"a".repeat(32)}`);
   });
 
@@ -142,11 +142,45 @@ describe("cambioEstado al aceptar", () => {
     const texto = aceptacion();
 
     expect(texto).toContain("*Valor Productos:* $35.000");
-    expect(texto).toContain("*Costo Domicilio:* $6.000");
     expect(texto).toContain("*Descuento:* $0");
-    expect(texto).toContain("*Propina:* $0");
-    expect(texto).toContain("*Total a Pagar:* $41.000");
+    expect(texto).toContain("*Domicilio:* $6.000");
+    expect(texto).toContain("*Total:* $41.000");
     expect(PEDIDO.subtotal + PEDIDO.costoDomicilio - PEDIDO.descuento).toBe(PEDIDO.total);
+  });
+
+  // Sin cupón, "Subtotal" sería "Valor Productos" otra vez, y una línea que repite a la anterior
+  // se lee como un error de cuentas. La de "Descuento: $0" sí se queda: es un recibo, y ahí su
+  // ausencia se lee como "falta algo" y no como "no hubo".
+  it("sin descuento no escribe la línea de subtotal, pero sí la del descuento en cero", () => {
+    const texto = aceptacion();
+
+    expect(texto).not.toContain("*Subtotal:*");
+    expect(texto).toContain("*Descuento:* $0");
+    // Y en cero no lleva signo menos: "-$0" no es una cifra.
+    expect(texto).not.toContain("-$0");
+  });
+
+  /**
+   * El orden es lo que se arregló: el cupón se aplica sobre los productos y el envío se suma al
+   * final (regla 20). Con el descuento después del domicilio había que restar de cabeza para
+   * saber de dónde salía el total.
+   */
+  it("con cupón, el descuento va antes del domicilio y el subtotal entre los dos", () => {
+    const texto = aceptacion({
+      ...PEDIDO,
+      descuento: 3500,
+      cuponCodigo: "CHURRO10",
+      total: 37_500,
+    });
+
+    expect(texto).toContain("*Descuento (CHURRO10):* -$3.500");
+    expect(texto).toContain("*Subtotal:* $31.500");
+    expect(texto.indexOf("*Descuento (CHURRO10):*")).toBeLessThan(texto.indexOf("*Domicilio:*"));
+    expect(texto.indexOf("*Subtotal:*")).toBeLessThan(texto.indexOf("*Domicilio:*"));
+  });
+
+  it("ya no habla de propina, que nunca existió", () => {
+    expect(aceptacion()).not.toContain("Propina");
   });
 
   it("dice con qué se paga y si ya está pagado", () => {
@@ -214,7 +248,7 @@ describe("cambioEstado al aceptar", () => {
     const texto = aceptacion({ ...PEDIDO, tipo: "recoger", costoDomicilio: 0, total: 35000 });
 
     expect(texto).toContain("*Tipo:* Recoger en tienda");
-    expect(texto).not.toContain("Costo Domicilio");
+    expect(texto).not.toContain("*Domicilio:*");
     expect(texto).toContain("*Listo:* lo antes posible (30-45 min)");
   });
 
@@ -354,37 +388,38 @@ describe("pedidoParaDomiciliario", () => {
   it("calcula la devuelta", () => {
     const texto = pedidoParaDomiciliario(DOMI, TIENDA, MEDIODIA);
 
-    expect(texto).toContain("*COBRAR:* $59.500 en efectivo");
+    expect(texto).toContain("*Total Cobrar:* $59.500 en efectivo");
     expect(texto).toContain("*Paga con:* $70.000");
     expect(texto).toContain("*Devuelta:* $10.500");
   });
 
   /**
-   * Con cupón, el desglose deja de sumar el total: $53.500 + $6.000 son $59.500, pero hay que
-   * cobrar $54.150. El domiciliario lee las dos cifras de arriba como algo que compone lo de
-   * abajo, así que sin la línea del descuento parece que el "COBRAR" está mal.
+   * EL CASO QUE IMPORTA. El domiciliario no cobra un descuento, cobra un número: "Valor Productos"
+   * aquí es el subtotal **ya descontado**, al contrario que en el recibo del cliente.
+   *
+   * Eso es lo que hace que las dos líneas del desglose sumen exactamente el Total Cobrar, y por lo
+   * mismo la línea de "Descuento" desapareció de este mensaje: existía solo para tapar el hueco de
+   * $53.500 + $6.000 = $59.500 cuando había que cobrar $54.150.
    */
-  it("con descuento, el desglose lo dice y vuelve a cuadrar", () => {
+  it("con cupón, no menciona el descuento y el desglose suma el total exacto", () => {
     const texto = pedidoParaDomiciliario(
       { ...DOMI, descuento: 5350, total: 54150, pagaCon: null },
       TIENDA,
       MEDIODIA,
     );
 
-    expect(texto).toContain("*COBRAR:* $54.150 en efectivo");
-    expect(texto).toContain("*Descuento:* -$5.350");
-  });
-
-  // Sin descuento no se escribe la línea: en un mensaje que viaja dentro de una URL `wa.me`, un
-  // "-$0" es un renglón que no dice nada y ocupa.
-  it("sin descuento no aparece la línea", () => {
-    expect(pedidoParaDomiciliario(DOMI, TIENDA, MEDIODIA)).not.toContain("Descuento");
+    expect(texto).toContain("*Valor Productos:* $48.150");
+    expect(texto).toContain("*Costo Domicilio:* $6.000");
+    expect(texto).toContain("*Total Cobrar:* $54.150 en efectivo");
+    // Ni la palabra ni el código del cupón: no es asunto suyo.
+    expect(texto).not.toContain("Descuento");
+    expect(48_150 + 6000).toBe(54_150);
   });
 
   it("sin `pagaCon` no habla de devuelta", () => {
     const texto = pedidoParaDomiciliario({ ...DOMI, pagaCon: null }, TIENDA, MEDIODIA);
 
-    expect(texto).toContain("*COBRAR:* $59.500");
+    expect(texto).toContain("*Total Cobrar:* $59.500");
     expect(texto).not.toContain("Devuelta");
     expect(texto).not.toContain("Paga con");
   });
@@ -398,9 +433,15 @@ describe("pedidoParaDomiciliario", () => {
     expect(texto).not.toContain("Devuelta");
   });
 
-  // Cobrar un pedido ya pagado es un incidente con el cliente. El aviso va solo, sin ninguna
-  // cifra al lado que se pueda leer como algo a recibir.
-  it("un pedido ya pagado dice NO COBRAR y ninguna cifra", () => {
+  /**
+   * Cobrar un pedido ya pagado es un incidente con el cliente, así que ninguna cifra de cobro:
+   * ni el total, ni el valor de los productos, ni la devuelta.
+   *
+   * **El costo del domicilio SÍ va, y no es una excepción al criterio.** No es algo a cobrar: es
+   * lo que gana él por el viaje, y el courier es externo al negocio (regla 13), así que tiene que
+   * saberlo lleve o no plata de vuelta.
+   */
+  it("un pedido ya pagado dice NO COBRAR, sin más cifra que su domicilio", () => {
     const texto = pedidoParaDomiciliario(
       { ...DOMI, metodoPago: "nequi", pagaCon: null, pagado: true },
       TIENDA,
@@ -408,35 +449,27 @@ describe("pedidoParaDomiciliario", () => {
     );
 
     expect(texto).toContain("*NO COBRAR* — ya pagó por Nequi");
-    expect(texto).not.toContain("COBRAR:");
+    expect(texto).toContain("*Costo Domicilio:* $6.000");
+    expect(texto).not.toContain("Total Cobrar");
+    expect(texto).not.toContain("Valor Productos");
     expect(texto).not.toContain("$59.500");
+    expect(texto).not.toContain("$53.500");
   });
 
   /**
-   * El desglose explica de qué se compone lo que cobra, pero **va debajo de la línea de cobro y
-   * nunca en su lugar**: quien lee esto de una ojeada en la moto tiene que encontrar primero una
-   * sola cifra, y solo después el detalle. Dos cifras sueltas se leen como algo que hay que sumar.
+   * El desglose va ARRIBA de la cifra que se cobra, y eso invirtió el orden que tenía antes.
+   *
+   * Se sostiene porque las dos líneas suman exactamente el Total Cobrar —ya no pueden
+   * contradecirlo— y porque la línea en blanco y la negrita lo separan. Lo que este test fija es
+   * justo eso: que sumen.
    */
-  it("desglosa el cobro sin tapar la cifra que se cobra", () => {
+  it("el desglose va antes del cobro y suma la cifra exacta", () => {
     const texto = pedidoParaDomiciliario(DOMI, TIENDA, MEDIODIA);
 
     expect(texto).toContain("*Valor Productos:* $53.500");
     expect(texto).toContain("*Costo Domicilio:* $6.000");
-    expect(texto.indexOf("*COBRAR:*")).toBeLessThan(texto.indexOf("*Valor Productos:*"));
+    expect(texto.indexOf("*Valor Productos:*")).toBeLessThan(texto.indexOf("*Total Cobrar:*"));
     expect(DOMI.subtotal + DOMI.costoDomicilio).toBe(DOMI.total);
-  });
-
-  // El desglose no puede haber convertido un pedido pagado en uno que parece cobrable.
-  it("un pedido pagado desglosa igual, pero sigue diciendo NO COBRAR", () => {
-    const texto = pedidoParaDomiciliario(
-      { ...DOMI, metodoPago: "nequi", pagaCon: null, pagado: true },
-      TIENDA,
-      MEDIODIA,
-    );
-
-    expect(texto).toContain("*NO COBRAR*");
-    expect(texto).toContain("*Valor Productos:* $53.500");
-    expect(texto.indexOf("NO COBRAR")).toBeLessThan(texto.indexOf("*Valor Productos:*"));
   });
 
   it("pide la confirmación de entrega y se despide", () => {

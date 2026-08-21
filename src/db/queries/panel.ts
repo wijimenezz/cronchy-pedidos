@@ -98,6 +98,13 @@ export type PedidoEnLista = Pick<
   | "barrio"
   | "metodoPago"
   | "total"
+  // De qué se compone el total, para que la tarjeta diga **cuánto es el domicilio** sin que haya
+  // que abrir el pedido. Es lo que se le paga al domiciliario, que es externo (regla 13), y hasta
+  // ahora se consultaba entrando a la ficha decenas de veces al día. El descuento viaja porque sin
+  // él la cifra de productos sería la bruta y no la que de verdad se cobró.
+  | "subtotal"
+  | "costoDomicilio"
+  | "descuento"
   | "aceptaAvisos"
   // Quién lo lleva ya, para que la tarjeta del tablero sepa si "Asignar" es una tarea pendiente o
   // una reasignación. Sin esto el operador no distingue el pedido que nadie ha llamado del que ya
@@ -167,6 +174,9 @@ type FilaDeLista = {
   barrio: string | null;
   metodoPago: string;
   total: number;
+  subtotal: number;
+  costoDomicilio: number;
+  descuento: number;
   comprobanteUrl: string | null;
   aceptaAvisos: boolean;
   domiciliarioNombre: string | null;
@@ -192,6 +202,9 @@ function aPedidoEnLista(fila: FilaDeLista): PedidoEnLista {
     barrio: fila.barrio,
     metodoPago: fila.metodoPago,
     total: fila.total,
+    subtotal: fila.subtotal,
+    costoDomicilio: fila.costoDomicilio,
+    descuento: fila.descuento,
     tieneComprobante: Boolean(fila.comprobanteUrl),
     aceptaAvisos: fila.aceptaAvisos,
     domiciliarioNombre: fila.domiciliarioNombre,

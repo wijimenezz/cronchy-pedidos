@@ -3,6 +3,7 @@ import { BellOff } from "lucide-react";
 import type { PedidoEnLista } from "@/db/queries/panel";
 import { cuandoCorto, horaCorta, pesos } from "@/lib/notificaciones/plantillas";
 import { ETIQUETA_ESTADO, METODO_PAGO_ETIQUETA, toneDeEstado } from "@/lib/pedidos/estados";
+import { DesgloseDomicilio } from "./DesgloseDomicilio";
 
 /**
  * Los pedidos de un día pasado.
@@ -134,6 +135,10 @@ function Fila({ pedido }: { pedido: PedidoEnLista }) {
         <span className="font-bold text-cafe">{pesos(pedido.total)}</span> ·{" "}
         {METODO_PAGO_ETIQUETA[pedido.metodoPago] ?? pedido.metodoPago}
       </p>
+
+      {/* Cuánto de ese total fue el envío. Aquí sirve incluso más que en el tablero: esta es la
+          pantalla donde se cuadra al final del día lo que se le pagó a los domiciliarios. */}
+      <DesgloseDomicilio pedido={pedido} />
     </Link>
   );
 }

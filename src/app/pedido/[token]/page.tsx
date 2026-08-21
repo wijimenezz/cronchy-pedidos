@@ -21,7 +21,12 @@ import { obtenerPedidoPorToken, type PedidoPublico } from "@/db/queries/pedidos"
 import { comoLlegarUrl } from "@/lib/tienda/local";
 import { puntoDesdeGeoJSON } from "@/lib/zonas";
 import { linkContactoWhatsapp, normalizarTelefono } from "@/lib/notificaciones/transporte";
-import { cuandoCorto, horaCorta, pesos } from "@/lib/notificaciones/plantillas";
+import {
+  cuandoCorto,
+  horaCorta,
+  pesos,
+  subtotalConDescuento,
+} from "@/lib/notificaciones/plantillas";
 import {
   DETALLE_ESTADO,
   ETIQUETA_ESTADO,
@@ -304,23 +309,35 @@ export default async function SeguimientoPedido({
           ))}
         </ul>
 
+        {/* Mismo orden y mismas palabras que el WhatsApp de la aceptación, porque esta página es
+            la que el cliente abre desde el link de ese mensaje: dos desgloses distintos del mismo
+            pedido con dos minutos de diferencia es justo lo que confunde. El descuento va antes
+            del domicilio porque el cupón se aplica sobre los productos y el envío se suma al final
+            (regla 20). */}
         <dl className="mt-4 flex flex-col gap-1 border-t border-crema-oscura pt-3 font-cuerpo text-sm text-cafe-suave">
           <div className="flex justify-between">
-            <dt>Subtotal</dt>
+            <dt>Productos</dt>
             <dd>{pesos(pedido.subtotal)}</dd>
           </div>
+          {/* Las dos juntas o ninguna: sin descuento, "Subtotal" repetiría la cifra de arriba. */}
+          {pedido.descuento > 0 && (
+            <>
+              <div className="flex justify-between text-exito">
+                {/* Con el código si lo hubo: es lo que le recuerda al cliente que su cupón sí
+                    entró, y de paso qué código usar la próxima vez. */}
+                <dt>{pedido.cuponCodigo ? `Descuento ${pedido.cuponCodigo}` : "Descuento"}</dt>
+                <dd>−{pesos(pedido.descuento)}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt>Subtotal</dt>
+                <dd>{pesos(subtotalConDescuento(pedido.subtotal, pedido.descuento))}</dd>
+              </div>
+            </>
+          )}
           {esDomicilio && (
             <div className="flex justify-between">
               <dt>Domicilio</dt>
               <dd>{pesos(pedido.costoDomicilio)}</dd>
-            </div>
-          )}
-          {pedido.descuento > 0 && (
-            <div className="flex justify-between text-exito">
-              {/* Con el código si lo hubo: es lo que le recuerda al cliente que su cupón sí
-                  entró, y de paso qué código usar la próxima vez. */}
-              <dt>{pedido.cuponCodigo ? `Descuento ${pedido.cuponCodigo}` : "Descuento"}</dt>
-              <dd>−{pesos(pedido.descuento)}</dd>
             </div>
           )}
           <div className="mt-1 flex justify-between text-base font-bold text-cafe">
