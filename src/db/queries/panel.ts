@@ -60,6 +60,14 @@ export type PedidoPanel = {
    * discrepar: lo que el cliente lee como "Estado del Pago" y si el domiciliario cobra.
    */
   tieneComprobante: boolean;
+  /**
+   * Si el cliente quiso los avisos por WhatsApp del estado de su pedido. En `false`, el panel no
+   * ofrece el botón de avisar y `avisoCambioEstado` no arma ningún mensaje.
+   *
+   * Lo que NO apaga son "Llamar" y "Escribir" del detalle: resolver una novedad de la entrega es
+   * contacto operativo —la finalidad 5 de la política—, no un aviso automático.
+   */
+  aceptaAvisos: boolean;
   notas: string | null;
   items: ItemSnapshot[];
   subtotal: number;
@@ -90,6 +98,18 @@ export type PedidoEnLista = Pick<
   | "barrio"
   | "metodoPago"
   | "total"
+  // De qué se compone el total, para que la tarjeta diga **cuánto es el domicilio** sin que haya
+  // que abrir el pedido. Es lo que se le paga al domiciliario, que es externo (regla 13), y hasta
+  // ahora se consultaba entrando a la ficha decenas de veces al día. El descuento viaja porque sin
+  // él la cifra de productos sería la bruta y no la que de verdad se cobró.
+  | "subtotal"
+  | "costoDomicilio"
+  | "descuento"
+  | "aceptaAvisos"
+  // Quién lo lleva ya, para que la tarjeta del tablero sepa si "Asignar" es una tarea pendiente o
+  // una reasignación. Sin esto el operador no distingue el pedido que nadie ha llamado del que ya
+  // tiene domiciliario en camino, y llama dos veces al mismo. Es el snapshot de la regla 18.
+  | "domiciliarioNombre"
 > & {
   tieneComprobante: boolean;
   cantidadItems: number;
@@ -154,7 +174,12 @@ type FilaDeLista = {
   barrio: string | null;
   metodoPago: string;
   total: number;
+  subtotal: number;
+  costoDomicilio: number;
+  descuento: number;
   comprobanteUrl: string | null;
+  aceptaAvisos: boolean;
+  domiciliarioNombre: string | null;
   orderItems: { cantidad: number; snapshot: unknown }[];
   orderStatusEvents: { estado: EstadoPedido; notificadoEn: string | null }[];
 };
@@ -177,10 +202,20 @@ function aPedidoEnLista(fila: FilaDeLista): PedidoEnLista {
     barrio: fila.barrio,
     metodoPago: fila.metodoPago,
     total: fila.total,
+    subtotal: fila.subtotal,
+    costoDomicilio: fila.costoDomicilio,
+    descuento: fila.descuento,
     tieneComprobante: Boolean(fila.comprobanteUrl),
+    aceptaAvisos: fila.aceptaAvisos,
+    domiciliarioNombre: fila.domiciliarioNombre,
     cantidadItems: fila.orderItems.reduce((n, i) => n + i.cantidad, 0),
     resumenItems: resumirItems(aItems(fila.orderItems)),
-    avisoPendiente: puedeAvisarse(fila.estado) && !yaAvisados.includes(fila.estado),
+    // Quien no quiso avisos no tiene ninguno pendiente: sin esto el tablero seguiría ofreciendo
+    // el botón ámbar y el empleado lo pulsaría de buena fe contra un cliente que dijo que no.
+    avisoPendiente:
+      fila.aceptaAvisos &&
+      puedeAvisarse(fila.estado) &&
+      !yaAvisados.includes(fila.estado),
     siguiente: siguienteEstado(fila.estado, fila.tipo),
   };
 }
@@ -301,6 +336,7 @@ export async function obtenerPedidoPorNumero(
       pagaCon: fila.pagaCon,
       comprobanteUrl: fila.comprobanteUrl,
       tieneComprobante: fila.comprobanteUrl !== null,
+      aceptaAvisos: fila.aceptaAvisos,
       notas: fila.notas,
       items: aItems(fila.orderItems),
       subtotal: fila.subtotal,

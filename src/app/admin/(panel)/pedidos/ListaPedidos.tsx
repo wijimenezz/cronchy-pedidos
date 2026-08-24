@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bell, BellOff } from "lucide-react";
+import type { Domiciliario } from "@/db/queries/domiciliarios";
 import type { PedidoEnLista } from "@/db/queries/panel";
 import { COLUMNAS_TABLERO, columnaDeTablero } from "@/lib/pedidos/estados";
 import { TarjetaPedido } from "./TarjetaPedido";
@@ -69,11 +70,18 @@ const TITULO_BASE = "Pedidos — Cronchy";
  */
 export function ListaPedidos({
   iniciales,
+  domiciliarios,
   selectorDia,
   estimado,
   acciones,
 }: {
   iniciales: PedidoEnLista[];
+  /**
+   * La agenda de domiciliarios, para el botón de asignar de cada tarjeta. Se carga una vez en el
+   * servidor y baja como dato —no como nodo, a diferencia de los tres de abajo— porque quien la
+   * consume es un componente de cliente que la mete en el estado del modal.
+   */
+  domiciliarios: Domiciliario[];
   /**
    * Controles de servidor que comparten la barra con el contador y el botón de avisos, que sí
    * son estado de este componente. Llegan como nodos ya renderizados: así conviven en una sola
@@ -482,6 +490,7 @@ export function ListaPedidos({
             titulo={columna.titulo}
             vacio={columna.vacio}
             pedidos={porColumna[i]}
+            domiciliarios={domiciliarios}
             alCambiar={refrescar}
             oculta={i !== columnaVisible}
             urge={i === 0 && porColumna[0].length > 0}
@@ -497,6 +506,7 @@ function Columna({
   titulo,
   vacio,
   pedidos,
+  domiciliarios,
   alCambiar,
   oculta,
   urge,
@@ -505,6 +515,7 @@ function Columna({
   titulo: string;
   vacio: string;
   pedidos: PedidoEnLista[];
+  domiciliarios: Domiciliario[];
   alCambiar: () => void;
   /** En pantalla estrecha solo se ve la pestaña elegida; en `lg` se ven todas. */
   oculta: boolean;
@@ -545,7 +556,15 @@ function Columna({
           />
         )}
         <span className="font-titulo text-sm font-bold text-cafe">{titulo}</span>
-        <span className="font-cuerpo text-xs text-cafe-tenue">{pedidos.length}</span>
+        {/* La cifra de lo que urge se lee desde el otro lado del mostrador: misma talla que el
+            título y en naranja, no el gris de 12 px con el que se contaba lo ya despachado.
+            Quien manda es `urge` —la prop que ya distingue esa columna— y no el rótulo: un
+            `titulo === "Sin aceptar"` se rompería en silencio al renombrar la columna. */}
+        <span
+          className={`font-cuerpo text-sm font-bold ${urge ? "text-naranja-osc" : "text-cafe-tenue"}`}
+        >
+          {pedidos.length}
+        </span>
       </h2>
 
       {pedidos.length === 0 ? (
@@ -553,11 +572,63 @@ function Columna({
           {vacio}
         </p>
       ) : (
-        // El único scroll del tablero. `pr-1` deja sitio a la barra para que no tape la tarjeta.
-        <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+        /*
+          El único scroll del tablero.
+
+          **`scrollbar-gutter: stable` reserva el hueco de la barra en las CUATRO columnas, tengan
+          scroll o no, y eso arregla un bug real**: con 5 pedidos a "En preparación" le salía barra,
+          esa barra se comía ~15 px de la lista y la dejaba por debajo del umbral de la rejilla, así
+          que partía en una sola columna mientras "En camino" —con 3 pedidos y sin barra— partía en
+          dos. Dos columnas del mismo ancho maquetando distinto según cuántos pedidos tuvieran, y
+          las tarjetas saltando cada vez que una ganaba o perdía la barra.
+
+          `pr-1` se queda igualmente: en Android las barras son *overlay*, ahí el gutter no reserva
+          nada —lo cual está bien, la tablet conserva su ancho— y sin ese padding la barra pasaría
+          por encima del borde de la tarjeta al bajar.
+
+          **Y la rejilla que reparte el ancho sobrante en MÁS tarjetas, no en tarjetas más gordas.**
+          La tarjeta está dibujada para los ~239 px de la columna en la tablet; en un monitor, con
+          "Terminados" colapsada, las columnas vivas pasan de 470 y una tarjeta sola ahí es aire.
+          Estirarla para llenarla es el mismo error que tenía el botón naranja.
+
+          Ojo al medir esto sobre una captura: en Windows con el escalado al 125% la imagen sale en
+          píxeles físicos y las columnas parecen 579 donde el CSS ve 473. Lo que cuenta aquí es
+          `window.innerWidth`, no el ancho del PNG.
+
+          `auto-fill` responde al ancho de esta lista y no al de la ventana, así que no hay ningún
+          breakpoint que adivinar ni que volver a tocar si algún día cambia el número de columnas:
+          mete tantas pistas de ≥13,5 rem como quepan. Dos piden 440 px, así que en un monitor salen
+          dos tarjetas y en la tablet sigue saliendo una sola.
+
+          **13,5 rem no es un número a ojo: el suelo lo fija la fila de acciones.** Esa fila mide
+          40 + 6 + 40 + 6 + 96 = 188 px en su caso de todos los días —imprimir, asignar y el
+          naranja—, y la tarjeta le quita 24 de `p-3`. Por debajo de **212 px de tarjeta** la fila
+          empieza a partirse en la operación normal, no en el caso raro. 13,5 rem son 216: 192 de
+          contenido, 4 de margen, y ese mínimo solo se toca si una columna cae justo en los 440 — a
+          las anchuras reales las tarjetas salen a ~225. **No bajarlo más.**
+
+          Empezó en 16 rem con el argumento equivocado —holgura sobre los 239 de la tablet—, que
+          pedía 520 px de lista y no entraba nunca. 14 rem pedía 456 y entraba por 2 px, o sea que
+          la barra de scroll lo tumbaba: de ahí el gutter de arriba y estos 440.
+
+          `min(13.5rem,100%)` es lo que impide que reviente en la tablet: con `minmax(13.5rem,1fr)`
+          a secas, una columna más angosta que 216 px pediría una pista de 216 y la lista
+          desbordaría.
+
+          `content-start` no es decorativo: este `<ul>` es `flex-1`, o sea más alto que su contenido
+          cuando la columna lleva dos pedidos. Sin él, grid repartiría ese alto sobrante entre las
+          filas y separaría las tarjetas por toda la columna. Y `items-start` para que cada una mida
+          lo suyo en vez de estirarse hasta la más alta de su fila, que sería devolver por dentro el
+          aire que se acaba de quitar por fuera.
+        */
+        <ul className="grid min-h-0 flex-1 grid-cols-[repeat(auto-fill,minmax(min(13.5rem,100%),1fr))] content-start items-start gap-2 overflow-y-auto [scrollbar-gutter:stable] pr-1">
           {pedidos.map((pedido) => (
             <li key={pedido.id}>
-              <TarjetaPedido pedido={pedido} alCambiar={alCambiar} />
+              <TarjetaPedido
+                pedido={pedido}
+                domiciliarios={domiciliarios}
+                alCambiar={alCambiar}
+              />
             </li>
           ))}
         </ul>

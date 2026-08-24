@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { avisoNuevoPedido, pedidoParaMensaje, tiendaParaMensaje } from "./avisos";
+import {
+  avisoCambioEstado,
+  avisoNuevoPedido,
+  pedidoParaMensaje,
+  tiendaParaMensaje,
+} from "./avisos";
 import { resolverBaseUrl } from "@/lib/url";
 import type { PedidoPublico } from "@/db/queries/pedidos";
 
@@ -128,10 +133,7 @@ describe("pedidoParaMensaje", () => {
     expect(pedidoParaMensaje(pedidoPublico({ tieneComprobante: true })).pagado).toBe(true);
   });
 
-  // La propina todavía no existe en ningún sitio. Viaja en 0 para que el recibo ya tenga su
-  // renglón; el día que el checkout la pida, se cambia aquí y el mensaje no se entera.
-  it("la propina llega en cero mientras el checkout no la pida", () => {
-    expect(pedidoParaMensaje(pedidoPublico()).propina).toBe(0);
+  it("el descuento viaja tal cual al mensaje", () => {
     expect(pedidoParaMensaje(pedidoPublico({ descuento: 2000 })).descuento).toBe(2000);
   });
 });
@@ -155,6 +157,64 @@ describe("avisoNuevoPedido", () => {
 
   it("devuelve null si la tienda no tiene teléfono, para poder ocultar el botón", async () => {
     const r = await avisoNuevoPedido(pedidoPublico(), { nombre: "Cronchy", telefono: null });
+    expect(r).toBeNull();
+  });
+});
+
+/**
+ * El corte de fondo del consentimiento de avisos.
+ *
+ * El panel además apaga el botón, pero eso es la UI y la UI se olvida: esto es lo que garantiza
+ * que no se arme ningún texto ni se resuelva ningún `wa.me` para quien dijo que no. Si alguien
+ * "limpia" ese `if`, estos dos tests se ponen rojos.
+ *
+ * Los casos van con un pedido a domicilio a propósito: en `recoger` la función va a buscar el pin
+ * del local a la base, y aquí no hay base.
+ */
+describe("avisoCambioEstado y el consentimiento", () => {
+  const TIENDA = {
+    id: "11111111-1111-4111-8111-111111111111",
+    nombre: "Cronchy",
+    direccion: "Calle 17 #7-44",
+    minutosEstimadoMin: 30,
+    minutosEstimadoMax: 45,
+  };
+
+  it("no arma nada si el cliente no quiso avisos", async () => {
+    const r = await avisoCambioEstado(
+      "preparando",
+      { ...pedidoPublico(), aceptaAvisos: false },
+      TIENDA,
+    );
+
+    expect(r).toBeNull();
+  });
+
+  it("con el consentimiento dado, el aviso sale como siempre", async () => {
+    process.env.NEXT_PUBLIC_BASE_URL = "https://cronchy.co";
+    const r = await avisoCambioEstado(
+      "preparando",
+      { ...pedidoPublico(), aceptaAvisos: true },
+      TIENDA,
+    );
+
+    expect(r?.modo).toBe("link");
+    if (r?.modo === "link") {
+      // Al cliente, no al negocio: es el único mensaje del proyecto que va en esta dirección.
+      expect(r.url).toContain("wa.me/573001234567");
+      expect(r.texto).toContain("en preparación");
+    }
+  });
+
+  // El consentimiento no resucita un estado que nunca tuvo mensaje. Son dos preguntas distintas
+  // y se responden por separado: si se colapsaran, `entregado` empezaría a avisar.
+  it("un estado sin mensaje sigue sin avisar aunque el cliente sí quiera", async () => {
+    const r = await avisoCambioEstado(
+      "entregado",
+      { ...pedidoPublico(), aceptaAvisos: true },
+      TIENDA,
+    );
+
     expect(r).toBeNull();
   });
 });

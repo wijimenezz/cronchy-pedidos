@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { ArrowLeft } from "lucide-react";
 import { getStore, obtenerUbicacionTienda } from "@/db/queries/store";
-import { opcionesDeEntrega } from "@/lib/pedidos/entrega";
+import { opcionesDeEntrega, sePuedePedir } from "@/lib/pedidos/entrega";
 import { comoLlegarUrl } from "@/lib/tienda/local";
 import { puntoDesdeGeoJSON } from "@/lib/zonas";
 import { CheckoutForm } from "./CheckoutForm";
@@ -26,7 +26,11 @@ export default async function CheckoutPage() {
   // Estar cerrado ya no es el fin del camino: si quedan horas que ofrecer, el formulario se
   // pinta igual y el cliente programa. Solo cuando no hay ninguna de las dos opciones —el
   // interruptor manual apagado, o ni hoy ni mañana con horario— se corta el paso.
-  const sePuedePedir = Boolean(entrega.pronto) || entrega.dias.length > 0;
+  //
+  // El criterio sale de `entrega.ts` y no se recalcula aquí: es el mismo con el que la subida del
+  // comprobante decide si acepta el archivo, y tenerlo escrito dos veces fue justo lo que dejó a
+  // esta pantalla ofreciendo Nequi mientras aquel endpoint lo rechazaba.
+  const puedePedir = sePuedePedir(entrega);
 
   /**
    * Dos valores distintos de la misma columna, y **no son intercambiables**.
@@ -52,7 +56,7 @@ export default async function CheckoutPage() {
         <h1 className="font-titulo text-xl font-semibold text-cafe">Confirmar pedido</h1>
       </header>
 
-      {sePuedePedir ? (
+      {puedePedir ? (
         <CheckoutForm
           centroTienda={centroTienda}
           entrega={entrega}

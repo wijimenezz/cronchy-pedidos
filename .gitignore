@@ -30,6 +30,11 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# Los volcados de consola que deja el MCP de Playwright al conducir el navegador. Son de la
+# sesión que los generó y no le sirven a nadie más: llevan rutas de localhost, ruido de HMR y
+# el 401 de una cookie ya vencida.
+/.playwright-mcp/
+
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example

@@ -157,6 +157,10 @@ export type PedidoParaExport = {
    * hay consentimiento registrado, que es el caso de todo lo cobrado antes de que se guardara.
    */
   politicaAceptadaEn: Date | null;
+  /** Qué versión del documento aceptó. `null` en lo anterior a que se guardara. */
+  politicaVersion: string | null;
+  /** Si quiso los avisos por WhatsApp del estado de su pedido. */
+  aceptaAvisos: boolean;
   items: ItemSnapshot[];
 };
 
@@ -249,6 +253,8 @@ export async function pedidosDelRango(
       cuponCodigo: fila.cuponCodigo,
       total: fila.total,
       politicaAceptadaEn: fila.politicaAceptadaEn ? new Date(fila.politicaAceptadaEn) : null,
+      politicaVersion: fila.politicaVersion,
+      aceptaAvisos: fila.aceptaAvisos,
       items,
     };
   });

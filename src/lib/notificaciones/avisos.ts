@@ -51,6 +51,17 @@ export type PedidoParaAviso = Pick<
 >;
 
 /**
+ * Un pedido más la decisión de su cliente sobre si quiere que le escribamos.
+ *
+ * Es un tipo aparte y no un campo de `PedidoParaAviso` porque **solo lo necesitan los mensajes
+ * dirigidos al cliente**: el aviso al negocio y el del domiciliario salen igual, y exigirles un
+ * consentimiento que no les incumbe solo obligaría a inventarles un `true` en cada llamada.
+ */
+export type PedidoParaAvisoCliente = PedidoParaAviso & {
+  aceptaAvisos: boolean;
+};
+
+/**
  * Del pedido guardado al pedido que entienden las plantillas — todo desde el snapshot.
  *
  * Toma la forma y no el tipo `PedidoPublico` cerrado, para que el panel pueda pasar su
@@ -87,10 +98,6 @@ export function pedidoParaMensaje(pedido: PedidoParaAviso): PedidoParaMensaje {
     costoDomicilio: pedido.costoDomicilio,
     descuento: pedido.descuento,
     cuponCodigo: pedido.cuponCodigo,
-    // Todavía no existe: ni el checkout la pide ni la base la guarda. Se manda en 0 para que el
-    // recibo del cliente ya tenga su renglón; el día que el checkout tenga propina, se cambia
-    // esta línea y nada más.
-    propina: 0,
     total: pedido.total,
     metodoPago: pedido.metodoPago,
     // Un comprobante cargado es la única prueba de pago que maneja este negocio. En efectivo
@@ -193,10 +200,15 @@ export function puedeAvisarse(estado: EstadoPedido): boolean {
  *
  * Devuelve `null` para los estados que no se notifican —`nuevo`, porque ya se avisó al
  * confirmar—; eso lo decide `cambioEstado`, y aquí solo se respeta.
+ *
+ * Y devuelve `null`, antes que nada, si el cliente no quiso avisos. **Este es el corte de fondo**:
+ * el panel además deja de ofrecer el botón, pero eso es la UI y la UI se olvida. Aquí es donde no
+ * hay texto que enviar ni número al que enviarlo, así que un camino nuevo que llame a esta función
+ * hereda el respeto por la decisión del cliente sin que nadie tenga que acordarse.
  */
 export async function avisoCambioEstado(
   estado: EstadoPedido,
-  pedido: PedidoParaAviso,
+  pedido: PedidoParaAvisoCliente,
   store: {
     id: string;
     nombre: string;
@@ -205,6 +217,8 @@ export async function avisoCambioEstado(
     minutosEstimadoMax: number;
   },
 ): Promise<ResultadoEnvio | null> {
+  if (!pedido.aceptaAvisos) return null;
+
   /**
    * Dónde queda el local, para los mensajes de un pedido para recoger.
    *

@@ -156,6 +156,8 @@ function datosPedidos(pedidos: PedidoParaExport[]): SheetData {
       // El consentimiento va al final: es metadato de auditoría, no operación del pedido.
       "Aceptó datos",
       "Aceptó el",
+      "Versión política",
+      "Avisos WhatsApp",
       "Id de orden",
     ]),
     ...hojaPedidos(pedidos).map((p) => [
@@ -188,6 +190,8 @@ function datosPedidos(pedidos: PedidoParaExport[]): SheetData {
       texto(p.notas),
       texto(p.aceptoDatos),
       momento(p.aceptoEl),
+      texto(p.versionPolitica),
+      texto(p.avisosWhatsapp),
       texto(p.id),
     ]),
   ];
@@ -242,6 +246,7 @@ function datosClientes(pedidos: PedidoParaExport[]): SheetData {
       "Aceptó datos",
       "Aceptó por primera vez",
       "Aceptó por última vez",
+      "Avisos WhatsApp",
     ]),
     ...hojaClientes(pedidos).map((c) => [
       texto(c.telefono),
@@ -252,6 +257,7 @@ function datosClientes(pedidos: PedidoParaExport[]): SheetData {
       texto(c.aceptoDatos),
       momento(c.primeraAceptacion),
       momento(c.ultimaAceptacion),
+      texto(c.aceptaAvisos),
     ]),
   ];
 }
@@ -267,14 +273,15 @@ function datosClientes(pedidos: PedidoParaExport[]): SheetData {
  */
 const ANCHOS = {
   resumen: [16, 10, 12, 12, 10, 14, 14, 12, 14],
-  // 29 columnas.
+  // 31 columnas.
   pedidos: [
     10, 18, 18, 14, 18, 22, 16, 22, 16, 18, 34, 26, 12, 12, 16, 20, 18, 16, 12, 14, 12, 12, 12, 14,
-    14, 30, 14, 18, 38,
+    14, 30, 14, 18, 16, 16, 38,
   ],
   detalle: [10, 18, 14, 30, 10, 44, 14, 26],
   productos: [34, 18, 20, 14],
-  clientes: [16, 22, 10, 12, 14, 14, 18, 18],
+  // 9 columnas.
+  clientes: [16, 22, 10, 12, 14, 14, 18, 18, 16],
 };
 
 export type LibroDePedidos = {
@@ -312,7 +319,7 @@ export async function libroDePedidos(
       sheet: "Pedidos",
       data: datosPedidos(pedidos),
       columns: ANCHOS.pedidos.map((width) => ({ width })),
-      // La cabecera se queda a la vista al bajar: son veintinueve columnas y sin esto no se
+      // La cabecera se queda a la vista al bajar: son treinta y una columnas y sin esto no se
       // sabe qué se está mirando en la fila 200.
       stickyRowsCount: 1,
     },

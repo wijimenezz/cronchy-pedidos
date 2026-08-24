@@ -149,6 +149,13 @@ export type FilaPedido = {
   aceptoDatos: string;
   /** Cuándo lo aceptó, sellado por el servidor. `null` deja la celda vacía. */
   aceptoEl: Date | null;
+  /**
+   * Qué versión del documento aceptó. Sin esto la fila dice que alguien aceptó sin poder mostrar
+   * qué decía la política ese día, que es la mitad de lo que hay que poder acreditar.
+   */
+  versionPolitica: string | null;
+  /** Si quiso los avisos por WhatsApp del estado de su pedido. */
+  avisosWhatsapp: string;
   id: string;
 };
 
@@ -189,6 +196,8 @@ export function hojaPedidos(pedidos: PedidoParaExport[]): FilaPedido[] {
     notas: p.notas,
     aceptoDatos: siNo(p.politicaAceptadaEn !== null),
     aceptoEl: p.politicaAceptadaEn,
+    versionPolitica: p.politicaVersion,
+    avisosWhatsapp: siNo(p.aceptaAvisos),
     id: p.id,
   }));
 }
@@ -305,6 +314,13 @@ export type FilaCliente = {
   aceptoDatos: string;
   primeraAceptacion: Date | null;
   ultimaAceptacion: Date | null;
+  /**
+   * Si quiere que le escribamos, según su pedido MÁS RECIENTE del rango: es una preferencia que
+   * puede cambiar, y aquí lo que sirve es la última que expresó, no si alguna vez dijo que sí.
+   * Al revés que `aceptoDatos`, donde basta una aceptación porque un consentimiento no se
+   * deshace por el pedido siguiente.
+   */
+  aceptaAvisos: string;
 };
 
 /**
@@ -336,10 +352,13 @@ export function hojaClientes(pedidos: PedidoParaExport[]): FilaCliente[] {
       aceptoDatos: siNo(false),
       primeraAceptacion: null,
       ultimaAceptacion: null,
+      aceptaAvisos: siNo(true),
     };
 
-    // El nombre del pedido más reciente: si se cambió el nombre, el último es el bueno.
+    // Lo del pedido más reciente: si cambió el nombre, o cambió de idea sobre los avisos, manda
+    // lo último que dijo. Los pedidos llegan ordenados por fecha ascendente.
     fila.cliente = pedido.clienteNombre;
+    fila.aceptaAvisos = siNo(pedido.aceptaAvisos);
     fila.pedidos += 1;
 
     // Un cancelado se cuenta pero no suma, igual que en el resto del módulo.

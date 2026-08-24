@@ -60,13 +60,9 @@ export async function obtenerContextoHorario(
   );
 }
 
-/** Un solo día. Es lo que necesita `estaAbiertaEn`, que pregunta por un instante concreto. */
-export async function obtenerContextoHorarioHoy(
-  storeId: string,
-  fecha: string,
-  diaSemana: number,
-): Promise<ContextoDelDia> {
-  const porFecha = await obtenerContextoHorario(storeId, [{ fecha, diaSemana }]);
-
-  return porFecha.get(fecha) ?? { cierreHoy: null, horariosHoy: [] };
-}
+/*
+ * Aquí estaba `obtenerContextoHorarioHoy`, el atajo de un solo día. Existía solo para
+ * `estaAbiertaEn`, que se fue con ella (ver el final de `lib/horario.ts`): quien pregunta por el
+ * horario hoy pregunta por hoy **y mañana**, porque las franjas programables llegan hasta ahí.
+ * `obtenerContextoHorario` con una lista de fechas es lo que se usa, y ya cubre el caso de una.
+ */

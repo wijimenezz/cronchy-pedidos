@@ -114,7 +114,12 @@ src/
     notificaciones/
       plantillas.ts           TEXTO de los mensajes — fuente única
       transporte.ts           adaptador: whatsapp-link | whatsapp-api | telegram
-    (impresion.ts)            PENDIENTE: no existe. La tabla de permisos lo promete
+    impresion/
+      escpos.ts               LOS BYTES de la impresora térmica — puro, testeado
+      comanda.ts              el ticket de cocina — puro, testeado
+      recibo.ts               el recibo del cliente — puro, testeado
+      enlace.ts               el deep link `cronchyprinter://raw` (regla 22)
+      pruebas/decodificar.ts  lee un ticket de vuelta a texto — solo para los tests
   components/
 ```
 
@@ -493,8 +498,79 @@ noche lo deja listo para el día siguiente. Pero `store.acepta_pedidos` sigue ap
 comprobación vive en `opcionesDeEntrega` y no en el módulo puro, precisamente para que no se
 pueda saltar generando franjas por otro camino.
 
+**Y eso vale para TODO el camino del pedido, no solo para la hora.** La pregunta que hay que
+hacer es "¿se puede pedir?" —`sePuedePedir(opciones)`, que es `pronto || dias.length`— y nunca
+"¿está abierta ahora?". Son cosas distintas desde que existen las franjas, y confundirlas costó
+un checkout sin salida: **`POST /api/comprobantes` preguntaba lo segundo**, así que de noche
+rechazaba el archivo con un 409. Como `crearPedidoSchema` exige comprobante cuando el método es
+`nequi`, un pedido programado se podía pagar en efectivo pero **no por Nequi** — y peor en
+`recoger`, que se paga por adelantado y por tanto no tenía ninguna otra vía. El cliente lo
+descubría al final del formulario.
+
+Por eso `estaAbierta()` y `estaAbiertaEn()` **ya no existen**, y no es limpieza: el nombre es lo
+que invita a volver a usar el criterio equivocado para decidir si se acepta algo. `horario.ts`
+quedó puro —solo `calcularDisponibilidad` y compañía, sin tocar la base— y quien consulta es
+`entrega.ts`. Si algún día hace falta saber si la tienda está abierta en un instante, que sea
+para *mostrarlo*, jamás para autorizar un pedido.
+
 `store.minutos_estimado_min` / `_max` son el "llega en 30–45 min", editables desde
 `/admin/pedidos` porque es donde se está cuando se nota que la cocina va lenta.
+
+### 22. La web arma el ticket; la impresora solo lo vuelca
+
+Los tickets salen por una **térmica Bluetooth** a la que se llega con un deep link,
+`cronchyprinter://raw?v=1&d=<base64url>`, que lleva dentro los bytes ESC/POS **ya armados**. Lo
+atienden dos handlers distintos y ninguno de los dos sabe qué es un pedido: en la tablet, la app
+`com.pos.bluetoothprinter` (`PrintRawActivity`); en Windows, un script registrado en el sistema
+(`scripts/impresion-windows/`). Un solo enlace, un solo camino de código en la web.
+
+**Esa app es la misma que imprime el POS de AppSheet, y por eso el host es nuevo.** Sus hosts
+`print` y `printreceipt` maquetan el ticket en Java, con las columnas Producto/Helado/Cant/Toppings
+cableadas: es el modelo de datos de AppSheet y un pedido de aquí no cabe en él —grupos de
+modificadores arbitrarios (regla 3), domicilio o recoger, barrio, hora programada, cupón—. Se
+añadió `raw` en vez de tocarlos, así que **AppSheet no se entera**. Ver `docs/impresora-android/`.
+
+Lo que se gana: el diseño del ticket vive en `src/lib/impresion/`, puro y testeado como
+`precios.ts`, y **cambiarlo no vuelve a requerir compilar un APK**.
+
+Cuatro cosas que no se cambian:
+
+- **El texto NUNCA sale en UTF-8.** Estas impresoras trabajan por *página de códigos*: `codificar`
+  emite `ESC t 0` y traduce cada carácter al **subconjunto común de CP437 y CP850** —`á é í ó ú ñ
+  Ñ ü Ü É ¿ ¡ °` están en la misma posición en las dos—, translitera el resto (`Á→A`, `×→x`,
+  `·→-`) y en último caso pone una interrogación. Á, Í, Ó y Ú solo existen en CP850, así que
+  mandar su byte pintaría un símbolo de caja en una impresora que arranque en 437. El
+  `getBytes("UTF-8")` del Java es justo el bug que esto evita, y no se ha notado en AppSheet
+  porque esos datos vienen sin tildes.
+- **Imprimir no muta nada y no lleva candado.** Ni columna, ni evento, ni `revalidatePath`.
+  Reimprimir es normal —el ticket se mojó, salió cortado, se lo llevó el domiciliario—, misma
+  doctrina que reasignar (regla 18). El candado de la regla 11 protege los avisos al **cliente**.
+- **La web nunca sabrá si el papel salió.** En cuanto se entrega la URL el control se va a otra
+  app y no vuelve, igual que con `wa.me`. El acuse lo da el `Toast` del APK. No inventes una
+  confirmación en pantalla.
+- **La comanda no lleva precios ni dirección; el recibo sí lleva el desglose.** Son dos lectores:
+  quien prepara y quien paga. La dirección la necesita el domiciliario y le llega por WhatsApp
+  (regla 18) — misma doctrina que el payload del push: lo que no hace falta en un papel que se
+  queda en el mostrador, no se imprime.
+
+El desglose del recibo es **el mismo que el de `bloqueRecibo`** en `plantillas.ts`, hasta en qué
+líneas se callan (regla 20: productos, descuento, subtotal, domicilio, total). Que el papel y el
+WhatsApp contaran la misma plata de dos maneras sería un reclamo esperando a pasar.
+
+**Aceptar imprime la comanda en el mismo toque** que cambia el estado y abre el WhatsApp (regla
+19), y el orden importa: primero el papel —la actividad de Android es translúcida y devuelve el
+control sola— y después el WhatsApp, que se lleva la pantalla. Por eso `PrintRawActivity` **no
+puede tener interfaz**: con la pantalla de la app de por medio, ese toque sería un baile de tres
+aplicaciones.
+
+En el tablero, sin aceptar el icono saca la comanda de una y a partir de ahí abre un modal con los
+dos tickets (`accionesDeTarjeta`, probado). En el detalle están siempre los dos, **también en un
+pedido terminado**: es donde se viene a buscar el recibo de ayer.
+
+**Windows no puede imprimir sin diálogo desde el navegador**, y por eso el handler existe:
+`window.print()` siempre abre Ctrl+P. El script manda los bytes en **modo RAW** por `winspool.drv`
+—`Out-Printer` pasa por el driver y rasterizaría el ESC/POS— y así no hace falta compartir la
+impresora.
 
 ---
 
@@ -870,14 +946,50 @@ Tres cosas que no se cambian:
 - **No vive en el store persistido.** `datos-cliente.ts` ya lo decía de antes: el visto bueno es
   una decisión de UN pedido, no un dato del cliente. Se vuelve a marcar cada vez, y eso es lo que
   hace que cada pedido tenga su propia evidencia.
-- **En el XLSX son dos columnas** (`Aceptó datos` + `Aceptó el`) más la hoja `Clientes`, que agrega
-  por teléfono y responde "¿este cliente consintió, y desde cuándo?". Ahí el criterio es **al menos
-  una** aceptación entre sus pedidos: el cliente de siempre tiene pedidos viejos sin marca y nuevos
-  con ella, y decir "No" por el primero sería falso.
+- **En el XLSX son cuatro columnas** (`Aceptó datos`, `Aceptó el`, `Versión política`,
+  `Avisos WhatsApp`) más la hoja `Clientes`, que agrega por teléfono y responde "¿este cliente
+  consintió, y desde cuándo?". Ahí el criterio es **al menos una** aceptación entre sus pedidos: el
+  cliente de siempre tiene pedidos viejos sin marca y nuevos con ella, y decir "No" por el primero
+  sería falso.
 
-Falta la **página** de la política a la que apunta el check —hoy el texto no enlaza a ninguna
-parte—. Cuando llegue, el pedido debería guardar además **qué versión** aceptó: un registro que
-dice "aceptó" sin poder mostrar qué decía el documento ese día se sostiene a medias.
+**El texto vive en `lib/legal/politica-datos.ts` como datos, no como JSX**, misma doctrina que
+`plantillas.ts`: el documento cambia sin tocar un componente. `VERSION_POLITICA` se guarda en
+`order.politica_version`, porque un registro que dice "aceptó" sin poder mostrar qué decía el
+documento ese día se sostiene a medias. **Al editar el texto de forma que cambien las finalidades o
+el responsable, hay que subir la versión** — dos textos distintos con la misma versión hacen que ese
+registro deje de significar algo. El **medio** no lleva columna: hoy solo hay un camino de
+aceptación, y una columna con un único valor posible es una constante, no un dato.
+
+**El «Ver más» va fuera del `<label>`, y no es maquetación.** Dentro, el clic burbujea hasta el
+label: abrir la política desmarcaría la aceptación, o la marcaría sin haber leído nada.
+
+### La casilla de avisos por WhatsApp
+
+`order.acepta_avisos` (`NOT NULL DEFAULT true`) dice si el cliente quiere que le escribamos por el
+estado de su pedido. **Por defecto sí, y no es laxitud**: es finalidad necesaria del servicio —quien
+pide quiere saber cuándo sale su comida—, no publicidad. Marketing sería otra columna y otra
+casilla, esa sí desmarcada por defecto y con la Ley 2.300 encima. Por lo mismo `crearPedidoSchema`
+lo trae con `.default(true)` en vez de exigirlo: un pedido nunca se rechaza por esto.
+
+**El copy dice «avisos» y no «notificaciones automáticas», a propósito.** Por la regla 10 el mensaje
+lo dispara un empleado desde el panel; prometer un envío automático sería prometer lo que el
+transporte no hace.
+
+Un `false` se respeta en **cinco sitios**, y el orden importa: los tres primeros salen **antes de
+`marcarEstadoNotificado`**, o el candado de la regla 11 daría por avisado un estado que nunca se
+avisó y el botón no volvería jamás.
+
+1. `avisoCambioEstado` devuelve `null` — **el corte de fondo**, el único punto donde el teléfono del
+   cliente entra en un `wa.me`, así que un camino nuevo lo hereda sin que nadie se acuerde.
+2. `avisoDelAvance` (el botón naranja) sale antes del candado. El pedido **avanza igual**: lo que se
+   calla es el mensaje, no el cambio de estado.
+3. `prepararAviso` (el botón ámbar) igual, porque una server action se invoca sin pasar por la UI.
+4. y 5. `avisoPendiente`, en `panel.ts` y en el detalle, para que el botón ni se ofrezca.
+
+**Y el panel dice por qué**: un botón que desaparece sin explicación se lee como que el panel está
+roto. Lo que **no** se apaga son «Llamar» y «Escribir» del detalle — resolver una novedad de la
+entrega es contacto operativo (finalidad 5 de la política), no el aviso que el cliente rechazó. Y
+quien dice que no no se queda a ciegas: le queda el seguimiento en `/pedido/[token]`.
 
 ---
 
@@ -1039,7 +1151,10 @@ dice "aceptó" sin poder mostrar qué decía el documento ese día se sostiene a
   Para `franjas.ts`: la anticipación de hoy, que mañana no la arrastre, el turno partido, el
   límite del cierre y que el instante guardado sea el de Bogotá y no el de UTC. Para `dias.ts`:
   las 11:30 de la noche (que en UTC ya son el día siguiente), la medianoche en los dos bordes
-  del rango, y los saltos de mes, de año y de 29 de febrero.
+  del rango, y los saltos de mes, de año y de 29 de febrero. Para `impresion/escpos.ts`: que una
+  vocal con tilde sea UN byte y no la pareja de UTF-8, que las mayúsculas que solo tiene CP850
+  pierdan la tilde, y que ninguna línea se pase de las 48 columnas — un ticket desbordado se
+  parte solo y la cifra de la derecha aparece como si fuera otro dato.
 
 ## Qué NO hacer
 
@@ -1054,4 +1169,10 @@ dice "aceptó" sin poder mostrar qué decía el documento ese día se sostiene a
 - No crear lógica de envío gratis, pedido mínimo ni descuentos de domicilio: no
   existen en este negocio (regla 13).
 - No crear productos de prueba: el seed usa el catálogo real.
+- No maquetar tickets dentro del APK ni tocar sus hosts `print` / `printreceipt`: son de
+  AppSheet. El ticket lo arma `src/lib/impresion/` y el APK solo vuelca bytes (regla 22).
+- No mandar texto en UTF-8 a la impresora, ni "mejorar" `codificar` usando la tabla de CP850
+  completa: se vería bien en una impresora y saldría con símbolos de caja en otra.
+- No intentar imprimir desde el navegador con `window.print()` esperando que no salga el
+  diálogo: no existe forma de evitarlo. Para eso está el handler de Windows.
 - No convertir el proyecto en multi-tenant todavía.

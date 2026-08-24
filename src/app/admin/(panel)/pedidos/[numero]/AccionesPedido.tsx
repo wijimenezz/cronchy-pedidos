@@ -2,9 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import { ChefHat, Receipt } from "lucide-react";
 import { ETIQUETA_ESTADO } from "@/lib/pedidos/estados";
 import type { EstadoPedido } from "@/lib/notificaciones/plantillas";
-import { cambiarEstado, prepararAviso } from "../acciones";
+import { cambiarEstado, prepararAviso, prepararImpresion, type FormatoTicket } from "../acciones";
+import { dispararImpresion } from "../imprimir";
 
 /**
  * Operar el pedido desde su propia pantalla.
@@ -48,7 +50,14 @@ export function AccionesPedido({
     setUrlBloqueada(ventana ? null : url);
   }
 
-  /** Avanza y avisa en el mismo toque. Cancelar entra por aquí y también avisa al cliente. */
+  /**
+   * Avanza, imprime y avisa en el mismo toque. Cancelar entra por aquí y también avisa.
+   *
+   * Aceptar desde aquí saca la comanda igual que desde el tablero: el pedido se acepta en las
+   * dos pantallas, y que una imprimiera y la otra no sería una trampa esperando al día que
+   * alguien opere desde el detalle. Mismo orden que allí — primero el papel, que vuelve solo, y
+   * después el WhatsApp, que se lleva la pantalla.
+   */
   function avanzar(nuevo: string) {
     setError(null);
     setUrlBloqueada(null);
@@ -59,6 +68,7 @@ export function AccionesPedido({
         return;
       }
       setConfirmando(false);
+      if (resultado.urlImpresion) dispararImpresion(resultado.urlImpresion);
       abrirWhatsapp(resultado.url);
       // La página es `force-dynamic`: esto la vuelve a pedir con el estado ya cambiado, sin
       // duplicar aquí el cálculo de cuál es el siguiente paso.
@@ -81,15 +91,23 @@ export function AccionesPedido({
     });
   }
 
-  if (!siguiente && !avisoPendiente) {
-    return (
-      // Sin centrar: en una banda a todo el ancho, un cuadro con el texto en el medio se lee
-      // como un error del sistema y no como el estado normal de un pedido cerrado.
-      <p className="rounded-md border border-crema-oscura bg-tarjeta px-4 py-3 font-cuerpo text-[13px] text-cafe-tenue">
-        Este pedido ya terminó.
-      </p>
-    );
+  /** Manda un ticket a la impresora. Ver `imprimir.ts`: esto no espera acuse de nada. */
+  function imprimir(formato: FormatoTicket) {
+    setError(null);
+    iniciar(async () => {
+      const resultado = await prepararImpresion({ numero, formato });
+      if (!resultado.ok) {
+        setError(resultado.error);
+        return;
+      }
+      dispararImpresion(resultado.url);
+    });
   }
+
+  // Un pedido terminado ya no avanza, pero **sí se reimprime**, y por eso esta banda ya no
+  // desaparece: el detalle es donde se viene a buscar el recibo de un pedido de ayer, y en el
+  // tablero esa tarjeta ni siquiera ofrece el botón.
+  const terminado = !siguiente && !avisoPendiente;
 
   return (
     // Una banda a todo el ancho bajo la cabecera, y no la última tarjeta de la columna derecha:
@@ -116,6 +134,15 @@ export function AccionesPedido({
       )}
 
       <div className="flex flex-wrap items-center gap-2">
+        {/* Sin centrar y en la misma fila que los botones: en una banda a todo el ancho, un texto
+            en el medio se lee como un error del sistema y no como el estado normal de un pedido
+            cerrado. */}
+        {terminado && (
+          <p className="py-3 pr-2 font-cuerpo text-[13px] text-cafe-tenue">
+            Este pedido ya terminó.
+          </p>
+        )}
+
         {siguiente && (
           <button
             type="button"
@@ -139,6 +166,24 @@ export function AccionesPedido({
             Avisar al cliente
           </button>
         )}
+
+        {/* Los dos tickets como botones sueltos y no como un modal: aquí hay ancho de sobra, y
+            el modal del tablero existe porque allí el icono cabe pero su menú no. Un toque menos
+            en la pantalla donde se viene justo a reimprimir. */}
+        <BotonTicket
+          icono={ChefHat}
+          rotulo="Comanda"
+          etiqueta={`Imprimir la comanda del pedido #${numero}`}
+          onClick={() => imprimir("comanda")}
+          disabled={pendiente}
+        />
+        <BotonTicket
+          icono={Receipt}
+          rotulo="Recibo"
+          etiqueta={`Imprimir el recibo del pedido #${numero}`}
+          onClick={() => imprimir("recibo")}
+          disabled={pendiente}
+        />
 
         {/* Al otro extremo de la barra: es la única acción de esta pantalla sin vuelta atrás,
             y no puede quedar pegada al botón que se pulsa cien veces al día. */}
@@ -181,5 +226,40 @@ export function AccionesPedido({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Un ticket, con icono y rótulo.
+ *
+ * Lleva texto —al contrario que los iconos pelados de la tarjeta del tablero— porque aquí no hay
+ * competencia por el ancho, y "Comanda" contra "Recibo" es justo la distinción que dos dibujos
+ * parecidos harían adivinar.
+ */
+function BotonTicket({
+  icono: Icono,
+  rotulo,
+  etiqueta,
+  onClick,
+  disabled,
+}: {
+  icono: typeof ChefHat;
+  rotulo: string;
+  etiqueta: string;
+  onClick: () => void;
+  disabled: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={etiqueta}
+      aria-label={etiqueta}
+      className="flex min-h-11 items-center gap-2 rounded-full border border-crema-oscura px-5 py-3 font-cuerpo text-sm font-bold text-cafe-suave transition-colors hover:bg-crema focus:outline-none focus:ring-2 focus:ring-naranja disabled:opacity-50"
+    >
+      <Icono className="size-4 shrink-0" />
+      {rotulo}
+    </button>
   );
 }

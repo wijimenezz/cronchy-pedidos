@@ -74,6 +74,22 @@ function proximosDias(ahora: Date, cuantos: number): { fecha: string; diaSemana:
 }
 
 /**
+ * ¿Se puede pedir algo ahora mismo, de la forma que sea?
+ *
+ * Es "para ya" **o** una hora programada, y por eso no es lo mismo que preguntar si la tienda
+ * está abierta: con la tienda cerrada se sigue pudiendo programar para mañana, que es la razón
+ * de ser de las franjas (regla 16).
+ *
+ * Vive aquí y no repetido en cada llamador porque de eso salió un bug: la subida del comprobante
+ * preguntaba `estaAbierta()` y devolvía 409 de noche, así que un pedido programado se podía pagar
+ * en efectivo pero no por Nequi — y el cliente lo descubría al final del formulario, porque el
+ * esquema exige el comprobante. Un solo criterio, y quien lo cambie lo cambia para todos.
+ */
+export function sePuedePedir(opciones: OpcionesEntrega): boolean {
+  return opciones.pronto !== null || opciones.dias.length > 0;
+}
+
+/**
  * ¿Es esta hora una de las que el servidor ofrece ahora mismo?
  *
  * Es la regla 1 aplicada al tiempo: el navegador manda **cuál** franja eligió, nunca si esa

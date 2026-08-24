@@ -58,6 +58,8 @@ export async function crearPedidoEnDB(
         // (`politicaAceptada`, que el esquema exige `true`) y el cuándo se sella aquí: una hora
         // que manda el interesado no es evidencia de nada.
         politicaAceptadaEn: sql`now()`,
+        politicaVersion: input.politicaVersion ?? null,
+        aceptaAvisos: input.aceptaAvisos,
         notas: input.notas ?? null,
         metodoPago: input.metodoPago,
         // Solo tiene sentido en efectivo: en Nequi no hay devuelta que llevar.
