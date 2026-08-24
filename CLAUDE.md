@@ -558,10 +558,18 @@ líneas se callan (regla 20: productos, descuento, subtotal, domicilio, total). 
 WhatsApp contaran la misma plata de dos maneras sería un reclamo esperando a pasar.
 
 **Aceptar imprime la comanda en el mismo toque** que cambia el estado y abre el WhatsApp (regla
-19), y el orden importa: primero el papel —la actividad de Android es translúcida y devuelve el
-control sola— y después el WhatsApp, que se lleva la pantalla. Por eso `PrintRawActivity` **no
-puede tener interfaz**: con la pantalla de la app de por medio, ese toque sería un baile de tres
-aplicaciones.
+19). Por eso `PrintRawActivity` **no puede tener interfaz**: con la pantalla de la app de por
+medio, ese toque sería un baile de tres aplicaciones.
+
+**Y el WhatsApp va PRIMERO, que es al revés de como se escribió y costó un bug.** Un toque trae
+una sola *activación transitoria* del navegador y se la queda la primera API que la pida, así que
+la segunda salida se queda sin gesto. Lo que pasa entonces no es simétrico: la impresión es **un**
+salto (`<a>` → `cronchyprinter://`) y lo peor que le pasa es un «¿Abrir POS Printer?» en el propio
+panel; el WhatsApp son **tres** —`window.open` → `wa.me` → `api.whatsapp.com` → `whatsapp://`— y el
+último lo da una página que, sin gesto heredado, se queda en «Continue to WhatsApp Business?» con
+el empleado eligiendo entre abrir la app y WhatsApp Web. Con la impresión delante, eso salía en
+todos los pedidos aceptados. **El gesto se lo lleva la salida más frágil, no la primera que se
+escribió.**
 
 En el tablero, sin aceptar el icono saca la comanda de una y a partir de ahí abre un modal con los
 dos tickets (`accionesDeTarjeta`, probado). En el detalle están siempre los dos, **también en un

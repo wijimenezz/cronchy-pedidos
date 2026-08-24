@@ -15,6 +15,10 @@
  * **No devuelve nada, y no es una omisión**: el navegador no se entera de si el papel salió. Es
  * el mismo trato que `wa.me` (regla 10); el acuse lo da el `Toast` de la app de impresión. Una
  * confirmación en pantalla aquí sería inventada.
+ *
+ * **Ojo si se llama junto a un `window.open`: esto GASTA la activación transitoria del toque.**
+ * Un gesto solo trae una, así que la otra salida se queda sin ella. Por eso en `avanzar()` el
+ * WhatsApp va primero — allí está escrito el porqué, y cambiarlo rompe el aviso al cliente.
  */
 export function dispararImpresion(url: string): void {
   const enlace = document.createElement("a");

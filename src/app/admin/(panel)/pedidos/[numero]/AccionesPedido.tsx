@@ -51,12 +51,16 @@ export function AccionesPedido({
   }
 
   /**
-   * Avanza, imprime y avisa en el mismo toque. Cancelar entra por aquí y también avisa.
+   * Avanza, avisa e imprime en el mismo toque. Cancelar entra por aquí y también avisa.
    *
    * Aceptar desde aquí saca la comanda igual que desde el tablero: el pedido se acepta en las
    * dos pantallas, y que una imprimiera y la otra no sería una trampa esperando al día que
-   * alguien opere desde el detalle. Mismo orden que allí — primero el papel, que vuelve solo, y
-   * después el WhatsApp, que se lleva la pantalla.
+   * alguien opere desde el detalle.
+   *
+   * **Mismo orden que allí, y por el mismo motivo: el WhatsApp primero.** Un toque trae una sola
+   * activación del navegador, y la salida frágil es la del cliente —son tres saltos hasta la app,
+   * y el último lo da una página que sin gesto se queda pidiendo confirmación—. El porqué
+   * completo está en `TarjetaPedido.avanzar`; si se cambia aquí, hay que cambiarlo allí.
    */
   function avanzar(nuevo: string) {
     setError(null);
@@ -68,8 +72,8 @@ export function AccionesPedido({
         return;
       }
       setConfirmando(false);
-      if (resultado.urlImpresion) dispararImpresion(resultado.urlImpresion);
       abrirWhatsapp(resultado.url);
+      if (resultado.urlImpresion) dispararImpresion(resultado.urlImpresion);
       // La página es `force-dynamic`: esto la vuelve a pedir con el estado ya cambiado, sin
       // duplicar aquí el cálculo de cuál es el siguiente paso.
       router.refresh();

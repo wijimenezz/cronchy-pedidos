@@ -174,13 +174,26 @@ export function TarjetaPedido({
   }
 
   /**
-   * Avanza, imprime y avisa en el mismo toque: el pedido cambió de sitio, la cocina tiene su
-   * comanda y el cliente se entera.
+   * Avanza, avisa e imprime en el mismo toque: el pedido cambió de sitio, el cliente se entera y
+   * la cocina tiene su comanda.
    *
-   * **El orden importa.** La impresión va primero porque la app de impresión no pinta nada y
-   * devuelve el control de inmediato; el WhatsApp después, que es el que se lleva la pantalla.
-   * Al revés, el salto a WhatsApp dejaría el tablero de fondo justo cuando hay que entregarle
-   * la otra URL al sistema.
+   * **EL WHATSAPP VA PRIMERO, Y ESE ORDEN ES EL ARREGLO DE UN BUG REAL.**
+   *
+   * Un toque solo trae UNA *activación transitoria* del navegador, y se la queda la primera API
+   * que la necesite. Las dos llamadas de aquí abajo entregan algo al sistema operativo, así que
+   * la segunda se queda sin gesto — y lo que pasa entonces no es lo mismo en las dos:
+   *
+   * - **WhatsApp son tres saltos**: `window.open` abre la pestaña, `wa.me` redirige a
+   *   `api.whatsapp.com`, y es **esa página** la que tiene que saltar a `whatsapp://`. Sin gesto
+   *   heredado, Chrome corta ahí con un «Continue to WhatsApp Business?» y el empleado acaba
+   *   decidiendo entre «Abrir aplicación» y «Continuar a WhatsApp Web» dentro de la web de
+   *   WhatsApp. Es justo lo que pasaba con la impresión delante.
+   * - **La impresión es un salto**: el clic de un `<a>` a `cronchyprinter://`. Si le toca
+   *   quedarse sin gesto, lo peor es un «¿Abrir POS Printer?» **en el panel**, que es la pantalla
+   *   donde el empleado ya está.
+   *
+   * O sea: el gesto se lo lleva la salida más frágil, no la primera que se escribió. Invertir
+   * esto vuelve a romper el aviso al cliente.
    */
   function avanzar(estado: string) {
     setError(null);
@@ -189,8 +202,8 @@ export function TarjetaPedido({
       const resultado = await cambiarEstado({ pedidoId: pedido.id, estado });
       if (!resultado.ok) setError(resultado.error);
       else {
-        if (resultado.urlImpresion) dispararImpresion(resultado.urlImpresion);
         abrirWhatsapp(resultado.url);
+        if (resultado.urlImpresion) dispararImpresion(resultado.urlImpresion);
       }
       alCambiar();
     });
