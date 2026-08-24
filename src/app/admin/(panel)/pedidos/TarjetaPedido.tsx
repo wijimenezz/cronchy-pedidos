@@ -8,9 +8,11 @@ import type { PedidoEnLista } from "@/db/queries/panel";
 import { cuandoCorto, horaCorta, pesos } from "@/lib/notificaciones/plantillas";
 import { ETIQUETA_AVANCE, METODO_PAGO_ETIQUETA } from "@/lib/pedidos/estados";
 import { accionesDeTarjeta } from "./acciones-tarjeta";
-import { cambiarEstado, prepararAviso } from "./acciones";
+import { cambiarEstado, prepararAviso, prepararImpresion } from "./acciones";
 import { DesgloseDomicilio } from "./DesgloseDomicilio";
+import { dispararImpresion } from "./imprimir";
 import { ModalAsignar } from "./ModalAsignar";
+import { ModalImprimir } from "./ModalImprimir";
 
 /** Cuánto puede esperar un pedido sin aceptar antes de que sea un problema. */
 const AVISO_MIN = 10;
@@ -107,6 +109,7 @@ export function TarjetaPedido({
   const [error, setError] = useState<string | null>(null);
   const [urlBloqueada, setUrlBloqueada] = useState<string | null>(null);
   const [asignando, setAsignando] = useState(false);
+  const [eligiendoTicket, setEligiendoTicket] = useState(false);
   const ahora = useAhora();
 
   // El polling entrega las fechas como string al pasar por JSON; el render del servidor las
@@ -170,15 +173,36 @@ export function TarjetaPedido({
     setUrlBloqueada(ventana ? null : url);
   }
 
-  /** Avanza y avisa en el mismo toque: el pedido cambió de sitio y el cliente se entera. */
+  /**
+   * Avanza, imprime y avisa en el mismo toque: el pedido cambió de sitio, la cocina tiene su
+   * comanda y el cliente se entera.
+   *
+   * **El orden importa.** La impresión va primero porque la app de impresión no pinta nada y
+   * devuelve el control de inmediato; el WhatsApp después, que es el que se lleva la pantalla.
+   * Al revés, el salto a WhatsApp dejaría el tablero de fondo justo cuando hay que entregarle
+   * la otra URL al sistema.
+   */
   function avanzar(estado: string) {
     setError(null);
     setUrlBloqueada(null);
     iniciar(async () => {
       const resultado = await cambiarEstado({ pedidoId: pedido.id, estado });
       if (!resultado.ok) setError(resultado.error);
-      else abrirWhatsapp(resultado.url);
+      else {
+        if (resultado.urlImpresion) dispararImpresion(resultado.urlImpresion);
+        abrirWhatsapp(resultado.url);
+      }
       alCambiar();
+    });
+  }
+
+  /** La comanda de un toque, sin preguntar. Solo la ofrece la columna de sin aceptar. */
+  function imprimirComanda() {
+    setError(null);
+    iniciar(async () => {
+      const resultado = await prepararImpresion({ numero: pedido.numero, formato: "comanda" });
+      if (!resultado.ok) setError(resultado.error);
+      else dispararImpresion(resultado.url);
     });
   }
 
@@ -382,15 +406,27 @@ export function TarjetaPedido({
           los otros botones dentro. */}
       {(acciones.imprimir || acciones.asignar || acciones.avisar || avance) && (
         <div className="relative z-10 flex flex-wrap items-center justify-end gap-1.5">
-          {/* Reservado. Se pinta apagado en vez de esperar a que exista: el hueco queda tomado y
-              nadie lo pulsa esperando algo que todavía no pasa. `impresion.ts` sigue pendiente,
-              como dice el CLAUDE.md. */}
+          {/* Neutro y no ámbar: imprimir no es una tarea pendiente que alguien tenga que cerrar
+              —la comanda ya salió sola al aceptar—, es algo que se puede volver a hacer. El ámbar
+              está reservado a lo que falta por hacer, que aquí es asignar y avisar.
+
+              Sin aceptar imprime la comanda de una; a partir de ahí abre el modal. Quien decide
+              es `accionesDeTarjeta`, que está probado: el porqué vive ahí. */}
           {acciones.imprimir && (
             <BotonIcono
               icono={Printer}
-              etiqueta={`Imprimir el pedido #${pedido.numero} — la impresión llega pronto`}
-              tono="apagado"
-              disabled
+              etiqueta={
+                acciones.imprimir === "comanda"
+                  ? `Imprimir la comanda del pedido #${pedido.numero}`
+                  : `Imprimir el pedido #${pedido.numero} — elegir comanda o recibo`
+              }
+              onClick={
+                acciones.imprimir === "comanda"
+                  ? imprimirComanda
+                  : () => setEligiendoTicket(true)
+              }
+              disabled={pendiente}
+              abreDialogo={acciones.imprimir === "menu"}
             />
           )}
 
@@ -458,6 +494,10 @@ export function TarjetaPedido({
         </div>
       )}
 
+      {eligiendoTicket && (
+        <ModalImprimir numero={pedido.numero} onCerrar={() => setEligiendoTicket(false)} />
+      )}
+
       {asignando && (
         <ModalAsignar
           pedidoId={pedido.id}
@@ -474,14 +514,12 @@ export function TarjetaPedido({
   );
 }
 
-/** Ámbar = tarea pendiente · neutro = se puede hacer · apagado = todavía no existe. */
-type TonoIcono = "neutro" | "alerta" | "apagado";
+/** Ámbar = tarea pendiente · neutro = se puede hacer. */
+type TonoIcono = "neutro" | "alerta";
 
 const TONO_ICONO: Record<TonoIcono, string> = {
   neutro: "border-crema-oscura text-cafe-suave hover:bg-crema",
   alerta: "border-alerta bg-alerta/20 text-cafe hover:bg-alerta/35",
-  // Sin `hover`: un fondo que reacciona al pasar por encima promete un botón que funciona.
-  apagado: "border-crema-oscura text-cafe-tenue opacity-60",
 };
 
 /**
