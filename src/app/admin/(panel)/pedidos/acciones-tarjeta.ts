@@ -11,9 +11,26 @@ import type { EstadoPedido, TipoPedido } from "@/lib/notificaciones/plantillas";
  * Lo que decide de verdad sigue siendo el servidor —`validarCambioEstado` y `exigirRol`—; esto
  * solo dice qué se pinta.
  */
+/**
+ * Qué hace el icono de la impresora en esta tarjeta.
+ *
+ * - `"comanda"` — imprime el ticket de cocina de una, sin preguntar.
+ * - `"menu"` — abre el modal para elegir entre comanda y recibo.
+ * - `null` — no se ofrece; para reimprimir un pedido terminado está el detalle.
+ */
+export type OfertaDeImpresion = "comanda" | "menu" | null;
+
 export type AccionesTarjeta = {
-  /** El ticket de cocina. Sale mientras el pedido siga vivo; ya entregado no hay nada que armar. */
-  imprimir: boolean;
+  /**
+   * El ticket, mientras el pedido siga vivo: ya entregado no hay nada que armar.
+   *
+   * **Sin aceptar imprime la comanda directo, y a partir de ahí pregunta.** En la primera
+   * columna el icono solo puede querer decir una cosa —hay que ponerse a hacerlo— y un modal
+   * ahí sería un toque de más en el momento de más prisa. En cuanto la cocina tiene el pedido,
+   * el recibo pasa a ser una respuesta igual de razonable, y un icono que decidiera solo
+   * elegiría mal la mitad de las veces.
+   */
+  imprimir: OfertaDeImpresion;
   /**
    * Llamar al domiciliario, o cambiarlo. Solo en domicilio y solo desde que la cocina tiene el
    * pedido: antes de aceptarlo no hay a quién mandar, y asignar no lo acepta (regla 18).
@@ -55,7 +72,7 @@ export function accionesDeTarjeta({
   const vivo = !TERMINALES.includes(estado);
 
   return {
-    imprimir: vivo,
+    imprimir: !vivo ? null : estado === "nuevo" ? "comanda" : "menu",
     asignar: vivo && tipo === "domicilio" && CON_DOMICILIARIO.includes(estado),
     avisar: avisoPendiente,
     avanzar: siguiente,

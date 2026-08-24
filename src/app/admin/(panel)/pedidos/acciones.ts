@@ -20,7 +20,11 @@ import {
   puedeAvisarse,
 } from "@/lib/notificaciones/avisos";
 import { MENSAJE_BLOQUEO } from "@/lib/pedidos/estados";
+import { comanda } from "@/lib/impresion/comanda";
+import { enlaceImpresion } from "@/lib/impresion/enlace";
+import { recibo } from "@/lib/impresion/recibo";
 import { idSchema } from "@/lib/validaciones";
+import type { PedidoPanel } from "@/db/queries/panel";
 
 /**
  * Mutaciones del panel de pedidos.
@@ -53,8 +57,15 @@ const cambioSchema = z.object({
 
 export type ResultadoAccion = { ok: true } | { ok: false; error: string };
 
-/** `url` = el WhatsApp que hay que abrir, o null si ese estado no lleva mensaje. */
-export type ResultadoAvance = { ok: true; url: string | null } | { ok: false; error: string };
+export type ResultadoAvance =
+  | {
+      ok: true;
+      /** El WhatsApp que hay que abrir, o null si ese estado no lleva mensaje. */
+      url: string | null;
+      /** El deep link de la comanda, o null si este avance no imprime nada. */
+      urlImpresion: string | null;
+    }
+  | { ok: false; error: string };
 
 /**
  * Avanza el pedido **y**, en el mismo toque, deja listo el aviso al cliente.
@@ -101,33 +112,65 @@ export async function cambiarEstado(entrada: {
   revalidatePath("/admin/pedidos");
   revalidatePath(`/admin/pedidos/${resultado.numero}`);
 
-  // El pedido avanzó pase lo que pase con el aviso: si armarlo falla, el estado ya está guardado
-  // y el botón ámbar queda como reintento. Nunca al revés.
-  const url = await avisoDelAvance(sesion.storeId, resultado.numero, resultado.estado);
+  // El pedido avanzó pase lo que pase con lo que viene después: si armar el aviso o la comanda
+  // falla, el estado ya está guardado y quedan los botones como reintento. Nunca al revés.
+  const { url, urlImpresion } = await loQueSigueAlAvance(
+    sesion.storeId,
+    resultado.numero,
+    resultado.estado,
+  );
 
-  return { ok: true, url };
+  return { ok: true, url, urlImpresion };
+}
+
+/**
+ * Lo que hay que disparar hacia fuera del navegador tras un avance: el WhatsApp al cliente y,
+ * si el pedido acaba de entrar en cocina, su comanda.
+ *
+ * **La comanda se dispara al ENTRAR en `preparando`, y no al salir de `nuevo`.** Da lo mismo de
+ * dónde venga —a `preparando` solo se llega desde `nuevo` y desde el `aceptado` retirado—, y así
+ * la regla no depende de un estado anterior que la consulta no devuelve.
+ *
+ * Aquí no hay candado de idempotencia: reimprimir es normal, como reasignar un domiciliario
+ * (regla 18). El de la regla 11 protege los avisos al cliente, que son los que no se repiten.
+ */
+async function loQueSigueAlAvance(
+  storeId: string,
+  numero: number,
+  estado: (typeof ESTADOS)[number],
+): Promise<{ url: string | null; urlImpresion: string | null }> {
+  const vaComanda = estado === "preparando";
+  const nada = { url: null, urlImpresion: null };
+
+  if (!puedeAvisarse(estado) && !vaComanda) return nada;
+
+  const tienda = await getStore();
+  const encontrado = await obtenerPedidoPorNumero(storeId, numero);
+  if (!encontrado) return nada;
+
+  return {
+    url: await avisoDelAvance(storeId, encontrado.pedido, estado, tienda),
+    urlImpresion: vaComanda ? enlaceImpresion(comanda(encontrado.pedido)) : null,
+  };
 }
 
 /** El WhatsApp que toca abrir tras un avance, o null si ese estado no lleva mensaje. */
 async function avisoDelAvance(
   storeId: string,
-  numero: number,
+  pedido: PedidoPanel,
   estado: (typeof ESTADOS)[number],
+  tienda: Awaited<ReturnType<typeof getStore>>,
 ): Promise<string | null> {
   if (!puedeAvisarse(estado)) return null;
 
-  const tienda = await getStore();
-  const encontrado = await obtenerPedidoPorNumero(storeId, numero);
-  if (!encontrado) return null;
-
   // Antes de marcar, igual que la comprobación de arriba y por la misma razón: quemar el candado
   // de un aviso que nunca se envía dejaría ese estado contado como notificado para siempre.
-  if (!encontrado.pedido.aceptaAvisos) return null;
+  if (!pedido.aceptaAvisos) return null;
 
-  const marcado = await marcarEstadoNotificado(storeId, encontrado.pedido.id, estado);
+  const marcado = await marcarEstadoNotificado(storeId, pedido.id, estado);
   if (!marcado) return null;
 
-  const aviso = await avisoCambioEstado(estado, encontrado.pedido, tienda);
+  const aviso = await avisoCambioEstado(estado, pedido, tienda);
 
   return aviso?.modo === "link" ? aviso.url : null;
 }
@@ -232,6 +275,75 @@ export async function prepararAviso(entrada: {
   revalidatePath(`/admin/pedidos/${parsed.data.numero}`);
 
   return { ok: true, url: aviso?.modo === "link" ? aviso.url : null };
+}
+
+// ------------------------------------------------------------
+// Impresión
+// ------------------------------------------------------------
+
+export type FormatoTicket = "comanda" | "recibo";
+
+export type ResultadoImpresion =
+  /** El deep link que hay que entregarle al sistema para que imprima. */
+  | { ok: true; url: string }
+  | { ok: false; error: string };
+
+const impresionSchema = z.object({
+  numero: z.number().int().positive(),
+  formato: z.enum(["comanda", "recibo"]),
+});
+
+/**
+ * Arma el ticket y devuelve el deep link que lo imprime.
+ *
+ * **No muta nada**: ni columna, ni evento, ni `revalidatePath`. Imprimir es una lectura que
+ * termina en papel, y reimprimir es un caso normal —el ticket se mojó, el domiciliario se lo
+ * llevó, salió cortado—, así que aquí no hay candado que quemar.
+ *
+ * Los bytes se arman en el servidor y no en el navegador por lo de siempre: el ticket sale del
+ * `snapshot` completo del pedido (regla 2), y la lista del tablero solo trae un resumen.
+ *
+ * **Y esta acción nunca sabrá si el papel salió.** Igual que con `wa.me`, en cuanto la URL se
+ * entrega el control se va a otra app y no vuelve; el acuse lo da el `Toast` de la app de
+ * impresión. No inventes aquí una confirmación que no existe.
+ */
+export async function prepararImpresion(entrada: {
+  numero: number;
+  formato: string;
+}): Promise<ResultadoImpresion> {
+  // Imprimir es operación diaria: la tabla de permisos ya se lo daba al colaborador.
+  const sesion = await exigirRol("colaborador");
+
+  const parsed = impresionSchema.safeParse(entrada);
+  if (!parsed.success) return { ok: false, error: "Datos inválidos" };
+
+  const encontrado = await obtenerPedidoPorNumero(sesion.storeId, parsed.data.numero);
+  if (!encontrado) return { ok: false, error: "Ese pedido ya no existe." };
+
+  const { pedido } = encontrado;
+
+  if (parsed.data.formato === "comanda") {
+    return { ok: true, url: enlaceImpresion(comanda(pedido)) };
+  }
+
+  const tienda = await getStore();
+
+  return {
+    ok: true,
+    url: enlaceImpresion(
+      recibo(
+        // `pagado` es exactamente `tieneComprobante`, y por eso se traduce aquí en vez de
+        // enseñarle esa columna al módulo del recibo: un comprobante cargado es la única prueba
+        // de pago que maneja este negocio, y ese criterio ya lo deriva `PedidoPanel`.
+        { ...pedido, pagado: pedido.tieneComprobante },
+        {
+          nombre: tienda.nombre,
+          direccion: tienda.direccion,
+          telefono: tienda.telefono,
+        },
+      ),
+    ),
+  };
 }
 
 // ------------------------------------------------------------

@@ -19,17 +19,17 @@ function acciones(estado: EstadoPedido, tipo: TipoPedido, avisoPendiente = false
 
 describe("accionesDeTarjeta", () => {
   describe("un pedido a domicilio, columna por columna", () => {
-    it("sin aceptar: se imprime y se acepta, pero no hay a quién asignar", () => {
+    it("sin aceptar: la impresora saca la comanda de una, sin preguntar", () => {
       expect(acciones("nuevo", "domicilio")).toMatchObject({
-        imprimir: true,
+        imprimir: "comanda",
         asignar: false,
         avanzar: "preparando",
       });
     });
 
-    it("en preparación: se llama al domiciliario", () => {
+    it("en preparación: se llama al domiciliario, y la impresora ya ofrece los dos tickets", () => {
       expect(acciones("preparando", "domicilio")).toMatchObject({
-        imprimir: true,
+        imprimir: "menu",
         asignar: true,
         avanzar: "en_camino",
       });
@@ -37,7 +37,7 @@ describe("accionesDeTarjeta", () => {
 
     it("en camino: sigue pudiendo reasignarse", () => {
       expect(acciones("en_camino", "domicilio")).toMatchObject({
-        imprimir: true,
+        imprimir: "menu",
         asignar: true,
         avanzar: "entregado",
       });
@@ -45,7 +45,7 @@ describe("accionesDeTarjeta", () => {
 
     it("entregado: no queda nada por hacer", () => {
       expect(acciones("entregado", "domicilio")).toMatchObject({
-        imprimir: false,
+        imprimir: null,
         asignar: false,
         avanzar: null,
       });
@@ -53,7 +53,7 @@ describe("accionesDeTarjeta", () => {
 
     it("cancelado: tampoco, aunque nunca llegara a la cocina", () => {
       expect(acciones("cancelado", "domicilio")).toMatchObject({
-        imprimir: false,
+        imprimir: null,
         asignar: false,
         avanzar: null,
       });
@@ -75,7 +75,7 @@ describe("accionesDeTarjeta", () => {
   // llamar al domiciliario y nadie sabría por qué.
   it("un pedido guardado en `aceptado` se opera como uno en preparación", () => {
     expect(acciones("aceptado", "domicilio")).toMatchObject({
-      imprimir: true,
+      imprimir: "menu",
       asignar: true,
       avanzar: "en_camino",
     });
@@ -83,9 +83,30 @@ describe("accionesDeTarjeta", () => {
 
   it("un pedido para recoger listo se entrega, sin bici", () => {
     expect(acciones("listo", "recoger")).toMatchObject({
-      imprimir: true,
+      imprimir: "menu",
       asignar: false,
       avanzar: "entregado",
+    });
+  });
+
+  // La comanda es la del primer toque y por eso no pregunta: en la columna de sin aceptar solo
+  // puede querer decir una cosa. En cuanto la cocina tiene el pedido, el recibo también es una
+  // respuesta razonable, y ahí un icono que decide solo elegiría mal la mitad de las veces.
+  describe("qué ofrece la impresora", () => {
+    it("sin aceptar imprime la comanda de una", () => {
+      expect(acciones("nuevo", "domicilio").imprimir).toBe("comanda");
+      expect(acciones("nuevo", "recoger").imprimir).toBe("comanda");
+    });
+
+    it("desde que la cocina lo tiene, pregunta cuál de los dos", () => {
+      for (const estado of ["aceptado", "preparando", "en_camino", "listo"] as const) {
+        expect(acciones(estado, "domicilio").imprimir).toBe("menu");
+      }
+    });
+
+    it("un pedido terminado no ofrece nada; para eso está el detalle", () => {
+      expect(acciones("entregado", "domicilio").imprimir).toBeNull();
+      expect(acciones("cancelado", "domicilio").imprimir).toBeNull();
     });
   });
 
@@ -98,7 +119,7 @@ describe("accionesDeTarjeta", () => {
     // navegador bloqueó. Es la única acción que sobrevive a la última columna.
     it("es lo único que le queda a un pedido ya entregado", () => {
       expect(acciones("entregado", "domicilio", true)).toEqual({
-        imprimir: false,
+        imprimir: null,
         asignar: false,
         avisar: true,
         avanzar: null,

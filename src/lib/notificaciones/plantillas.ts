@@ -139,7 +139,7 @@ const ETIQUETA_METODO: Record<string, string> = {
   datafono: "Datáfono",
 };
 
-function etiquetaMetodo(metodo: string): string {
+export function etiquetaMetodo(metodo: string): string {
   return ETIQUETA_METODO[metodo] ?? metodo;
 }
 
