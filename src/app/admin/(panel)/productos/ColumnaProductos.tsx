@@ -165,9 +165,11 @@ function Miniatura({ url, nombre }: { url: string | undefined; nombre: string })
 
   return (
     <span className="relative size-10 shrink-0 overflow-hidden rounded-sm bg-crema">
-      {/* `unoptimized`: las fotos ya se suben comprimidas a WebP ~800px, no hay que gastar
-          la cuota de optimización de Vercel en trabajo que ya está hecho. */}
-      <Image src={url} alt={nombre} fill sizes="40px" className="object-cover" unoptimized />
+      {/* **Sin `unoptimized`, al revés que antes.** Llevaba uno porque "las fotos ya se suben
+          comprimidas a ~800 px", y esa premisa murió: ahora lo que hay en Storage es un máster
+          de 1280 px y ~450 KB. Servirlo tal cual para pintar 40 px hacía que esta lista bajara
+          ~13 MB con treinta productos. El optimizador la deja en unos pocos KB. */}
+      <Image src={url} alt={nombre} fill sizes="40px" className="object-cover" />
     </span>
   );
 }

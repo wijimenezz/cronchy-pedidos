@@ -92,11 +92,22 @@ export function ProductCard({ producto }: { producto: ProductoDeMenu }) {
     >
       <div className="relative aspect-square bg-crema-oscura">
         {foto ? (
+          /* La tarjeta mide ~239 px CSS en los DOS layouts, y eso no se ve mirando el
+             `grid`: en móvil la columna pública está capada a `max-w-[520px]`
+             (`MarcoPublico`), así que a partir de ese ancho las dos columnas dejan de
+             crecer; y desde `lg` son cuatro dentro de `max-w-contenido` (1080 − 64 de
+             `px-8`, menos tres huecos de 20) → (1016 − 60) / 4 ≈ 239. El mismo número por
+             dos caminos distintos.
+
+             Por eso el `50vw` que había solo era cierto por debajo de 520 px. En escritorio
+             declaraba 640 px CSS para una tarjeta de 239 y el navegador se traía el archivo
+             grande, que ni se nota ni se agradece con datos móviles. */
           <Image
             src={foto}
             alt={producto.nombre}
             fill
-            sizes="50vw"
+            sizes="(min-width: 520px) 240px, 50vw"
+            quality={82}
             className={`object-cover ${bloqueado ? "grayscale" : ""}`}
           />
         ) : (

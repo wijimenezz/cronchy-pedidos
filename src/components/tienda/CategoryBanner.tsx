@@ -22,6 +22,9 @@ export function CategoryBanner({
           alt={nombre}
           fill
           sizes="(max-width: 1024px) calc(100vw - 2rem), 1080px"
+          // Igual que el resto de la tienda pública: el archivo de Storage ya viene casi sin
+          // pérdida, así que el 75 por defecto le daba una segunda pasada agresiva de balde.
+          quality={82}
           className="object-cover"
         />
       ) : (
