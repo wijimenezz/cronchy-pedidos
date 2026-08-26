@@ -19,12 +19,11 @@ import {
   avisoDomiciliario,
   puedeAvisarse,
 } from "@/lib/notificaciones/avisos";
-import { imprimeComanda, MENSAJE_BLOQUEO } from "@/lib/pedidos/estados";
+import { MENSAJE_BLOQUEO } from "@/lib/pedidos/estados";
 import { comanda } from "@/lib/impresion/comanda";
 import { enlaceImpresion } from "@/lib/impresion/enlace";
 import { recibo } from "@/lib/impresion/recibo";
 import { idSchema } from "@/lib/validaciones";
-import type { PedidoPanel } from "@/db/queries/panel";
 
 /**
  * Mutaciones del panel de pedidos.
@@ -62,8 +61,6 @@ export type ResultadoAvance =
       ok: true;
       /** El WhatsApp que hay que abrir, o null si ese estado no lleva mensaje. */
       url: string | null;
-      /** El deep link de la comanda, o null si este avance no imprime nada. */
-      urlImpresion: string | null;
     }
   | { ok: false; error: string };
 
@@ -112,60 +109,38 @@ export async function cambiarEstado(entrada: {
   revalidatePath("/admin/pedidos");
   revalidatePath(`/admin/pedidos/${resultado.numero}`);
 
-  // El pedido avanzó pase lo que pase con lo que viene después: si armar el aviso o la comanda
-  // falla, el estado ya está guardado y quedan los botones como reintento. Nunca al revés.
-  const { url, urlImpresion } = await loQueSigueAlAvance(
-    sesion.storeId,
-    resultado.numero,
-    resultado.estado,
-  );
+  // El pedido avanzó pase lo que pase con lo que viene después: si armar el aviso falla, el
+  // estado ya está guardado y queda el botón de avisar como reintento. Nunca al revés.
+  const url = await avisoDelAvance(sesion.storeId, resultado.numero, resultado.estado);
 
-  return { ok: true, url, urlImpresion };
+  return { ok: true, url };
 }
 
 /**
- * Lo que hay que disparar hacia fuera del navegador tras un avance: el WhatsApp al cliente y,
- * si el pedido acaba de entrar en cocina, su comanda.
+ * El WhatsApp que toca abrir tras un avance, o null si ese estado no lleva mensaje.
  *
- * Quién imprime lo dice `imprimeComanda`, que vive en `estados.ts` porque el navegador hace la
- * misma pregunta para **precargar** el ticket antes del toque — de eso depende que la impresión
- * llegue a salir, ver `avanzar` en `TarjetaPedido`.
+ * **Un avance ya no arma ningún ticket, y eso es una decisión medida, no una simplificación.**
+ * Llegó a devolver también la comanda para que aceptar imprimiera en el mismo toque, pero un
+ * gesto solo trae una activación del navegador y el WhatsApp y la impresora la necesitan las
+ * dos: en la tablet, cualquier reparto rompía una de las dos. Ahora aceptar solo avisa y la
+ * comanda tiene su propio toque (`prepararImpresion`). El porqué largo está en
+ * `TarjetaPedido.avanzar`.
  *
- * **Esto se sigue devolviendo aunque el botón ya haya impreso por su cuenta**, y no sobra: es la
- * red para cuando la precarga no llegó a tiempo o falló. Quien decide si usarlo es el cliente,
- * que es el único que sabe si su enlace disparó.
- *
- * Aquí no hay candado de idempotencia: reimprimir es normal, como reasignar un domiciliario
- * (regla 18). El de la regla 11 protege los avisos al cliente, que son los que no se repiten.
+ * El corte de arriba evita ir a la base cuando no hay nada que mandar — que es la mitad de los
+ * avances, porque `entregado` no avisa (regla 10).
  */
-async function loQueSigueAlAvance(
+async function avisoDelAvance(
   storeId: string,
   numero: number,
   estado: (typeof ESTADOS)[number],
-): Promise<{ url: string | null; urlImpresion: string | null }> {
-  const vaComanda = imprimeComanda(estado);
-  const nada = { url: null, urlImpresion: null };
-
-  if (!puedeAvisarse(estado) && !vaComanda) return nada;
+): Promise<string | null> {
+  if (!puedeAvisarse(estado)) return null;
 
   const tienda = await getStore();
   const encontrado = await obtenerPedidoPorNumero(storeId, numero);
-  if (!encontrado) return nada;
+  if (!encontrado) return null;
 
-  return {
-    url: await avisoDelAvance(storeId, encontrado.pedido, estado, tienda),
-    urlImpresion: vaComanda ? enlaceImpresion(comanda(encontrado.pedido)) : null,
-  };
-}
-
-/** El WhatsApp que toca abrir tras un avance, o null si ese estado no lleva mensaje. */
-async function avisoDelAvance(
-  storeId: string,
-  pedido: PedidoPanel,
-  estado: (typeof ESTADOS)[number],
-  tienda: Awaited<ReturnType<typeof getStore>>,
-): Promise<string | null> {
-  if (!puedeAvisarse(estado)) return null;
+  const { pedido } = encontrado;
 
   // Antes de marcar, igual que la comprobación de arriba y por la misma razón: quemar el candado
   // de un aviso que nunca se envía dejaría ese estado contado como notificado para siempre.

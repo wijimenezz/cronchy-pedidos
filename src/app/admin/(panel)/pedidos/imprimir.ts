@@ -16,16 +16,16 @@
  * el mismo trato que `wa.me` (regla 10); el acuse lo da el `Toast` de la app de impresión. Una
  * confirmación en pantalla aquí sería inventada.
  *
- * **Esto NO sirve para el mismo toque que abre un `window.open`, y da igual el orden.** Un gesto
- * trae una sola activación transitoria; la salida que va segunda se queda sin ella, y sin
- * activación **Chrome no lanza el protocolo externo: lo bloquea en silencio**, sin diálogo y sin
- * error. Aquí llegó a estar escrito que lo peor era un «¿Abrir POS Printer?»; no es cierto, y
- * mientras lo fue nadie se enteró de que había dejado de imprimirse.
+ * **Esto exige que el toque no gaste su activación en otra cosa, y por eso imprimir es un gesto
+ * propio.** Un gesto trae una sola activación transitoria; sin ella **Chrome no lanza el
+ * protocolo externo, lo bloquea en silencio** —sin diálogo y sin error—. Aquí llegó a estar
+ * escrito que lo peor era un «¿Abrir POS Printer?»; no es cierto, y mientras lo fue nadie se
+ * enteró de que había dejado de imprimirse.
  *
- * Cuando hacen falta las dos salidas en un toque, la impresión **no** sale por esta función sino
- * como acción por defecto de un `<a href="cronchyprinter://…">` precargado, que es el gesto real.
- * Ver `avanzar` en `TarjetaPedido`. Esta sigue valiendo para lo que es un toque y una salida: el
- * icono de la tarjeta y el modal de tickets.
+ * Se intentó tres veces meter esto en el mismo toque que avisa al cliente —imprimir primero,
+ * avisar primero, y precargar la comanda en un `<a>`— y las tres rompieron una de las dos
+ * salidas. Hoy avanzar solo avisa (ver `avanzar` en `TarjetaPedido`) y quien llama aquí es el
+ * icono de la tarjeta o el modal de tickets: un toque, una salida.
  */
 export function dispararImpresion(url: string): void {
   const enlace = document.createElement("a");
