@@ -653,6 +653,17 @@ su error, igual que en el checkout; el panel de confirmación adelanta la condic
 ≥1024 px; por debajo sigue siendo usable, pero no es el caso principal. Esto **no reabre la
 regla 15**: una tablet también es táctil, así que nada se arrastra.
 
+**Y se instala como app aparte de la tienda.** Son dos PWA sobre el mismo dominio con dos
+manifests: `app/manifest.ts` es la carta (`start_url: /`, icono del churro) y
+`app/panel.webmanifest` es el panel (`start_url: /admin/pedidos`, `scope: /admin`, el vaso de
+`helado_cup.png`, «Pedidos» debajo del icono). Quien elige cuál es `metadata.manifest` en cada
+layout, y el del panel **sustituye** al que Next inyecta por convención — sin eso, instalar desde
+el panel instalaba la carta. Dos detalles que no se ven en el código: el manifest del panel se
+sirve desde la **raíz** y no desde `/admin`, porque `proxy.ts` redirige esa ruta al login sin
+sesión y Chrome leería el manifest como inválido; y sus iconos se cuadran **añadiendo fondo crema**
+y nunca recortando, porque el original es vertical y un `cover` le corta la cabeza y los pies al
+vaso.
+
 `/admin/pedidos` es un **tablero de cuatro columnas** —Sin aceptar · En preparación · En camino
 / Listos · Terminados— y esos cuatro grupos son **los mismos hitos** que ve el cliente en su
 seguimiento (`indiceDeHito`). Es a propósito: si la cocina y el cliente contaran el pedido en
@@ -824,6 +835,11 @@ saber:
   hay que verlo en la barra de pestañas y el pitido se pierde entre el ruido de la cocina. Lleva
   `requireInteraction` —una notificación que se desvanece a los cinco segundos es una que nadie
   vio— y `tag` + `renotify`, para reemplazar en vez de apilar cinco pedidos seguidos.
+
+  **Y con el panel instalado como app, el `(N)` deja de existir**: en `standalone` no hay barra de
+  pestañas donde mirarlo. Quedan el sonido y la notificación del sistema, que en la tablet ya eran
+  los dos que servían. No es una regresión que haya que arreglar, es lo que cuesta quitar la barra
+  del navegador — pero conviene saberlo antes de contar tres canales y encontrar dos.
 - **Sale por el service worker y no por `new Notification()`, porque en Android el constructor
   directo LANZA.** La primera versión usaba el constructor y no avisaba nada en la tablet, con el
   `catch` tragándoselo en silencio. `registration.showNotification()` funciona en los dos sitios.
@@ -856,6 +872,13 @@ compró, así que un fallo empujando el aviso no puede convertirse en un error d
 que funcione sin conexión", y un service worker que cachea respuestas rompe de raíz el ISR de la
 carta y el polling del tablero: un pedido servido desde caché es un pedido que no existe. Ese
 service worker existe solo para recibir avisos.
+
+**Y ese handler NO es el peaje de la PWA, aunque aquí llegó a decirse.** Chrome quitó el requisito
+del service worker para instalar desde el menú en la v108 de Android y la v112 de escritorio, así
+que el panel se instala sin tocar nada de esto. Lo único que sigue exigiéndolo es
+`beforeinstallprompt`, el prompt programático — por eso **no hay ni puede haber un botón propio de
+"Instalar"** en el panel, y se instala desde el menú del navegador. Si alguien escribe ese botón,
+no se disparará nunca.
 
 **El intervalo es de 15 s, y antes eran 5 puestos a ojo.** Nadie acepta un pedido en menos de
 quince, así que el ritmo rápido no compraba nada aprovechable y sí costaba: con el panel abierto
