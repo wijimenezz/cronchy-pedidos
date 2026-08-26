@@ -12,10 +12,19 @@ import type { MetadataRoute } from "next";
  * segura de rigor, para que el recorte no le quite los pies ni la mano. El otro se usa donde no
  * se recorta nada, y ahí el mismo margen lo dejaría ridículamente pequeño.
  *
- * `display: "standalone"` hace que el acceso directo abra la tienda sin la barra del navegador.
- * No convierte esto en una PWA instalable: para el botón de "Instalar", Chrome exige un service
- * worker con handler de `fetch`, y ese handler está prohibido en este proyecto porque cachearía
- * las respuestas y rompería de raíz el ISR de la carta y el polling del tablero.
+ * `display: "standalone"` hace que se abra sin la barra del navegador.
+ *
+ * **Aquí decía que esto no era instalable de verdad porque Chrome exige un service worker con
+ * handler de `fetch`. Dejó de ser cierto**: ese requisito se quitó en la v108 de Android y la
+ * v112 de escritorio. Lo que sigue necesitando el handler es `beforeinstallprompt`, o sea el
+ * prompt programático; instalar desde el menú del navegador funciona sin él. La prohibición de
+ * la regla 19 sigue en pie, pero por su motivo real —cachear respuestas rompería el ISR de la
+ * carta y el polling del tablero— y no porque sea el peaje de la instalación.
+ *
+ * **Este manifest es el de la TIENDA.** El panel tiene el suyo en `app/panel.webmanifest`, con
+ * otro `start_url`, otro `scope` y otro icono, y lo cuelga `admin/layout.tsx` con
+ * `metadata.manifest`. Son dos apps para dos personas distintas sobre el mismo dominio; un
+ * manifest solo puede describir una.
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {

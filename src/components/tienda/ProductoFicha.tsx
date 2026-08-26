@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { Check, ChevronDown, Minus, Plus, X } from "lucide-react";
+import { CarruselFotos } from "@/components/tienda/CarruselFotos";
 import { pesos } from "@/lib/notificaciones/plantillas";
 import { useCarrito } from "@/lib/carrito";
 import { useTipoPedido } from "@/lib/tienda/tipo-pedido";
@@ -939,30 +940,6 @@ export function ProductoFicha({
     );
   }
 
-  // Contenido de fotos: cada layout define su propio tamaño de contenedor.
-  const carrusel = (
-    producto.imagenes.length > 0 ? producto.imagenes : [null]
-  ).map((foto, i) => (
-    <div
-      key={i}
-      className="relative h-full w-full shrink-0 snap-center bg-crema-oscura"
-    >
-      {foto ? (
-        <Image
-          src={foto}
-          alt={producto.nombre}
-          fill
-          sizes="520px"
-          className="object-cover"
-        />
-      ) : (
-        <div className="flex h-full items-center justify-center text-cafe-tenue">
-          <span className="font-titulo text-sm">Cronchy</span>
-        </div>
-      )}
-    </div>
-  ));
-
   // Nombre, descripción y grupos: igual en ambos layouts, solo cambia el
   // contenedor de scroll que lo envuelve.
   const infoContenido = (
@@ -1094,9 +1071,13 @@ export function ProductoFicha({
             el panel de info es una capa aparte encima, con su propio scroll —
             por eso su contenido sube y tapa la foto al hacer scroll down. */}
         <div className="relative flex-1 overflow-hidden lg:hidden">
-          <div className="absolute inset-x-0 top-0 flex h-72 snap-x snap-mandatory overflow-x-auto">
-            {carrusel}
-          </div>
+          {/* Sin flechas: aquí se pasa la foto con el dedo, y dos botones sobre una caja de
+              288 px taparían justo lo que se está mirando. */}
+          <CarruselFotos
+            imagenes={producto.imagenes}
+            nombre={producto.nombre}
+            className="absolute inset-x-0 top-0 h-72"
+          />
           <button
             type="button"
             onClick={onClose}
@@ -1117,9 +1098,14 @@ export function ProductoFicha({
         {/* Desktop: dos columnas normales, lado a lado, sin superposición —
             la foto no necesita scroll propio, la info sí. */}
         <div className="hidden flex-1 overflow-hidden lg:flex">
-          <div className="relative flex h-full w-[45%] shrink-0 snap-x snap-mandatory overflow-x-auto">
-            {carrusel}
-          </div>
+          {/* Con flechas: el ratón no desliza, así que sin ellas las fotos 2 y 3 no se
+              alcanzan (haría falta shift+rueda, que no se le ocurre a nadie). */}
+          <CarruselFotos
+            imagenes={producto.imagenes}
+            nombre={producto.nombre}
+            className="relative h-full w-[45%] shrink-0"
+            conFlechas
+          />
           <div className="relative flex-1 overflow-y-auto bg-tarjeta px-6 py-5">
             <button
               type="button"

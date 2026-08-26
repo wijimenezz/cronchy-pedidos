@@ -2,11 +2,15 @@
 
 import Link from "next/link";
 import { Bike, CalendarClock, type LucideIcon, MessageCircle, Printer } from "lucide-react";
-import { useState, useSyncExternalStore, useTransition } from "react";
+import { useEffect, useState, useSyncExternalStore, useTransition } from "react";
 import type { Domiciliario } from "@/db/queries/domiciliarios";
 import type { PedidoEnLista } from "@/db/queries/panel";
 import { cuandoCorto, horaCorta, pesos } from "@/lib/notificaciones/plantillas";
-import { ETIQUETA_AVANCE, METODO_PAGO_ETIQUETA } from "@/lib/pedidos/estados";
+import {
+  ETIQUETA_AVANCE,
+  imprimeComanda,
+  METODO_PAGO_ETIQUETA,
+} from "@/lib/pedidos/estados";
 import { accionesDeTarjeta } from "./acciones-tarjeta";
 import { cambiarEstado, prepararAviso, prepararImpresion } from "./acciones";
 import { DesgloseDomicilio } from "./DesgloseDomicilio";
@@ -110,6 +114,8 @@ export function TarjetaPedido({
   const [urlBloqueada, setUrlBloqueada] = useState<string | null>(null);
   const [asignando, setAsignando] = useState(false);
   const [eligiendoTicket, setEligiendoTicket] = useState(false);
+  /** La comanda lista ANTES del toque. Ver `avanzar`: de esto depende que salga el papel. */
+  const [urlComanda, setUrlComanda] = useState<string | null>(null);
   const ahora = useAhora();
 
   // El polling entrega las fechas como string al pasar por JSON; el render del servidor las
@@ -159,6 +165,35 @@ export function TarjetaPedido({
   // al cruzar la frontera del `onClick`, y esto evita el `!` que había antes.
   const avance = acciones.avanzar;
 
+  // Este avance manda el pedido a cocina, así que su botón tiene que llevar la comanda dentro.
+  const avanceImprime = avance !== null && imprimeComanda(avance);
+
+  /**
+   * Trae la comanda **antes** de que nadie toque nada, para que el botón pueda ser un enlace ya
+   * cargado y la impresión salga con el gesto del clic (ver `avanzar`). Después del toque sería
+   * tarde: es justo el orden que tenía el bug.
+   *
+   * Solo en las tarjetas que se pueden aceptar, que son unas pocas de la primera columna. Por eso
+   * no viaja en la consulta del tablero: ahí engordaría la respuesta del polling cada 15 s con un
+   * ticket por tarjeta, y la mayoría ya no se pueden aceptar.
+   */
+  useEffect(() => {
+    if (!avanceImprime) return;
+
+    let cancelado = false;
+    prepararImpresion({ numero: pedido.numero, formato: "comanda" })
+      .then((r) => {
+        if (!cancelado && r.ok) setUrlComanda(r.url);
+      })
+      // Si falla no hay nada que decir: el botón sigue siendo un <button> y queda la red del
+      // servidor. Un error aquí sería ruido sobre algo que el empleado no pidió.
+      .catch(() => {});
+
+    return () => {
+      cancelado = true;
+    };
+  }, [avanceImprime, pedido.numero]);
+
   /**
    * `_blank` y no `location.href`: el panel se queda abierto en su pestaña, que es donde el
    * empleado va a seguir trabajando cuando vuelva de WhatsApp.
@@ -177,25 +212,28 @@ export function TarjetaPedido({
    * Avanza, avisa e imprime en el mismo toque: el pedido cambió de sitio, el cliente se entera y
    * la cocina tiene su comanda.
    *
-   * **EL WHATSAPP VA PRIMERO, Y ESE ORDEN ES EL ARREGLO DE UN BUG REAL.**
+   * **UN TOQUE TRAE UNA SOLA ACTIVACIÓN Y AQUÍ HAY DOS SALIDAS. ESA ES TODA LA HISTORIA.**
    *
-   * Un toque solo trae UNA *activación transitoria* del navegador, y se la queda la primera API
-   * que la necesite. Las dos llamadas de aquí abajo entregan algo al sistema operativo, así que
-   * la segunda se queda sin gesto — y lo que pasa entonces no es lo mismo en las dos:
+   * Las dos entregan algo al sistema operativo y las dos necesitan la *activación transitoria*
+   * del gesto, así que la que va segunda se queda sin ella. Se probaron los dos órdenes y los dos
+   * rompen algo, cada uno lo suyo:
    *
-   * - **WhatsApp son tres saltos**: `window.open` abre la pestaña, `wa.me` redirige a
-   *   `api.whatsapp.com`, y es **esa página** la que tiene que saltar a `whatsapp://`. Sin gesto
-   *   heredado, Chrome corta ahí con un «Continue to WhatsApp Business?» y el empleado acaba
-   *   decidiendo entre «Abrir aplicación» y «Continuar a WhatsApp Web» dentro de la web de
-   *   WhatsApp. Es justo lo que pasaba con la impresión delante.
-   * - **La impresión es un salto**: el clic de un `<a>` a `cronchyprinter://`. Si le toca
-   *   quedarse sin gesto, lo peor es un «¿Abrir POS Printer?» **en el panel**, que es la pantalla
-   *   donde el empleado ya está.
+   * - Con la impresión delante, el WhatsApp se quedaba en un «Continue to WhatsApp Business?».
+   *   Son tres saltos hasta la app —`window.open`, `wa.me` → `api.whatsapp.com`, y es *esa*
+   *   página la que salta a `whatsapp://`— y sin gesto heredado Chrome corta en el último.
+   * - Con el WhatsApp delante, **no salía el papel y nadie se enteró**: Chrome no pide
+   *   confirmación para lanzar un protocolo externo sin activación, lo bloquea en silencio. Aquí
+   *   se llegó a escribir que lo peor era un «¿Abrir POS Printer?»; era falso.
    *
-   * O sea: el gesto se lo lleva la salida más frágil, no la primera que se escribió. Invertir
-   * esto vuelve a romper el aviso al cliente.
+   * La salida no es elegir a quién sacrificar, es **dejar de pedir dos activaciones**. La comanda
+   * se precarga (`urlComanda`) y el botón de Aceptar es un `<a href="cronchyprinter://…">`: la
+   * impresión sale como **acción por defecto del clic real**, antes de que ningún script consuma
+   * nada, y este `avanzar` ya solo tiene una salida que pedir — el `window.open` del WhatsApp.
+   *
+   * De ahí `yaImprimio`: si el enlace se encargó, no hay que volver a disparar. El servidor sigue
+   * mandando `urlImpresion` igual, y es la red para cuando no hubo precarga.
    */
-  function avanzar(estado: string) {
+  function avanzar(estado: string, yaImprimio = false) {
     setError(null);
     setUrlBloqueada(null);
     iniciar(async () => {
@@ -203,7 +241,7 @@ export function TarjetaPedido({
       if (!resultado.ok) setError(resultado.error);
       else {
         abrirWhatsapp(resultado.url);
-        if (resultado.urlImpresion) dispararImpresion(resultado.urlImpresion);
+        if (!yaImprimio && resultado.urlImpresion) dispararImpresion(resultado.urlImpresion);
       }
       alCambiar();
     });
@@ -494,16 +532,40 @@ export function TarjetaPedido({
               igual; a su ancho natural iban de 62 a 90 px y el botón bailaba al cambiar de
               columna. Y `shrink-0` para que, cuando la fila vaya apretada, baje de línea en vez
               de comprimirse hasta enseñar "En cami…". */}
-          {avance && (
-            <button
-              type="button"
-              onClick={() => avanzar(avance)}
-              disabled={pendiente}
-              className="h-10 min-w-24 shrink-0 rounded-full bg-naranja px-4 font-cuerpo text-xs font-bold text-crema transition-colors hover:bg-naranja-osc focus:outline-none focus:ring-2 focus:ring-naranja focus:ring-offset-2 disabled:opacity-50"
-            >
-              {ETIQUETA_AVANCE[avance]}
-            </button>
-          )}
+          {avance &&
+            /* **Un `<a>` y no un `<button>` cuando la comanda está precargada**, y no es cosmética:
+               es lo que hace que salga el papel. El clic real lanza `cronchyprinter://` como su
+               acción por defecto, antes de que el `onClick` gaste la activación del gesto en el
+               `window.open` del WhatsApp. Con los dos como script, uno de los dos se quedaba sin
+               gesto siempre — ver el comentario largo de `avanzar`.
+
+               No unloadea la página: un enlace a un esquema externo lo trata el navegador como
+               entrega a otra aplicación y el tablero se queda donde está, igual que en
+               `dispararImpresion`.
+
+               Sin precarga cae al `<button>` de siempre y la comanda la dispara el servidor por el
+               camino de antes. Es peor, pero no es nada. */
+            (urlComanda ? (
+              <a
+                href={urlComanda}
+                onClick={() => avanzar(avance, true)}
+                aria-disabled={pendiente}
+                className={`flex h-10 min-w-24 shrink-0 items-center justify-center rounded-full bg-naranja px-4 font-cuerpo text-xs font-bold text-crema transition-colors hover:bg-naranja-osc focus:outline-none focus:ring-2 focus:ring-naranja focus:ring-offset-2 ${
+                  pendiente ? "pointer-events-none opacity-50" : ""
+                }`}
+              >
+                {ETIQUETA_AVANCE[avance]}
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={() => avanzar(avance)}
+                disabled={pendiente}
+                className="h-10 min-w-24 shrink-0 rounded-full bg-naranja px-4 font-cuerpo text-xs font-bold text-crema transition-colors hover:bg-naranja-osc focus:outline-none focus:ring-2 focus:ring-naranja focus:ring-offset-2 disabled:opacity-50"
+              >
+                {ETIQUETA_AVANCE[avance]}
+              </button>
+            ))}
         </div>
       )}
 

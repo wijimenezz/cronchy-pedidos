@@ -561,15 +561,40 @@ WhatsApp contaran la misma plata de dos maneras sería un reclamo esperando a pa
 19). Por eso `PrintRawActivity` **no puede tener interfaz**: con la pantalla de la app de por
 medio, ese toque sería un baile de tres aplicaciones.
 
-**Y el WhatsApp va PRIMERO, que es al revés de como se escribió y costó un bug.** Un toque trae
-una sola *activación transitoria* del navegador y se la queda la primera API que la pida, así que
-la segunda salida se queda sin gesto. Lo que pasa entonces no es simétrico: la impresión es **un**
-salto (`<a>` → `cronchyprinter://`) y lo peor que le pasa es un «¿Abrir POS Printer?» en el propio
-panel; el WhatsApp son **tres** —`window.open` → `wa.me` → `api.whatsapp.com` → `whatsapp://`— y el
-último lo da una página que, sin gesto heredado, se queda en «Continue to WhatsApp Business?» con
-el empleado eligiendo entre abrir la app y WhatsApp Web. Con la impresión delante, eso salía en
-todos los pedidos aceptados. **El gesto se lo lleva la salida más frágil, no la primera que se
-escribió.**
+**Y ese toque tiene DOS salidas al sistema operativo con UNA sola activación para las dos. No se
+arregla con el orden, y aquí se intentó dos veces.** Un gesto trae una sola *activación
+transitoria* y se la queda la primera API que la pida; la segunda se queda sin ella. Se probaron
+los dos órdenes y los dos rompen algo:
+
+- **Con la impresión delante se rompía el WhatsApp.** Son tres saltos —`window.open` → `wa.me` →
+  `api.whatsapp.com` → `whatsapp://`— y el último lo da una página que, sin gesto heredado, se
+  queda en «Continue to WhatsApp Business?» con el empleado eligiendo entre abrir la app y
+  WhatsApp Web.
+- **Con el WhatsApp delante no salía el papel, y nadie se enteró.** Aquí llegó a estar escrito que
+  la impresión es un solo salto y que sin gesto «lo peor que le pasa es un ¿Abrir POS Printer?».
+  **Es falso**: Chrome no pide confirmación para lanzar un protocolo externo sin activación, lo
+  **bloquea en silencio**. Un bug que no da ni error ni diálogo vive mucho tiempo.
+
+La salida no es elegir a quién sacrificar, es **dejar de pedir dos activaciones**: la comanda se
+**precarga antes del toque** y el botón de Aceptar es un `<a href="cronchyprinter://…">`, así que
+la impresión sale como **acción por defecto del clic real** —el caso más fuerte que admite
+Chrome, y ocurre antes de que ningún script consuma nada— y el manejador solo tiene que pedir el
+`window.open` del WhatsApp.
+
+Quién precarga cambia según la pantalla, y no por gusto: en el **tablero** un efecto llama a
+`prepararImpresion` solo en las tarjetas que se pueden aceptar (meterlo en la consulta engordaría
+la respuesta del polling cada 15 s con un ticket por tarjeta); en el **detalle** viaja como prop
+desde el server component, que ya cargó el pedido entero. Quién imprime lo decide `imprimeComanda`
+en `estados.ts`, y vive ahí justamente porque **lo preguntan los dos lados** — el servidor para
+armar el ticket y el navegador para precargarlo. Escrito dos veces, el día que cambie el recorrido
+el síntoma vuelve a ser que no sale el papel.
+
+El servidor sigue devolviendo `urlImpresion` aunque el enlace ya haya impreso: es la red para
+cuando la precarga no llegó o falló, y quien decide usarla es el cliente, que es el único que sabe
+si su enlace disparó. De ahí el `yaImprimio` de `avanzar`.
+
+**`dispararImpresion` sigue valiendo para lo que es un toque y una salida** —el icono de la
+tarjeta, el modal de tickets— y para nada más.
 
 En el tablero, sin aceptar el icono saca la comanda de una y a partir de ahí abre un modal con los
 dos tickets (`accionesDeTarjeta`, probado). En el detalle están siempre los dos, **también en un
@@ -627,6 +652,17 @@ su error, igual que en el checkout; el panel de confirmación adelanta la condic
 **El panel se opera en una tablet de 12" y en escritorio**, no en un teléfono. Se diseña para
 ≥1024 px; por debajo sigue siendo usable, pero no es el caso principal. Esto **no reabre la
 regla 15**: una tablet también es táctil, así que nada se arrastra.
+
+**Y se instala como app aparte de la tienda.** Son dos PWA sobre el mismo dominio con dos
+manifests: `app/manifest.ts` es la carta (`start_url: /`, icono del churro) y
+`app/panel.webmanifest` es el panel (`start_url: /admin/pedidos`, `scope: /admin`, el vaso de
+`helado_cup.png`, «Pedidos» debajo del icono). Quien elige cuál es `metadata.manifest` en cada
+layout, y el del panel **sustituye** al que Next inyecta por convención — sin eso, instalar desde
+el panel instalaba la carta. Dos detalles que no se ven en el código: el manifest del panel se
+sirve desde la **raíz** y no desde `/admin`, porque `proxy.ts` redirige esa ruta al login sin
+sesión y Chrome leería el manifest como inválido; y sus iconos se cuadran **añadiendo fondo crema**
+y nunca recortando, porque el original es vertical y un `cover` le corta la cabeza y los pies al
+vaso.
 
 `/admin/pedidos` es un **tablero de cuatro columnas** —Sin aceptar · En preparación · En camino
 / Listos · Terminados— y esos cuatro grupos son **los mismos hitos** que ve el cliente en su
@@ -799,6 +835,11 @@ saber:
   hay que verlo en la barra de pestañas y el pitido se pierde entre el ruido de la cocina. Lleva
   `requireInteraction` —una notificación que se desvanece a los cinco segundos es una que nadie
   vio— y `tag` + `renotify`, para reemplazar en vez de apilar cinco pedidos seguidos.
+
+  **Y con el panel instalado como app, el `(N)` deja de existir**: en `standalone` no hay barra de
+  pestañas donde mirarlo. Quedan el sonido y la notificación del sistema, que en la tablet ya eran
+  los dos que servían. No es una regresión que haya que arreglar, es lo que cuesta quitar la barra
+  del navegador — pero conviene saberlo antes de contar tres canales y encontrar dos.
 - **Sale por el service worker y no por `new Notification()`, porque en Android el constructor
   directo LANZA.** La primera versión usaba el constructor y no avisaba nada en la tablet, con el
   `catch` tragándoselo en silencio. `registration.showNotification()` funciona en los dos sitios.
@@ -831,6 +872,13 @@ compró, así que un fallo empujando el aviso no puede convertirse en un error d
 que funcione sin conexión", y un service worker que cachea respuestas rompe de raíz el ISR de la
 carta y el polling del tablero: un pedido servido desde caché es un pedido que no existe. Ese
 service worker existe solo para recibir avisos.
+
+**Y ese handler NO es el peaje de la PWA, aunque aquí llegó a decirse.** Chrome quitó el requisito
+del service worker para instalar desde el menú en la v108 de Android y la v112 de escritorio, así
+que el panel se instala sin tocar nada de esto. Lo único que sigue exigiéndolo es
+`beforeinstallprompt`, el prompt programático — por eso **no hay ni puede haber un botón propio de
+"Instalar"** en el panel, y se instala desde el menú del navegador. Si alguien escribe ese botón,
+no se disparará nunca.
 
 **El intervalo es de 15 s, y antes eran 5 puestos a ojo.** Nadie acepta un pedido en menos de
 quince, así que el ritmo rápido no compraba nada aprovechable y sí costaba: con el panel abierto
@@ -1086,14 +1134,42 @@ quien dice que no no se queda a ciegas: le queda el seguimiento en `/pedido/[tok
   archivo de migración: se cargan una vez con `pnpm configurar-purga`, y sin ellas la
   función falla a propósito en vez de borrar a medias.
 - **Fotos de productos:** máximo 3 por producto; se comprimen ANTES de subir
-  (WebP, ~800 px, ~100–150 KB). La primera es la portada.
+  (WebP, 1280 px, ~450 KB). La primera es la portada.
+
+  **Lo que se guarda es un MÁSTER, no lo que ve el cliente**, y de ahí salen los dos números.
+  El navegador de la carta nunca pide ese archivo: pide la variante que el optimizador de Next
+  genera para el hueco concreto, así que subir la resolución guardada **no le cuesta datos
+  móviles a nadie** — solo Storage, que es lo que sobra (1 GB para ~90 fotos de 450 KB).
+
+  Fueron 800 px y `CALIDAD_WEBP` 0.82, y las fotos se veían blandas por dos motivos a la vez:
+
+  - **Los 800 px eran un techo duro.** El optimizador reescala con `withoutEnlargement`, o sea
+    que nunca agranda. La ficha en un teléfono de 390 px a DPR 3 pide ~1170 px y recibía 800.
+    Eso **no se arregla comprimiendo menos**; el detalle no estaba guardado. Y era aún peor de
+    lo que sugiere el número: `LADO_MAXIMO` limita el lado **largo**, pero todas las cajas usan
+    `object-cover` y por tanto lo que se ve es el **corto**. Las fotos del negocio son
+    verticales, así que con el tope en 800 quedaron en 450×800 y 600×800 — 450 px útiles para
+    una tarjeta que pide 720.
+  - **Se comprimía dos veces.** El archivo entraba a WebP 0.82 y Next lo recodificaba a
+    `quality=75`, que es el default de `images.qualities`. Ahora el máster va casi sin pérdida
+    (0.92) y la única pasada que decide el resultado es la del optimizador, a 82.
+
+  Cambiar `LADO_MAXIMO` **no mejora ninguna foto ya subida**: hay que resubirlas desde el panel.
+
+  Consecuencia en el panel, que es contraintuitiva: sus miniaturas (40 px y 96 px) **dejaron de
+  llevar `unoptimized`**. Con una fuente que era una miniatura de 120 KB, servir el original
+  ahorraba una transformación; con un máster de 450 KB, la lista de catálogo bajaba ~13 MB.
+  Siguen en `unoptimized` el QR de pago (recomprimirlo le come módulos) y el visor de
+  comprobantes (ruta autenticada propia, y son datos personales que no van a una caché de CDN).
 - **La foto de categoría es una sola y se sube más grande.** Vive en `category.banner_url`, va al
   mismo bucket público bajo `categorias/<id>/`, se edita desde `/admin/productos` (icono de foto en
   la fila de la categoría, **solo admin**) y abre la sección en la carta. Se comprime a **1280 px**
-  (`LADO_MAXIMO_BANNER`) y no a 800: es un hero a ancho completo, no una miniatura.
-  **`CategoryBanner` es el único `next/image` sin `unoptimized`**, y esa excepción está razonada en
-  el propio componente: su ancho mostrado va de ~390 a ~1016 px. No lo "corrijas" contra la
-  convención de las miniaturas.
+  (`LADO_MAXIMO_BANNER`): es un hero a ancho completo, no una miniatura. Hoy coincide con
+  `LADO_MAXIMO`, pero siguen siendo dos constantes porque responden a preguntas distintas.
+  Aquí decía que **`CategoryBanner` era el único `next/image` sin `unoptimized`**, y ya entonces
+  era falso —`ProductCard` y `ProductoFicha` tampoco lo llevaban—. El corte real es al revés y
+  es más fácil de recordar: **toda la tienda pública pasa por el optimizador**; en el panel solo
+  lo evitan el QR de pago y el visor de comprobantes.
 - **Server Components por defecto.** `'use client'` solo donde hay interacción real
   (modal de producto, carrito, panel, mapas).
 - **El menú público se sirve con ISR, y encima hay cuatro capas de caché.** Solo la última
@@ -1141,10 +1217,32 @@ quien dice que no no se queda a ciegas: le queda el seguimiento en `/pedido/[tok
   un endpoint que devuelve `{ estado }` y nada más — la página completa se vuelve a pedir solo
   cuando el estado cambió de verdad. Son ~20 consultas diminutas en la vida de un pedido. No lo
   copies a la carta: ahí el cálculo da otro resultado.
-- Imágenes siempre con `next/image`, con **loader apuntando al CDN de Supabase**
-  (o `unoptimized`): las fotos ya se suben optimizadas y no hay que gastar la cuota
-  de optimización de Vercel en trabajo ya hecho. Los clientes entran desde datos
-  móviles.
+- **Imágenes siempre con `next/image`, y en la tienda pública SIEMPRE por el optimizador.**
+  Aquí decía lo contrario —"loader al CDN de Supabase, o `unoptimized`, porque las fotos ya se
+  suben optimizadas"— y esa regla se cayó con el máster de 1280 px: `unoptimized` mandaría los
+  450 KB enteros a cada tarjeta, y una carta de 20 productos serían ~9 MB por visita desde
+  datos móviles. **Redimensionar por hueco es justo el trabajo que se quiere pagar**, y sale
+  barato porque el catálogo es diminuto: con `minimumCacheTTL` a 31 días son unos cientos de
+  transformaciones al mes contra las 5.000 que incluye el plan Pro.
+
+  El **loader al CDN de Supabase** no es alternativa: sus Image Transformations son de plan de
+  pago y el proyecto está en el free tier.
+
+  Quien decide cuántos bytes bajan es el **`sizes` de cada `<Image>`**, y por eso tiene que ser
+  honesto. Dos que costaron calidad o datos:
+
+  - `ProductCard` declaraba `50vw` cuando la tarjeta mide ~239 px CSS en los dos layouts (en
+    móvil la columna va capada a `max-w-[520px]`; desde `lg` son 4 columnas de `max-w-contenido`).
+  - El carrusel de `ProductoFicha` declara **el alto** (`760px`) y no el ancho — el único del
+    proyecto que lo hace. Con `object-cover` sobre una caja de ~403×760 manda el lado grande, y
+    declarar los 403 reales pedía 828 px para estirarlos 1,84×.
+
+  **`quality` hay que declararlo en `next.config.ts`**: el default de `images.qualities` es
+  `[75]` y un valor fuera de la lista responde **400**, no cae al default.
+
+  El **panel** es el caso contrario y no se unifica: sus miniaturas también pasan por el
+  optimizador, pero el QR de pago y el visor de comprobantes siguen en `unoptimized` por
+  motivos propios (ver "Fotos de productos" arriba).
 - **Leaflet solo en el cliente:** los componentes de mapa se cargan con
   `dynamic(..., { ssr: false })` — Leaflet toca `window` y revienta en SSR.
 - Mobile-first, siempre. El escritorio es el caso raro aquí.

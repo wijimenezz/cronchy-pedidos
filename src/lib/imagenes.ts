@@ -74,19 +74,49 @@ export const BUCKET_PRODUCTOS = "productos";
 /** CLAUDE.md: máximo 3 por producto, la primera es la portada. */
 export const MAX_FOTOS = 3;
 
-/** Lado mayor al que se reescala antes de subir. Suficiente para una ficha a pantalla
- *  completa en móvil, que es donde se ve el 95% de los pedidos. */
-export const LADO_MAXIMO = 800;
+/**
+ * Lado mayor al que se reescala antes de subir.
+ *
+ * **Es un techo duro, no una sugerencia**: el optimizador de Next reescala con
+ * `withoutEnlargement`, así que nunca agranda. Con los 800 px que había aquí, la ficha en un
+ * teléfono de 390 px a DPR 3 pedía ~1170 px y recibía 800. Eso era el "las fotos se ven de
+ * mala calidad", y no se arreglaba comprimiendo menos: el detalle no estaba guardado.
+ *
+ * **Y ojo, porque limita el lado LARGO mientras que lo que se ve es el CORTO.** Todas las cajas
+ * que muestran una foto usan `object-cover`, así que recortan: la tarjeta es cuadrada y la caja
+ * de la ficha en móvil es apaisada, pero las fotos del negocio son verticales. Medido sobre las
+ * dos que había subidas, con el tope en 800 quedaron en **450×800 y 600×800** — o sea 450 y 600
+ * px útiles, no 800, para una tarjeta que en un teléfono a DPR 3 pide 720. Era peor de lo que
+ * parecía leyendo esta constante.
+ *
+ * Con 1280, una foto 9:16 deja 720 px de lado corto y una 3:4 deja 960. Si algún día la ficha
+ * se sigue viendo blanda, el número a mover es este —no `CALIDAD_WEBP`—, y lo que cuesta es
+ * Storage, nunca los datos del cliente.
+ */
+export const LADO_MAXIMO = 1280;
 
 /**
  * El banner de categoría no es una miniatura: es un hero a ancho completo, que en escritorio
- * ocupa hasta ~1016 px (`max-w-contenido` de 1080 menos el `lg:px-8`). Con los 800 px de una
- * foto de producto se vería blando justo en la primera imagen de la carta.
+ * ocupa hasta ~1016 px (`max-w-contenido` de 1080 menos el `lg:px-8`).
+ *
+ * Hoy coincide con `LADO_MAXIMO` —lo llevaba de antes, cuando la foto de producto se guardaba
+ * a 800 y aquí se veía blanda—, y aun así sigue siendo una constante propia: responde a otra
+ * pregunta (cuánto mide el hero) y nada obliga a que las dos se muevan juntas.
  */
 export const LADO_MAXIMO_BANNER = 1280;
 
-/** Calidad del WebP. 0.82 deja las fotos en ~100–150 KB sin que se note el recorte. */
-export const CALIDAD_WEBP = 0.82;
+/**
+ * Calidad del WebP guardado. **Este archivo ya no es lo que ve el cliente**: el navegador
+ * nunca lo descarga, descarga la variante que Next genera para cada hueco. Es un máster, y
+ * por eso 0.92 no es despilfarro —era 0.82— sino lo que impide que las dos compresiones se
+ * acumulen: al bajar de 1280 a 640 px para una tarjeta, los artefactos del máster se
+ * promedian y desaparecen. Comprimirlo fuerte aquí los dejaba grabados antes de empezar.
+ *
+ * Sube el peso de ~120 KB a ~450 KB por foto, que contra el 1 GB de Supabase no es nada y
+ * se queda muy por debajo de `MAX_BYTES`. Lo que baja el cliente no depende de esto, sino
+ * del `sizes` de cada `<Image>`.
+ */
+export const CALIDAD_WEBP = 0.92;
 
 /**
  * Ruta dentro del bucket, agrupada por producto: así se ve de un vistazo a quién pertenece
