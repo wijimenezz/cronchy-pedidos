@@ -28,10 +28,13 @@ import { normalizarTelefono } from "@/lib/notificaciones/transporte";
 import { puedeAvisarse } from "@/lib/notificaciones/avisos";
 import {
   ETIQUETA_ESTADO,
+  imprimeComanda,
   METODO_PAGO_ETIQUETA,
   siguienteEstado,
   toneDeEstado,
 } from "@/lib/pedidos/estados";
+import { comanda } from "@/lib/impresion/comanda";
+import { enlaceImpresion } from "@/lib/impresion/enlace";
 import { agruparModificadores, contarPreparacion } from "@/lib/pedidos/modificadores";
 import { urlMapa } from "@/lib/zonas";
 import { AccionesPedido } from "./AccionesPedido";
@@ -93,6 +96,15 @@ export default async function DetallePedidoPage({
   // Se derivan aquí y no en la consulta: son las mismas dos preguntas que responde la lista,
   // con los datos que este pedido ya trae.
   const siguiente = siguienteEstado(pedido.estado, pedido.tipo);
+  /**
+   * La comanda lista **antes** de que nadie toque el botón, porque el botón la lleva dentro como
+   * enlace: así la impresión sale con el gesto del clic en vez de pedirle al navegador una
+   * segunda activación que no existe (el porqué completo, en `TarjetaPedido.avanzar`).
+   *
+   * Aquí no hace falta ir a buscarla como en el tablero: esta página ya cargó el pedido entero.
+   */
+  const urlComanda =
+    siguiente && imprimeComanda(siguiente) ? enlaceImpresion(comanda(pedido)) : null;
   const avisoPendiente =
     pedido.aceptaAvisos &&
     puedeAvisarse(pedido.estado) &&
@@ -154,6 +166,7 @@ export default async function DetallePedidoPage({
         estado={pedido.estado}
         siguiente={siguiente}
         avisoPendiente={avisoPendiente}
+        urlComanda={urlComanda}
       />
 
       {/* Dos columnas en la tablet del mostrador y en escritorio; apiladas por debajo. La
