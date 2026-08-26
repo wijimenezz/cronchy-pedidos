@@ -14,8 +14,20 @@ describe("problemaDeAvisos", () => {
   // Sin permiso no hay NINGÚN aviso visual, así que manda sobre el estado del push.
   it("el permiso denegado manda sobre lo demás", () => {
     for (const push of ["ok", "sin-llave", "error", null] as const) {
-      expect(problemaDeAvisos(false, push)).toContain("permite las notificaciones");
+      expect(problemaDeAvisos(false, push)).toContain("permitir las notificaciones");
     }
+  });
+
+  /**
+   * El panel se instala como app en la tablet del mostrador, y ahí **no hay barra de direcciones
+   * ni candado**. Este texto llegó a mandar solo al candado, o sea a un sitio que no existe justo
+   * en el aparato donde más importa que suene. Tiene que servir en los dos sitios.
+   */
+  it("dice cómo dar el permiso tanto instalado como en el navegador", () => {
+    const texto = problemaDeAvisos(false, "ok");
+
+    expect(texto).toContain("app instalada");
+    expect(texto).toContain("candado");
   });
 
   // Es el caso que nos costó una tarde: la llave se añadió al hosting después del build.

@@ -25,7 +25,6 @@ export function AccionesPedido({
   estado,
   siguiente,
   avisoPendiente,
-  urlComanda,
 }: {
   pedidoId: string;
   numero: number;
@@ -33,13 +32,6 @@ export function AccionesPedido({
   /** El avance natural, o null si el pedido ya terminó. */
   siguiente: EstadoPedido | null;
   avisoPendiente: boolean;
-  /**
-   * La comanda ya armada cuando este avance manda el pedido a cocina, o null si no imprime.
-   *
-   * Llega como prop y no se pide aquí: la página ya cargó el pedido entero. Tiene que estar
-   * **antes** del toque para que el botón sea un enlace — ver `avanzar`.
-   */
-  urlComanda: string | null;
 }) {
   const router = useRouter();
   const [pendiente, iniciar] = useTransition();
@@ -61,18 +53,15 @@ export function AccionesPedido({
   /**
    * Avanza, avisa e imprime en el mismo toque. Cancelar entra por aquí y también avisa.
    *
-   * Aceptar desde aquí saca la comanda igual que desde el tablero: el pedido se acepta en las
-   * dos pantallas, y que una imprimiera y la otra no sería una trampa esperando al día que
-   * alguien opere desde el detalle.
+   * **Aquí tampoco se imprime**, igual que en el tablero y por lo mismo: un toque trae una sola
+   * activación del navegador, y el WhatsApp y la impresora la necesitan las dos. El porqué
+   * completo, con los tres intentos que costó, está en `TarjetaPedido.avanzar`; si se cambia
+   * aquí, hay que cambiarlo allí.
    *
-   * **Y por eso el botón de avance es un `<a>` con la comanda dentro, igual que allí.** Un toque
-   * trae una sola activación del navegador y aquí hay dos salidas que la necesitan; con las dos
-   * lanzadas desde script, la segunda se quedaba sin gesto y Chrome la bloqueaba en silencio. La
-   * impresión sale como acción por defecto del clic y este `avanzar` ya solo pide el
-   * `window.open`. El porqué completo está en `TarjetaPedido.avanzar`; si se cambia aquí, hay
-   * que cambiarlo allí.
+   * Los dos tickets siguen a un toque cada uno, en sus botones de abajo — que es justo lo que
+   * hace que funcionen.
    */
-  function avanzar(nuevo: string, yaImprimio = false) {
+  function avanzar(nuevo: string) {
     setError(null);
     setUrlBloqueada(null);
     iniciar(async () => {
@@ -83,7 +72,6 @@ export function AccionesPedido({
       }
       setConfirmando(false);
       abrirWhatsapp(resultado.url);
-      if (!yaImprimio && resultado.urlImpresion) dispararImpresion(resultado.urlImpresion);
       // La página es `force-dynamic`: esto la vuelve a pedir con el estado ya cambiado, sin
       // duplicar aquí el cálculo de cuál es el siguiente paso.
       router.refresh();
@@ -157,32 +145,16 @@ export function AccionesPedido({
           </p>
         )}
 
-        {/* Un `<a>` cuando este avance imprime, y eso es lo que hace que salga el papel: el clic
-            real lanza `cronchyprinter://` como su acción por defecto, antes de que el `onClick`
-            gaste la activación del gesto en el WhatsApp. Ver `avanzar`. Cuando no imprime
-            —«En camino», «Entregado»— no hay nada que precargar y sigue siendo un botón. */}
-        {siguiente &&
-          (urlComanda ? (
-            <a
-              href={urlComanda}
-              onClick={() => avanzar(siguiente, true)}
-              aria-disabled={pendiente}
-              className={`inline-flex min-h-11 items-center rounded-full bg-naranja px-6 py-3 font-cuerpo text-base font-bold text-crema transition-colors hover:bg-naranja-osc focus:outline-none focus:ring-2 focus:ring-naranja focus:ring-offset-2 ${
-                pendiente ? "pointer-events-none opacity-50" : ""
-              }`}
-            >
-              {estado === "nuevo" ? "Aceptar pedido" : ETIQUETA_ESTADO[siguiente]}
-            </a>
-          ) : (
-            <button
-              type="button"
-              onClick={() => avanzar(siguiente)}
-              disabled={pendiente}
-              className="min-h-11 rounded-full bg-naranja px-6 py-3 font-cuerpo text-base font-bold text-crema transition-colors hover:bg-naranja-osc focus:outline-none focus:ring-2 focus:ring-naranja focus:ring-offset-2 disabled:opacity-50"
-            >
-              {estado === "nuevo" ? "Aceptar pedido" : ETIQUETA_ESTADO[siguiente]}
-            </button>
-          ))}
+        {siguiente && (
+          <button
+            type="button"
+            onClick={() => avanzar(siguiente)}
+            disabled={pendiente}
+            className="min-h-11 rounded-full bg-naranja px-6 py-3 font-cuerpo text-base font-bold text-crema transition-colors hover:bg-naranja-osc focus:outline-none focus:ring-2 focus:ring-naranja focus:ring-offset-2 disabled:opacity-50"
+          >
+            {estado === "nuevo" ? "Aceptar pedido" : ETIQUETA_ESTADO[siguiente]}
+          </button>
+        )}
 
         {/* Ámbar, igual que en la tarjeta del tablero: es el segundo toque de la operación y
             el que se olvida. */}
