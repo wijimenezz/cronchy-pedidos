@@ -19,7 +19,7 @@ import {
   avisoDomiciliario,
   puedeAvisarse,
 } from "@/lib/notificaciones/avisos";
-import { MENSAJE_BLOQUEO } from "@/lib/pedidos/estados";
+import { imprimeComanda, MENSAJE_BLOQUEO } from "@/lib/pedidos/estados";
 import { comanda } from "@/lib/impresion/comanda";
 import { enlaceImpresion } from "@/lib/impresion/enlace";
 import { recibo } from "@/lib/impresion/recibo";
@@ -127,9 +127,13 @@ export async function cambiarEstado(entrada: {
  * Lo que hay que disparar hacia fuera del navegador tras un avance: el WhatsApp al cliente y,
  * si el pedido acaba de entrar en cocina, su comanda.
  *
- * **La comanda se dispara al ENTRAR en `preparando`, y no al salir de `nuevo`.** Da lo mismo de
- * dónde venga —a `preparando` solo se llega desde `nuevo` y desde el `aceptado` retirado—, y así
- * la regla no depende de un estado anterior que la consulta no devuelve.
+ * Quién imprime lo dice `imprimeComanda`, que vive en `estados.ts` porque el navegador hace la
+ * misma pregunta para **precargar** el ticket antes del toque — de eso depende que la impresión
+ * llegue a salir, ver `avanzar` en `TarjetaPedido`.
+ *
+ * **Esto se sigue devolviendo aunque el botón ya haya impreso por su cuenta**, y no sobra: es la
+ * red para cuando la precarga no llegó a tiempo o falló. Quien decide si usarlo es el cliente,
+ * que es el único que sabe si su enlace disparó.
  *
  * Aquí no hay candado de idempotencia: reimprimir es normal, como reasignar un domiciliario
  * (regla 18). El de la regla 11 protege los avisos al cliente, que son los que no se repiten.
@@ -139,7 +143,7 @@ async function loQueSigueAlAvance(
   numero: number,
   estado: (typeof ESTADOS)[number],
 ): Promise<{ url: string | null; urlImpresion: string | null }> {
-  const vaComanda = estado === "preparando";
+  const vaComanda = imprimeComanda(estado);
   const nada = { url: null, urlImpresion: null };
 
   if (!puedeAvisarse(estado) && !vaComanda) return nada;

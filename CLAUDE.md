@@ -561,15 +561,40 @@ WhatsApp contaran la misma plata de dos maneras sería un reclamo esperando a pa
 19). Por eso `PrintRawActivity` **no puede tener interfaz**: con la pantalla de la app de por
 medio, ese toque sería un baile de tres aplicaciones.
 
-**Y el WhatsApp va PRIMERO, que es al revés de como se escribió y costó un bug.** Un toque trae
-una sola *activación transitoria* del navegador y se la queda la primera API que la pida, así que
-la segunda salida se queda sin gesto. Lo que pasa entonces no es simétrico: la impresión es **un**
-salto (`<a>` → `cronchyprinter://`) y lo peor que le pasa es un «¿Abrir POS Printer?» en el propio
-panel; el WhatsApp son **tres** —`window.open` → `wa.me` → `api.whatsapp.com` → `whatsapp://`— y el
-último lo da una página que, sin gesto heredado, se queda en «Continue to WhatsApp Business?» con
-el empleado eligiendo entre abrir la app y WhatsApp Web. Con la impresión delante, eso salía en
-todos los pedidos aceptados. **El gesto se lo lleva la salida más frágil, no la primera que se
-escribió.**
+**Y ese toque tiene DOS salidas al sistema operativo con UNA sola activación para las dos. No se
+arregla con el orden, y aquí se intentó dos veces.** Un gesto trae una sola *activación
+transitoria* y se la queda la primera API que la pida; la segunda se queda sin ella. Se probaron
+los dos órdenes y los dos rompen algo:
+
+- **Con la impresión delante se rompía el WhatsApp.** Son tres saltos —`window.open` → `wa.me` →
+  `api.whatsapp.com` → `whatsapp://`— y el último lo da una página que, sin gesto heredado, se
+  queda en «Continue to WhatsApp Business?» con el empleado eligiendo entre abrir la app y
+  WhatsApp Web.
+- **Con el WhatsApp delante no salía el papel, y nadie se enteró.** Aquí llegó a estar escrito que
+  la impresión es un solo salto y que sin gesto «lo peor que le pasa es un ¿Abrir POS Printer?».
+  **Es falso**: Chrome no pide confirmación para lanzar un protocolo externo sin activación, lo
+  **bloquea en silencio**. Un bug que no da ni error ni diálogo vive mucho tiempo.
+
+La salida no es elegir a quién sacrificar, es **dejar de pedir dos activaciones**: la comanda se
+**precarga antes del toque** y el botón de Aceptar es un `<a href="cronchyprinter://…">`, así que
+la impresión sale como **acción por defecto del clic real** —el caso más fuerte que admite
+Chrome, y ocurre antes de que ningún script consuma nada— y el manejador solo tiene que pedir el
+`window.open` del WhatsApp.
+
+Quién precarga cambia según la pantalla, y no por gusto: en el **tablero** un efecto llama a
+`prepararImpresion` solo en las tarjetas que se pueden aceptar (meterlo en la consulta engordaría
+la respuesta del polling cada 15 s con un ticket por tarjeta); en el **detalle** viaja como prop
+desde el server component, que ya cargó el pedido entero. Quién imprime lo decide `imprimeComanda`
+en `estados.ts`, y vive ahí justamente porque **lo preguntan los dos lados** — el servidor para
+armar el ticket y el navegador para precargarlo. Escrito dos veces, el día que cambie el recorrido
+el síntoma vuelve a ser que no sale el papel.
+
+El servidor sigue devolviendo `urlImpresion` aunque el enlace ya haya impreso: es la red para
+cuando la precarga no llegó o falló, y quien decide usarla es el cliente, que es el único que sabe
+si su enlace disparó. De ahí el `yaImprimio` de `avanzar`.
+
+**`dispararImpresion` sigue valiendo para lo que es un toque y una salida** —el icono de la
+tarjeta, el modal de tickets— y para nada más.
 
 En el tablero, sin aceptar el icono saca la comanda de una y a partir de ahí abre un modal con los
 dos tickets (`accionesDeTarjeta`, probado). En el detalle están siempre los dos, **también en un
@@ -627,6 +652,17 @@ su error, igual que en el checkout; el panel de confirmación adelanta la condic
 **El panel se opera en una tablet de 12" y en escritorio**, no en un teléfono. Se diseña para
 ≥1024 px; por debajo sigue siendo usable, pero no es el caso principal. Esto **no reabre la
 regla 15**: una tablet también es táctil, así que nada se arrastra.
+
+**Y se instala como app aparte de la tienda.** Son dos PWA sobre el mismo dominio con dos
+manifests: `app/manifest.ts` es la carta (`start_url: /`, icono del churro) y
+`app/panel.webmanifest` es el panel (`start_url: /admin/pedidos`, `scope: /admin`, el vaso de
+`helado_cup.png`, «Pedidos» debajo del icono). Quien elige cuál es `metadata.manifest` en cada
+layout, y el del panel **sustituye** al que Next inyecta por convención — sin eso, instalar desde
+el panel instalaba la carta. Dos detalles que no se ven en el código: el manifest del panel se
+sirve desde la **raíz** y no desde `/admin`, porque `proxy.ts` redirige esa ruta al login sin
+sesión y Chrome leería el manifest como inválido; y sus iconos se cuadran **añadiendo fondo crema**
+y nunca recortando, porque el original es vertical y un `cover` le corta la cabeza y los pies al
+vaso.
 
 `/admin/pedidos` es un **tablero de cuatro columnas** —Sin aceptar · En preparación · En camino
 / Listos · Terminados— y esos cuatro grupos son **los mismos hitos** que ve el cliente en su
@@ -799,6 +835,11 @@ saber:
   hay que verlo en la barra de pestañas y el pitido se pierde entre el ruido de la cocina. Lleva
   `requireInteraction` —una notificación que se desvanece a los cinco segundos es una que nadie
   vio— y `tag` + `renotify`, para reemplazar en vez de apilar cinco pedidos seguidos.
+
+  **Y con el panel instalado como app, el `(N)` deja de existir**: en `standalone` no hay barra de
+  pestañas donde mirarlo. Quedan el sonido y la notificación del sistema, que en la tablet ya eran
+  los dos que servían. No es una regresión que haya que arreglar, es lo que cuesta quitar la barra
+  del navegador — pero conviene saberlo antes de contar tres canales y encontrar dos.
 - **Sale por el service worker y no por `new Notification()`, porque en Android el constructor
   directo LANZA.** La primera versión usaba el constructor y no avisaba nada en la tablet, con el
   `catch` tragándoselo en silencio. `registration.showNotification()` funciona en los dos sitios.
@@ -831,6 +872,13 @@ compró, así que un fallo empujando el aviso no puede convertirse en un error d
 que funcione sin conexión", y un service worker que cachea respuestas rompe de raíz el ISR de la
 carta y el polling del tablero: un pedido servido desde caché es un pedido que no existe. Ese
 service worker existe solo para recibir avisos.
+
+**Y ese handler NO es el peaje de la PWA, aunque aquí llegó a decirse.** Chrome quitó el requisito
+del service worker para instalar desde el menú en la v108 de Android y la v112 de escritorio, así
+que el panel se instala sin tocar nada de esto. Lo único que sigue exigiéndolo es
+`beforeinstallprompt`, el prompt programático — por eso **no hay ni puede haber un botón propio de
+"Instalar"** en el panel, y se instala desde el menú del navegador. Si alguien escribe ese botón,
+no se disparará nunca.
 
 **El intervalo es de 15 s, y antes eran 5 puestos a ojo.** Nadie acepta un pedido en menos de
 quince, así que el ritmo rápido no compraba nada aprovechable y sí costaba: con el panel abierto

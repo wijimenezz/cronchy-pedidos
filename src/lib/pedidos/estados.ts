@@ -65,6 +65,22 @@ export function pasosDelPedido(tipo: TipoPedido): EstadoPedido[] {
     : ["nuevo", "preparando", "listo", "entregado"];
 }
 
+/**
+ * ¿Este avance saca la comanda de cocina? (regla 22)
+ *
+ * **Se mira el estado al que se ENTRA, no del que se sale.** Da igual de dónde venga —a
+ * `preparando` solo se llega desde `nuevo` y desde el `aceptado` retirado—, y así la regla no
+ * depende de un estado anterior que la consulta del panel no devuelve.
+ *
+ * Vive aquí y no en la server action porque lo preguntan los dos lados: el servidor para armar el
+ * ticket, y el navegador para **precargarlo antes del toque** —de eso depende que la impresión
+ * salga (ver `avanzar` en `TarjetaPedido`)—. Escrito dos veces se desincronizaría el día que
+ * cambie el recorrido, y el síntoma sería otra vez que no sale el papel.
+ */
+export function imprimeComanda(estado: EstadoPedido): boolean {
+  return estado === "preparando";
+}
+
 // ------------------------------------------------------------
 // Hitos — los cuatro iconos de la barra del seguimiento
 // ------------------------------------------------------------
