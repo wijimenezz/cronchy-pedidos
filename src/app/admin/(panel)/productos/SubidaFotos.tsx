@@ -97,15 +97,15 @@ export function SubidaFotos({
             key={url}
             className="relative size-24 overflow-hidden rounded-sm border border-crema-oscura bg-crema"
           >
-            {/* `unoptimized`: ya se subieron comprimidas a WebP ~800px. Gastar la cuota de
-                optimización de Vercel en trabajo hecho no tiene sentido. */}
+            {/* Sin `unoptimized`, igual que la miniatura de `ColumnaProductos` y por el mismo
+                motivo: lo que hay en Storage es un máster de 1280 px y ~450 KB, y traérselo
+                entero para pintar 96 px son tres archivos grandes por producto abierto. */}
             <Image
               src={url}
               alt={i === 0 ? "Foto de portada" : `Foto ${i + 1}`}
               fill
               sizes="96px"
               className="object-cover"
-              unoptimized
             />
 
             {i === 0 && (

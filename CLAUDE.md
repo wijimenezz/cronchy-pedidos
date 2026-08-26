@@ -1086,14 +1086,42 @@ quien dice que no no se queda a ciegas: le queda el seguimiento en `/pedido/[tok
   archivo de migración: se cargan una vez con `pnpm configurar-purga`, y sin ellas la
   función falla a propósito en vez de borrar a medias.
 - **Fotos de productos:** máximo 3 por producto; se comprimen ANTES de subir
-  (WebP, ~800 px, ~100–150 KB). La primera es la portada.
+  (WebP, 1280 px, ~450 KB). La primera es la portada.
+
+  **Lo que se guarda es un MÁSTER, no lo que ve el cliente**, y de ahí salen los dos números.
+  El navegador de la carta nunca pide ese archivo: pide la variante que el optimizador de Next
+  genera para el hueco concreto, así que subir la resolución guardada **no le cuesta datos
+  móviles a nadie** — solo Storage, que es lo que sobra (1 GB para ~90 fotos de 450 KB).
+
+  Fueron 800 px y `CALIDAD_WEBP` 0.82, y las fotos se veían blandas por dos motivos a la vez:
+
+  - **Los 800 px eran un techo duro.** El optimizador reescala con `withoutEnlargement`, o sea
+    que nunca agranda. La ficha en un teléfono de 390 px a DPR 3 pide ~1170 px y recibía 800.
+    Eso **no se arregla comprimiendo menos**; el detalle no estaba guardado. Y era aún peor de
+    lo que sugiere el número: `LADO_MAXIMO` limita el lado **largo**, pero todas las cajas usan
+    `object-cover` y por tanto lo que se ve es el **corto**. Las fotos del negocio son
+    verticales, así que con el tope en 800 quedaron en 450×800 y 600×800 — 450 px útiles para
+    una tarjeta que pide 720.
+  - **Se comprimía dos veces.** El archivo entraba a WebP 0.82 y Next lo recodificaba a
+    `quality=75`, que es el default de `images.qualities`. Ahora el máster va casi sin pérdida
+    (0.92) y la única pasada que decide el resultado es la del optimizador, a 82.
+
+  Cambiar `LADO_MAXIMO` **no mejora ninguna foto ya subida**: hay que resubirlas desde el panel.
+
+  Consecuencia en el panel, que es contraintuitiva: sus miniaturas (40 px y 96 px) **dejaron de
+  llevar `unoptimized`**. Con una fuente que era una miniatura de 120 KB, servir el original
+  ahorraba una transformación; con un máster de 450 KB, la lista de catálogo bajaba ~13 MB.
+  Siguen en `unoptimized` el QR de pago (recomprimirlo le come módulos) y el visor de
+  comprobantes (ruta autenticada propia, y son datos personales que no van a una caché de CDN).
 - **La foto de categoría es una sola y se sube más grande.** Vive en `category.banner_url`, va al
   mismo bucket público bajo `categorias/<id>/`, se edita desde `/admin/productos` (icono de foto en
   la fila de la categoría, **solo admin**) y abre la sección en la carta. Se comprime a **1280 px**
-  (`LADO_MAXIMO_BANNER`) y no a 800: es un hero a ancho completo, no una miniatura.
-  **`CategoryBanner` es el único `next/image` sin `unoptimized`**, y esa excepción está razonada en
-  el propio componente: su ancho mostrado va de ~390 a ~1016 px. No lo "corrijas" contra la
-  convención de las miniaturas.
+  (`LADO_MAXIMO_BANNER`): es un hero a ancho completo, no una miniatura. Hoy coincide con
+  `LADO_MAXIMO`, pero siguen siendo dos constantes porque responden a preguntas distintas.
+  Aquí decía que **`CategoryBanner` era el único `next/image` sin `unoptimized`**, y ya entonces
+  era falso —`ProductCard` y `ProductoFicha` tampoco lo llevaban—. El corte real es al revés y
+  es más fácil de recordar: **toda la tienda pública pasa por el optimizador**; en el panel solo
+  lo evitan el QR de pago y el visor de comprobantes.
 - **Server Components por defecto.** `'use client'` solo donde hay interacción real
   (modal de producto, carrito, panel, mapas).
 - **El menú público se sirve con ISR, y encima hay cuatro capas de caché.** Solo la última
@@ -1141,10 +1169,32 @@ quien dice que no no se queda a ciegas: le queda el seguimiento en `/pedido/[tok
   un endpoint que devuelve `{ estado }` y nada más — la página completa se vuelve a pedir solo
   cuando el estado cambió de verdad. Son ~20 consultas diminutas en la vida de un pedido. No lo
   copies a la carta: ahí el cálculo da otro resultado.
-- Imágenes siempre con `next/image`, con **loader apuntando al CDN de Supabase**
-  (o `unoptimized`): las fotos ya se suben optimizadas y no hay que gastar la cuota
-  de optimización de Vercel en trabajo ya hecho. Los clientes entran desde datos
-  móviles.
+- **Imágenes siempre con `next/image`, y en la tienda pública SIEMPRE por el optimizador.**
+  Aquí decía lo contrario —"loader al CDN de Supabase, o `unoptimized`, porque las fotos ya se
+  suben optimizadas"— y esa regla se cayó con el máster de 1280 px: `unoptimized` mandaría los
+  450 KB enteros a cada tarjeta, y una carta de 20 productos serían ~9 MB por visita desde
+  datos móviles. **Redimensionar por hueco es justo el trabajo que se quiere pagar**, y sale
+  barato porque el catálogo es diminuto: con `minimumCacheTTL` a 31 días son unos cientos de
+  transformaciones al mes contra las 5.000 que incluye el plan Pro.
+
+  El **loader al CDN de Supabase** no es alternativa: sus Image Transformations son de plan de
+  pago y el proyecto está en el free tier.
+
+  Quien decide cuántos bytes bajan es el **`sizes` de cada `<Image>`**, y por eso tiene que ser
+  honesto. Dos que costaron calidad o datos:
+
+  - `ProductCard` declaraba `50vw` cuando la tarjeta mide ~239 px CSS en los dos layouts (en
+    móvil la columna va capada a `max-w-[520px]`; desde `lg` son 4 columnas de `max-w-contenido`).
+  - El carrusel de `ProductoFicha` declara **el alto** (`760px`) y no el ancho — el único del
+    proyecto que lo hace. Con `object-cover` sobre una caja de ~403×760 manda el lado grande, y
+    declarar los 403 reales pedía 828 px para estirarlos 1,84×.
+
+  **`quality` hay que declararlo en `next.config.ts`**: el default de `images.qualities` es
+  `[75]` y un valor fuera de la lista responde **400**, no cae al default.
+
+  El **panel** es el caso contrario y no se unifica: sus miniaturas también pasan por el
+  optimizador, pero el QR de pago y el visor de comprobantes siguen en `unoptimized` por
+  motivos propios (ver "Fotos de productos" arriba).
 - **Leaflet solo en el cliente:** los componentes de mapa se cargan con
   `dynamic(..., { ssr: false })` — Leaflet toca `window` y revienta en SSR.
 - Mobile-first, siempre. El escritorio es el caso raro aquí.

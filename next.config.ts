@@ -21,6 +21,33 @@ const nextConfig: NextConfig = {
         pathname: "/storage/v1/object/public/**",
       },
     ],
+    /**
+     * **Hay que declarar aquí cada `quality` que se use, o Next responde 400.** El default de
+     * `images.qualities` es `[75]` y no hay caída al valor por defecto: un `quality={82}` sin
+     * esta lista deja la imagen sin cargar, no la sirve peor.
+     *
+     * El 82 es la tienda pública. Recomprimir a 75 un archivo que ya venía comprimido era la
+     * mitad del problema de calidad —dos pasadas con pérdida, la segunda más agresiva que la
+     * primera—; ahora el máster se guarda casi sin pérdida (`CALIDAD_WEBP`) y el recorte fino
+     * lo hace este optimizador una sola vez, por hueco.
+     *
+     * El 75 se queda en la lista por ser el default: nada lo pide hoy —el panel va
+     * `unoptimized`— pero quitarlo convertiría en un 400 cualquier `<Image>` nuevo que se
+     * escriba sin `quality`.
+     */
+    qualities: [75, 82],
+    /**
+     * 31 días, contra las 4 horas del default.
+     *
+     * Se puede porque `rutaFotoProducto` mete un `crypto.randomUUID()` en el nombre del
+     * objeto: cambiar una foto produce una URL nueva, así que **no hay nada que invalidar** y
+     * una caché larga jamás sirve una foto vieja. Con 4 horas se volvía a descargar y a
+     * recodificar la misma imagen seis veces al día.
+     *
+     * Importa más desde que el máster pesa ~450 KB: cada miss es una descarga contra Supabase,
+     * y el free tier son 5 GB de egress al mes.
+     */
+    minimumCacheTTL: 2_678_400,
   },
 };
 
