@@ -3,7 +3,6 @@ import {
   COLUMNAS_TABLERO,
   columnaDeTablero,
   hitosDelPedido,
-  imprimeComanda,
   indiceDeHito,
   pasosDelPedido,
   siguienteEstado,
@@ -293,35 +292,4 @@ describe("columnas del tablero", () => {
       expect(columna).toBeLessThan(COLUMNAS_TABLERO.length);
     }
   });
-});
-
-describe("imprimeComanda", () => {
-  it("la comanda sale al entrar en preparación, que es lo que hace Aceptar", () => {
-    expect(imprimeComanda("preparando")).toBe(true);
-  });
-
-  // Un pedido que ya está en cocina no vuelve a sacar papel por avanzar: la comanda se imprime
-  // una vez, y reimprimirla es un gesto aparte (el icono de la tarjeta).
-  it.each(["nuevo", "en_camino", "listo", "entregado", "cancelado"] as const)(
-    "%s no imprime nada",
-    (estado) => {
-      expect(imprimeComanda(estado)).toBe(false);
-    },
-  );
-
-  // `aceptado` sigue en el enum por el historial escrito con él, pero ya no se genera. Si algún
-  // día alguien lo revive como destino de un avance, tendría que decidir si imprime — hoy no,
-  // porque el paso que manda a cocina es `preparando`.
-  it("el aceptado retirado no genera comanda por sí mismo", () => {
-    expect(imprimeComanda("aceptado")).toBe(false);
-  });
-
-  // El criterio del servidor y el del navegador tienen que ser el mismo, y esta es la razón de
-  // que la función exista: es el único destino de `pasosDelPedido` que imprime.
-  it.each(["domicilio", "recoger"] as const)(
-    "en %s solo un paso del recorrido imprime",
-    (tipo) => {
-      expect(pasosDelPedido(tipo).filter(imprimeComanda)).toEqual(["preparando"]);
-    },
-  );
 });

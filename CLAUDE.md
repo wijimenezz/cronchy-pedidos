@@ -557,44 +557,39 @@ El desglose del recibo es **el mismo que el de `bloqueRecibo`** en `plantillas.t
 líneas se callan (regla 20: productos, descuento, subtotal, domicilio, total). Que el papel y el
 WhatsApp contaran la misma plata de dos maneras sería un reclamo esperando a pasar.
 
-**Aceptar imprime la comanda en el mismo toque** que cambia el estado y abre el WhatsApp (regla
-19). Por eso `PrintRawActivity` **no puede tener interfaz**: con la pantalla de la app de por
-medio, ese toque sería un baile de tres aplicaciones.
+**UN TOQUE, UNA SALIDA AL SISTEMA OPERATIVO. Aceptar NO imprime: solo avisa al cliente.** La
+comanda tiene su propio toque, el icono de impresora de la tarjeta.
 
-**Y ese toque tiene DOS salidas al sistema operativo con UNA sola activación para las dos. No se
-arregla con el orden, y aquí se intentó dos veces.** Un gesto trae una sola *activación
-transitoria* y se la queda la primera API que la pida; la segunda se queda sin ella. Se probaron
-los dos órdenes y los dos rompen algo:
+Parece una renuncia y es el resultado de tres intentos medidos en la tablet. Un gesto trae una
+sola *activación transitoria* del navegador, y tanto el `window.open` del WhatsApp como el salto a
+`cronchyprinter://` la necesitan; la que va segunda se queda sin ella. Los tres repartos que se
+probaron:
 
-- **Con la impresión delante se rompía el WhatsApp.** Son tres saltos —`window.open` → `wa.me` →
-  `api.whatsapp.com` → `whatsapp://`— y el último lo da una página que, sin gesto heredado, se
-  queda en «Continue to WhatsApp Business?» con el empleado eligiendo entre abrir la app y
-  WhatsApp Web.
-- **Con el WhatsApp delante no salía el papel, y nadie se enteró.** Aquí llegó a estar escrito que
-  la impresión es un solo salto y que sin gesto «lo peor que le pasa es un ¿Abrir POS Printer?».
-  **Es falso**: Chrome no pide confirmación para lanzar un protocolo externo sin activación, lo
-  **bloquea en silencio**. Un bug que no da ni error ni diálogo vive mucho tiempo.
+1. **Imprimir primero** → el WhatsApp se quedaba en «Continue to WhatsApp Business?». Son tres
+   saltos —`window.open` → `wa.me` → `api.whatsapp.com` → `whatsapp://`— y el último lo da una
+   página que, sin gesto heredado, deja al empleado eligiendo entre abrir la app y WhatsApp Web.
+2. **Avisar primero** → no salía el papel **y nadie se enteró**. Aquí llegó a estar escrito que sin
+   gesto «lo peor que le pasa es un ¿Abrir POS Printer?». **Es falso**: Chrome no pide confirmación
+   para lanzar un protocolo externo sin activación, lo **bloquea en silencio**. Un bug que no da ni
+   error ni diálogo vive mucho tiempo.
+3. **Precargar la comanda en un `<a href="cronchyprinter://…">`**, para que la impresión saliera
+   como acción por defecto del clic y no pedir dos activaciones. Salía el papel, pero el WhatsApp
+   volvía al síntoma 1.
 
-La salida no es elegir a quién sacrificar, es **dejar de pedir dos activaciones**: la comanda se
-**precarga antes del toque** y el botón de Aceptar es un `<a href="cronchyprinter://…">`, así que
-la impresión sale como **acción por defecto del clic real** —el caso más fuerte que admite
-Chrome, y ocurre antes de que ningún script consuma nada— y el manejador solo tiene que pedir el
-`window.open` del WhatsApp.
+O sea que el problema no es el orden ni la técnica: **son dos salidas y una activación**. El gesto
+entero se lo queda el WhatsApp, que es el que tiene tres saltos y el único que se rompe sin él. La
+impresión funciona precisamente porque va sola.
 
-Quién precarga cambia según la pantalla, y no por gusto: en el **tablero** un efecto llama a
-`prepararImpresion` solo en las tarjetas que se pueden aceptar (meterlo en la consulta engordaría
-la respuesta del polling cada 15 s con un ticket por tarjeta); en el **detalle** viaja como prop
-desde el server component, que ya cargó el pedido entero. Quién imprime lo decide `imprimeComanda`
-en `estados.ts`, y vive ahí justamente porque **lo preguntan los dos lados** — el servidor para
-armar el ticket y el navegador para precargarlo. Escrito dos veces, el día que cambie el recorrido
-el síntoma vuelve a ser que no sale el papel.
+**No lo reintentes.** Si algún día se quiere el toque único de verdad, lo que hay que cambiar es el
+transporte —la Cloud API en vez de `wa.me` (regla 10)— para que avisar deje de ser una salida al
+sistema operativo. Mientras el aviso sea un link que abre otra app, esto no tiene arreglo en el
+navegador.
 
-El servidor sigue devolviendo `urlImpresion` aunque el enlace ya haya impreso: es la red para
-cuando la precarga no llegó o falló, y quien decide usarla es el cliente, que es el único que sabe
-si su enlace disparó. De ahí el `yaImprimio` de `avanzar`.
+Corolario que se cae con esto: `PrintRawActivity` sigue **sin interfaz**, pero ya no por el baile
+de tres aplicaciones — es que una pantalla intermedia para volcar bytes no aporta nada.
 
-**`dispararImpresion` sigue valiendo para lo que es un toque y una salida** —el icono de la
-tarjeta, el modal de tickets— y para nada más.
+**`dispararImpresion` es la única vía de impresión** —el icono de la tarjeta, el modal de tickets,
+los dos botones del detalle— y todas son un toque y una salida.
 
 En el tablero, sin aceptar el icono saca la comanda de una y a partir de ahí abre un modal con los
 dos tickets (`accionesDeTarjeta`, probado). En el detalle están siempre los dos, **también en un

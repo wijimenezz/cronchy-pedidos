@@ -70,7 +70,11 @@ export function problemaDeAvisos(
   push: ResultadoPush | null,
 ): string | null {
   if (!notificaSistema || push === "sin-permiso") {
-    return "Solo va a sonar. Para que además te avise estando en otra aplicación, permite las notificaciones de este sitio en el candado de la barra de direcciones.";
+    // **No se nombra el candado de la barra de direcciones**, que es lo que decía antes: instalado
+    // como app no hay barra ni candado, y esa era justo la tablet del mostrador — el aparato donde
+    // más importa que suene recibía la única instrucción imposible de seguir. La frase de ahora
+    // vale en los dos sitios sin tener que detectar en cuál estamos.
+    return "Solo va a sonar. Para que además te avise estando en otra aplicación, hay que permitir las notificaciones: en la app instalada, desde los ajustes de notificaciones del teléfono; en el navegador, desde el candado de la barra de direcciones.";
   }
 
   switch (push) {
