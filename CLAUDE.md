@@ -548,10 +548,20 @@ Cuatro cosas que no se cambian:
 - **La web nunca sabrá si el papel salió.** En cuanto se entrega la URL el control se va a otra
   app y no vuelve, igual que con `wa.me`. El acuse lo da el `Toast` del APK. No inventes una
   confirmación en pantalla.
-- **La comanda no lleva precios ni dirección; el recibo sí lleva el desglose.** Son dos lectores:
-  quien prepara y quien paga. La dirección la necesita el domiciliario y le llega por WhatsApp
-  (regla 18) — misma doctrina que el payload del push: lo que no hace falta en un papel que se
-  queda en el mostrador, no se imprime.
+- **La comanda no lleva precios ni dirección; el recibo lleva las dos cosas.** Son dos lectores:
+  quien prepara y quien paga. En la comanda la dirección sobra —ese papel se queda grapado a la
+  bolsa, y quien reparte la recibe por WhatsApp (regla 18)—, misma doctrina que el payload del
+  push: lo que no hace falta en un papel que se queda en el mostrador, no se imprime. En el recibo
+  sí va, bajo el nombre del cliente y **solo en domicilio**, porque es el comprobante que se
+  entrega con el pedido. Ojo al leer `recibo.ts`: ahí conviven `local.direccion` (la del negocio,
+  en el encabezado) y `pedido.direccion` (la de entrega), igual que `barrio` y `zona_nombre` en el
+  panel.
+- **La negrita del papel son DOS comandos, `ESC E` y `ESC G`.** No es redundancia: cuál de los dos
+  obedece una térmica depende del fabricante, el mismo problema que resuelve fijar la página de
+  códigos. Con `ESC E` solo, el nombre del producto salía indistinguible del resto de la comanda.
+  Y en la comanda va marcado **todo el bloque de lo que hay que preparar** —título, incluidos,
+  extras y notas—, con el encabezado y el conteo del pie en texto normal; lo que distingue un
+  extra cobrado de un incluido es el `+`, nunca la negrita.
 
 El desglose del recibo es **el mismo que el de `bloqueRecibo`** en `plantillas.ts`, hasta en qué
 líneas se callan (regla 20: productos, descuento, subtotal, domicilio, total). Que el papel y el

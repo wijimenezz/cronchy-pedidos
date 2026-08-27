@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { comanda, type PedidoParaComanda } from "./comanda";
-import { columnasDelTicket, lineasDelTicket, textoDelTicket } from "./pruebas/decodificar";
+import {
+  columnasDelTicket,
+  lineasDelTicket,
+  negritasDelTicket,
+  textoDelTicket,
+} from "./pruebas/decodificar";
 import type { ItemSnapshot, ModificadorSnapshot } from "@/lib/notificaciones/plantillas";
 
 /** 3:45 pm en Bogotá. Todos los tests miran el reloj desde aquí. */
@@ -33,6 +38,7 @@ function pedido(parcial: Partial<PedidoParaComanda> = {}): PedidoParaComanda {
 const texto = (p: PedidoParaComanda) => textoDelTicket(comanda(p, AHORA));
 const lineas = (p: PedidoParaComanda) => lineasDelTicket(comanda(p, AHORA));
 const columnas = (p: PedidoParaComanda) => columnasDelTicket(comanda(p, AHORA));
+const negritas = (p: PedidoParaComanda) => negritasDelTicket(comanda(p, AHORA));
 
 describe("comanda", () => {
   it("el número del pedido es lo primero que se lee", () => {
@@ -112,6 +118,40 @@ describe("comanda", () => {
     expect(t).toContain("Salsa: Arequipe");
     expect(t).toContain("+ Nutella x2");
     expect(t).not.toContain("Salsas: Nutella");
+  });
+
+  // Lo que se lee agachado sobre la freidora va marcado ENTERO: título, incluidos, extras y
+  // notas. Antes los incluidos salían en texto normal y el nombre del producto no se distinguía
+  // del encabezado.
+  it("todo el bloque de lo que hay que preparar va en negrita", () => {
+    const marcadas = negritas(
+      pedido({
+        items: [
+          item({
+            nombre: "Minichurros",
+            notas: "sin azúcar",
+            modificadores: [
+              mod({ grupo: "Salsa incluida", nombre: "Arequipe" }),
+              mod({ grupo: "Agregar más salsas", nombre: "Nutella", cantidad: 2, precio: 2000 }),
+            ],
+          }),
+        ],
+      }),
+    );
+
+    expect(marcadas).toContain("1x Minichurros");
+    expect(marcadas).toContain("Salsa: Arequipe");
+    expect(marcadas).toContain("+ Nutella x2");
+    expect(marcadas).toContain(">> SIN AZUCAR");
+  });
+
+  // Si se marcara todo, la negrita dejaría de decir nada: el criterio es "lo que hay que
+  // preparar", no "lo importante".
+  it("el contexto —la hora y el conteo del pie— se queda en texto normal", () => {
+    const marcadas = negritas(pedido());
+
+    expect(marcadas.some((l) => l.includes("3:45 pm"))).toBe(false);
+    expect(marcadas.some((l) => l.includes("para preparar"))).toBe(false);
   });
 
   // La comanda es para preparar, no para cobrar: una cifra aquí solo puede confundir.
