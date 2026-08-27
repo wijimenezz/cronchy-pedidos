@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import Image from "next/image";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import type { FotoConFoco } from "@/lib/imagenes";
 
 /**
  * Las fotos de un producto en la ficha, con puntos y flechas para pasarlas.
@@ -18,12 +19,12 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
  * scroll.
  */
 export function CarruselFotos({
-  imagenes,
+  fotos: recibidas,
   nombre,
   className = "",
   conFlechas = false,
 }: {
-  imagenes: string[];
+  fotos: FotoConFoco[];
   nombre: string;
   /**
    * Posición y tamaño de la caja de fotos: lo pone cada layout, que son muy distintos.
@@ -42,7 +43,7 @@ export function CarruselFotos({
   const [indice, setIndice] = useState(0);
 
   // Sin fotos se pinta un solo hueco con el marcador de marca, y entonces no hay nada que pasar.
-  const fotos = imagenes.length > 0 ? imagenes : [null];
+  const fotos: (FotoConFoco | null)[] = recibidas.length > 0 ? recibidas : [null];
   const hayVarias = fotos.length > 1;
 
   function alDesplazar() {
@@ -81,11 +82,15 @@ export function CarruselFotos({
 
                  En móvil sí es el ancho: la caja ocupa la columna entera (`100vw`, capada a 520). */
               <Image
-                src={foto}
+                src={foto.url}
                 alt={i === 0 ? nombre : `${nombre} — foto ${i + 1}`}
                 fill
                 sizes="(min-width: 1024px) 760px, 100vw"
                 quality={82}
+                /* Las dos cajas de la ficha recortan y por lados distintos —la del teléfono es
+                   apaisada y la de escritorio vertical—, así que el encuadre elegido en el panel
+                   sirve para las dos sin tener que decidir por pantalla. */
+                style={{ objectPosition: foto.foco }}
                 className="object-cover"
               />
             ) : (
@@ -112,17 +117,17 @@ export function CarruselFotos({
         </>
       )}
 
-      {/* **En el teléfono estos puntos se ven pero NO se pueden tocar, y no es un descuido.** El
-          panel de información de la ficha es un hermano posterior (`absolute inset-0`) cuyos
-          primeros 288 px son un espaciador transparente: pinta y captura toques por encima de
-          esta caja. De ahí salen las tres cosas a la vez — se ven en reposo a través del
-          espaciador, el panel los tapa al subir la información (que es lo que se quiere), y el
-          toque lo recibe el espaciador.
+      {/* **Estos puntos dependen de que la ficha NO les robe el gesto**, y aquí llegó a estar
+          escrito que en el teléfono eran solo un indicador porque el panel de información —un
+          hermano posterior en absoluto— capturaba el toque con su espaciador transparente. Era
+          cierto, y era peor de lo que decía: ese mismo espaciador se comía también el deslizar,
+          así que el carrusel no funcionaba de ninguna de las dos formas y solo se veía la
+          portada. Se arregla con `pointer-events-none` en el espaciador, del lado de la ficha.
 
-          Subirlos con `z-20`, como el botón de cerrar, los haría tocables **y** los dejaría
-          flotando sobre el texto al hacer scroll, que es peor. En móvil el gesto es deslizar, así
-          que aquí son un indicador y con eso basta; en escritorio no hay panel encima y sí se
-          clican. Con teclado funcionan en los dos sitios. */}
+          Lo que sigue valiendo de aquella nota es la advertencia: **no los subas con `z-20`**
+          como el botón de cerrar. Los haría tocables por su cuenta, sí, pero también los dejaría
+          flotando sobre el texto al subir la información. Que el panel los tape al scrollear es
+          lo que se quiere. */}
       {hayVarias && (
         <div className="absolute inset-x-0 bottom-3 flex justify-center gap-1.5">
           {fotos.map((_, i) => (

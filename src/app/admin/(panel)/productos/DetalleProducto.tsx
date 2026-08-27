@@ -142,7 +142,7 @@ function Pestaña({
 function SoloLectura({ producto }: { producto: ProductoDelPanel }) {
   return (
     <div className="flex flex-col gap-3">
-      <SubidaFotos productId={producto.id} fotos={producto.imagenes} soloLectura />
+      <SubidaFotos productId={producto.id} fotos={producto.fotos} soloLectura />
       <p className="font-cuerpo text-[15px] text-cafe">
         {producto.descripcion || "Sin descripción."}
       </p>
@@ -195,7 +195,7 @@ function Basicos({
 
   return (
     <div className="flex min-h-0 flex-col gap-4 overflow-y-auto lg:max-h-[calc(100vh-20rem)]">
-      <SubidaFotos productId={producto.id} fotos={producto.imagenes} />
+      <SubidaFotos productId={producto.id} fotos={producto.fotos} />
 
       <Campo etiqueta="Nombre" requerido>
         {(props) => (

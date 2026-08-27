@@ -904,8 +904,28 @@ pedidos*, no a cómo llegó, así que solo cambia quién llama a `setPedidos`.
 El aviso son dos disparadores: suena al aparecer un id que no estaba, y **insiste cada 30 s**
 mientras quede algo sin aceptar, así que el silencio significa que alguien lo tiene. No suena al
 abrir el panel por lo que ya estaba —la lista de vistos se siembra con lo que llega del
-servidor— y el audio necesita **un gesto del usuario** antes de poder sonar: de ahí el botón de
-"Activar sonido", que no es un adorno sino el requisito del navegador.
+servidor.
+
+**El gesto del usuario dejó de ser obligatorio, y eso lo trajo instalar el panel.** Aquí decía que
+el audio necesita un gesto «antes de poder sonar» y que el botón era «el requisito del navegador».
+Vale **en una pestaña**; instalado no: Chrome exime del autoplay a las PWA instaladas, igual que al
+sitio con el que ya se interactuó. Así que el efecto de montaje **intenta armar primero** y solo
+cae a esperar un toque (`reanudarAlPrimerToque`) si no lo consigue — que es lo que hace que en la
+tablet el aviso quede encendido solo, sin tocar nada, después de una recarga o de que Android
+descargue la app.
+
+Lo que decide es `sonidoListo()`, o sea si el `AudioContext` **arrancó de verdad**, y no
+`display-mode: standalone`: mirar el modo sería adivinar la causa en vez de medir el efecto, y
+dejaría fuera los demás casos en que Chrome lo permite. El botón sigue existiendo, pero ahora su
+trabajo principal es **apagarlo**.
+
+**Y la alarma propia solo suena con la página viva.** Con el empleado en otra aplicación —AppSheet,
+el navegador— quien avisa es la notificación del sistema con el tono de Android, no los 3100 Hz que
+se diseñaron para oírse sobre la freidora. **No tiene arreglo por código**: un service worker puede
+mostrar notificaciones, pero no reproducir audio. Por eso `sw.js` pide `vibrate` —lo único de ese
+canal que la web controla, y aun así una petición que los ajustes del teléfono pueden ignorar—, y
+lo demás (importancia del canal, sonido propio, quitar la app del ahorro de batería) se ajusta en
+Android y no aquí.
 
 **El volumen del aviso no sale de la ganancia, y por eso está escrito.** El pitido original —dos
 notas triangulares a 880 y 1320 Hz con la ganancia en `0.35`— no se oía en la tablet del mostrador,

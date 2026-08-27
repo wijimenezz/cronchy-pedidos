@@ -126,6 +126,87 @@ export function rutaFotoProducto(productId: string, tipo: TipoImagen): string {
   return `${productId}/${crypto.randomUUID()}.${EXTENSION[tipo]}`;
 }
 
+// ------------------------------------------------------------
+// El punto de enfoque: qué parte de la foto sobrevive al recorte
+// ------------------------------------------------------------
+
+/**
+ * Las nueve posiciones de una rejilla 3×3, tal cual las come `object-position`.
+ *
+ * **Existen porque no hay un tamaño de foto que valga para las tres cajas.** Todas usan
+ * `object-cover` y cada una tiene su forma: la tarjeta de la carta es cuadrada, la caja de la
+ * ficha en el teléfono es apaisada (~390×288) y la de escritorio es vertical (~403×760). Una foto
+ * 3:4 pierde ~25 %, ~45 % y ~29 % respectivamente, y **por sitios que nadie eligió**. Esto no
+ * evita el recorte —es imposible—: decide qué se queda dentro.
+ *
+ * Nueve valores cerrados y no coordenadas libres a propósito: con `object-cover` sobre estas
+ * cajas solo manda el tercio. En la apaisada decide el vertical y en la vertical el horizontal,
+ * así que un punto continuo daría precisión que ninguna caja puede usar, y a cambio pediría un
+ * editor de verdad en vez de nueve botones.
+ */
+export const FOCOS = [
+  "0% 0%",
+  "50% 0%",
+  "100% 0%",
+  "0% 50%",
+  "50% 50%",
+  "100% 50%",
+  "0% 100%",
+  "50% 100%",
+  "100% 100%",
+] as const;
+
+export type Foco = (typeof FOCOS)[number];
+
+/** El centro, que es lo que hacía el navegador antes de que esto existiera. */
+export const FOCO_CENTRO: Foco = "50% 50%";
+
+export function esFoco(valor: string): valor is Foco {
+  return (FOCOS as readonly string[]).includes(valor);
+}
+
+/**
+ * El foco de la foto `i`, o el centro.
+ *
+ * **`focos` puede ser más corta que `imagenes`, y eso es el modelo, no un descuido.** La columna
+ * nace vacía y nadie rellenó las fotos que ya estaban: un hueco significa "nunca se eligió", que
+ * es exactamente el centro. Así no hace falta migrar datos hacia atrás ni mantener las dos
+ * columnas del mismo largo en cada escritura.
+ *
+ * Valida además lo que sale de la base: si alguien escribió una cadena rara por SQL a mano, cae
+ * al centro en vez de colarse en un atributo `style`.
+ */
+export function focoDeFoto(focos: string[] | undefined, i: number): Foco {
+  const valor = focos?.[i];
+  return valor && esFoco(valor) ? valor : FOCO_CENTRO;
+}
+
+/**
+ * Empareja cada foto con su encuadre y descarta los huecos.
+ *
+ * **Existe para que filtrar no descoloque los focos.** Las consultas hacían
+ * `imagenes.filter(Boolean)` por las filas viejas que guardaban `{""}` (las saneó la migración
+ * 0011, y el filtro se quedó de red). Ese filtro corre los índices, así que aplicado a una sola de
+ * las dos columnas dejaría cada encuadre en la foto del vecino — un bug silencioso y difícil de
+ * mirar, porque la foto se ve bien, solo que recortada por donde no era.
+ *
+ * Emparejando primero, el hueco se lleva su foco con él.
+ */
+/**
+ * Una foto y por dónde se recorta. Viaja junta desde la consulta hasta el `<Image>` justamente
+ * para que nadie tenga que volver a alinear dos arrays por índice.
+ */
+export type FotoConFoco = { url: string; foco: Foco };
+
+export function fotosConFoco(
+  imagenes: string[],
+  focos: string[] | undefined,
+): FotoConFoco[] {
+  return imagenes
+    .map((url, i) => ({ url, foco: focoDeFoto(focos, i) }))
+    .filter((foto) => Boolean(foto.url));
+}
+
 /** Los banners de categoría van al mismo bucket, en su propia carpeta. */
 export function rutaBannerCategoria(categoryId: string, tipo: TipoImagen): string {
   return `categorias/${categoryId}/${crypto.randomUUID()}.${EXTENSION[tipo]}`;

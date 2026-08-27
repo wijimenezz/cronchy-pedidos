@@ -22,6 +22,7 @@ import {
   reanudarAlPrimerToque,
   silenciar,
   sonarAviso,
+  sonidoListo,
 } from "./sonido";
 import {
   avisarPedidosNuevos,
@@ -265,15 +266,73 @@ export function ListaPedidos({
     };
   }, [sinAceptar.length]);
 
-  // Devuelve el sonido al recargar sin obligar a tocar el botón cada mañana: el navegador
-  // exige un gesto, pero cualquiera sirve y el empleado va a tocar algo igualmente.
+  /**
+   * Devuelve el sonido al recargar, y **con la PWA instalada ni siquiera hace falta tocar nada**.
+   *
+   * Aquí se daba por hecho que el navegador exige un gesto siempre, así que se esperaba al primer
+   * toque. Con el panel instalado eso dejó de ser cierto: Chrome exime del autoplay a las PWA
+   * instaladas, igual que al sitio con el que ya se interactuó. Así que primero se intenta, y el
+   * toque queda de red para cuando se abre en una pestaña normal.
+   *
+   * **Se comprueba si el audio ARRANCÓ, no si la app está instalada.** `sonidoListo()` mira el
+   * estado real del contexto; mirar `display-mode: standalone` sería adivinar la causa en vez de
+   * medir el efecto, y dejaría fuera los demás casos en que Chrome lo permite.
+   *
+   * No suena al armarse solo: el pitido de `alternarSonido` existe para que quien pulsa oiga qué
+   * va a oír, y repetirlo en cada carga sería ruido que nadie pidió.
+   */
   useEffect(() => {
     if (!prefiereSonido()) return;
 
-    return reanudarAlPrimerToque(() => {
-      setSonido(true);
-      iniciarMantenerDespierto();
+    let cancelado = false;
+    let quitarEscucha: (() => void) | undefined;
+
+    void desbloquearSonido().then(() => {
+      if (cancelado) return;
+
+      if (sonidoListo()) {
+        setSonido(true);
+        iniciarMantenerDespierto();
+        return;
+      }
+
+      quitarEscucha = reanudarAlPrimerToque(() => {
+        setSonido(true);
+        iniciarMantenerDespierto();
+      });
     });
+
+    return () => {
+      cancelado = true;
+      quitarEscucha?.();
+    };
+  }, []);
+
+  /**
+   * Volver a la app después de un rato en otra: Android suspende la PWA en segundo plano y con
+   * ella el `AudioContext` y el tono testigo, así que al volver hay que levantarlos.
+   *
+   * `sonarAviso` ya reanima el contexto por su cuenta antes de rendirse, pero eso ocurre **cuando
+   * ya entró el pedido**; esto lo deja listo antes, que es lo que hace que el aviso no llegue
+   * tarde. El testigo hay que relanzarlo igual: si el contexto se suspendió, su oscilador murió.
+   *
+   * No toca el polling, que por la regla 19 nunca se pausa: es lo que detecta el pedido.
+   */
+  useEffect(() => {
+    if (!prefiereSonido()) return;
+
+    const alVolver = () => {
+      if (document.visibilityState !== "visible" || sonidoListo()) return;
+
+      void desbloquearSonido().then(() => {
+        if (!sonidoListo()) return;
+        setSonido(true);
+        iniciarMantenerDespierto();
+      });
+    };
+
+    document.addEventListener("visibilitychange", alVolver);
+    return () => document.removeEventListener("visibilitychange", alVolver);
   }, []);
 
   /**

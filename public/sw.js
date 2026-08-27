@@ -20,6 +20,20 @@ const ICONO = "/churro_icon.png";
 const ETIQUETA = "cronchy-pedidos";
 const DESTINO = "/admin/pedidos";
 
+/**
+ * Tres pulsos largos, y es lo ÚNICO de este canal que la web controla.
+ *
+ * Cuando el empleado está en otra aplicación —AppSheet, el navegador— la alarma del panel no
+ * puede sonar: la genera la página con Web Audio y **un service worker no puede reproducir
+ * audio**, solo mostrar notificaciones. Lo que suena entonces es el tono de notificación de
+ * Android, que en una cocina es discreto. La vibración se nota más que el pitido y no depende
+ * de que nadie haya subido el volumen.
+ *
+ * Es una **petición**, no una orden: si el canal de notificaciones de la app tiene la vibración
+ * apagada en los ajustes de Android, el sistema la ignora. Eso se arregla en el teléfono, no aquí.
+ */
+const VIBRACION = [300, 150, 300, 150, 300];
+
 // Tomar el control sin esperar a que se cierren las pestañas viejas: si no, una versión nueva del
 // service worker se queda "waiting" hasta que el empleado cierre el panel, que puede ser nunca.
 self.addEventListener("install", () => self.skipWaiting());
@@ -49,6 +63,7 @@ self.addEventListener("push", (evento) => {
       icon: ICONO,
       badge: ICONO,
       tag: ETIQUETA,
+      vibrate: VIBRACION,
       // Reemplaza a la anterior en vez de apilar, pero vuelve a alertar: cinco pedidos seguidos
       // son cinco avisos, no una torre de cinco notificaciones.
       renotify: true,

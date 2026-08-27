@@ -23,7 +23,7 @@ import {
 import { cambiarDisponibilidadProducto } from "@/db/queries/disponibilidad";
 import { exigirRol } from "@/lib/autorizacion";
 import { planificarEngancles } from "@/lib/catalogo/engancles";
-import { esUrlDeFotoProducto, MAX_FOTOS } from "@/lib/imagenes";
+import { esUrlDeFotoProducto, FOCOS, MAX_FOTOS } from "@/lib/imagenes";
 import { borrarFotoProducto } from "@/lib/storage";
 import { slugify, slugLibre } from "@/lib/texto";
 import { idSchema } from "@/lib/validaciones";
@@ -277,6 +277,7 @@ export async function eliminarProductoDelCatalogo(entrada: {
 export async function guardarFotos(entrada: {
   id: string;
   urls: string[];
+  focos: string[];
 }): Promise<ResultadoCatalogo> {
   const sesion = await exigirRol("admin");
 
@@ -289,13 +290,32 @@ export async function guardarFotos(entrada: {
         // Las URLs vienen del navegador. Sin esta comprobación, la carta pública podría
         // terminar cargando una imagen —o un pixel de rastreo— de un host ajeno.
         .refine((urls) => urls.every(esUrlDeFotoProducto), "Alguna foto no es válida"),
+      /**
+       * El encuadre de cada foto, por índice.
+       *
+       * `z.enum` y no una cadena libre porque esto acaba en un atributo `style` de la carta
+       * pública: aunque React escape el valor, una lista cerrada es lo que garantiza que ahí solo
+       * entra una de las nueve posiciones. Mismo criterio que `esUrlDeFotoProducto` con las URLs.
+       */
+      focos: z.array(z.enum(FOCOS, "Ese encuadre no existe")),
+    })
+    // El foco vive por índice: uno de más describiría una foto que no está. Al revés sí vale —un
+    // hueco es "nunca se eligió" y se lee como el centro—, y es lo que permite no migrar nada.
+    .refine((v) => v.focos.length <= v.urls.length, {
+      path: ["focos"],
+      message: "Hay más encuadres que fotos",
     })
     .safeParse(entrada);
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
   }
 
-  const guardado = await guardarImagenesProducto(sesion.storeId, parsed.data.id, parsed.data.urls);
+  const guardado = await guardarImagenesProducto(
+    sesion.storeId,
+    parsed.data.id,
+    parsed.data.urls,
+    parsed.data.focos,
+  );
   if (!guardado) return { ok: false, error: "Ese producto ya no existe." };
 
   await borrarSobrantes(guardado.previas, parsed.data.urls);
