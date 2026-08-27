@@ -5,6 +5,7 @@ import Image from "next/image";
 import { ImageOff, Plus, Star } from "lucide-react";
 import { BotonOrden } from "@/components/admin/BotonOrden";
 import type { CategoriaPanel } from "@/db/queries/catalogo";
+import type { FotoConFoco } from "@/lib/imagenes";
 import { pesos } from "@/lib/notificaciones/plantillas";
 import { crearProductoNuevo, reordenarProductosDeCategoria } from "./acciones";
 import { PuntoEstado } from "./SelectorEstado";
@@ -99,7 +100,7 @@ export function ColumnaProductos({
                 producto.id === seleccionado ? "bg-crema" : "hover:bg-crema"
               }`}
             >
-              <Miniatura url={producto.imagenes[0]} nombre={producto.nombre} />
+              <Miniatura foto={producto.fotos[0]} nombre={producto.nombre} />
 
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1">
@@ -154,8 +155,8 @@ export function ColumnaProductos({
   );
 }
 
-function Miniatura({ url, nombre }: { url: string | undefined; nombre: string }) {
-  if (!url) {
+function Miniatura({ foto, nombre }: { foto: FotoConFoco | undefined; nombre: string }) {
+  if (!foto) {
     return (
       <span className="flex size-10 shrink-0 items-center justify-center rounded-sm bg-crema text-cafe-tenue">
         <ImageOff className="size-4" />
@@ -169,7 +170,16 @@ function Miniatura({ url, nombre }: { url: string | undefined; nombre: string })
           comprimidas a ~800 px", y esa premisa murió: ahora lo que hay en Storage es un máster
           de 1280 px y ~450 KB. Servirlo tal cual para pintar 40 px hacía que esta lista bajara
           ~13 MB con treinta productos. El optimizador la deja en unos pocos KB. */}
-      <Image src={url} alt={nombre} fill sizes="40px" className="object-cover" />
+      {/* Con el mismo encuadre que verá el cliente: si no, esta lista mentiría sobre cómo
+          quedó recortada la foto. */}
+      <Image
+        src={foto.url}
+        alt={nombre}
+        fill
+        sizes="40px"
+        style={{ objectPosition: foto.foco }}
+        className="object-cover"
+      />
     </span>
   );
 }

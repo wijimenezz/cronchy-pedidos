@@ -430,6 +430,112 @@ describe("calcularItem", () => {
     );
     expect(r).toEqual({ ok: false, error: { tipo: "upsell_sin_producto", modifierOptionId: "op-agua" } });
   });
+
+  // La cantidad sobre un grupo `seleccion` ya está probada arriba; sobre un UPSELL no lo estaba,
+  // y es lo que estrena "¿Deseas agregar más churros?" — los dos upsell que existían (bebida y
+  // helado) llevan `permiteCantidad: false`. El motor lo valida de forma genérica, así que estos
+  // tests no descubren nada nuevo: fijan la mecánica de la que ahora depende la carta.
+  describe("cantidad sobre un upsell", () => {
+    const conCantidad = (overrides = {}) =>
+      producto({
+        engancles: [
+          enganche({
+            id: "pmg-churros",
+            tipo: "upsell",
+            modo: "adicional",
+            nombreGrupo: "¿Deseas agregar más churros?",
+            minSelect: 0,
+            maxSelect: 10,
+            permiteCantidad: true,
+            maxPorOpcion: 5,
+            opciones: [
+              opcion({ id: "op-mini", nombre: "Mini Churros", precioDelta: 4000, productoRef: "prod-mini" }),
+              opcion({ id: "op-loop", nombre: "Churros Loop", precioDelta: 4000, productoRef: "prod-loop" }),
+            ],
+            ...overrides,
+          }),
+        ],
+      });
+
+    const pidiendo = (opciones: { modifierOptionId: string; cantidad: number }[]) =>
+      item({ seleccion: [{ productModifierGroupId: "pmg-churros", opciones }] });
+
+    // Tres porciones son UNA línea de cantidad 3, no tres líneas de a una: así es como el
+    // carrito y la comanda las cuentan.
+    it("tres porciones son un solo item con cantidad 3", () => {
+      const r = calcularItem(conCantidad(), pidiendo([{ modifierOptionId: "op-mini", cantidad: 3 }]));
+
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        expect(r.valor.upsells).toHaveLength(1);
+        expect(r.valor.upsells[0]).toMatchObject({
+          productId: "prod-mini",
+          cantidad: 3,
+          precioUnitario: 4000,
+          subtotal: 12000,
+        });
+      }
+    });
+
+    it("los dos productos a la vez salen como items independientes, cada uno con su cantidad", () => {
+      const r = calcularItem(
+        conCantidad(),
+        pidiendo([
+          { modifierOptionId: "op-mini", cantidad: 2 },
+          { modifierOptionId: "op-loop", cantidad: 1 },
+        ]),
+      );
+
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        expect(r.valor.upsells.map((u) => [u.productId, u.cantidad])).toEqual([
+          ["prod-mini", 2],
+          ["prod-loop", 1],
+        ]);
+        // Y el churro de abajo sigue sin enterarse: un upsell nunca lo encarece (regla 8).
+        expect(r.valor.base.precioUnitario).toBe(5000);
+        expect(r.valor.base.modificadores).toEqual([]);
+      }
+    });
+
+    it("maxPorOpcion corta: seis porciones con el tope en cinco no pasan", () => {
+      const r = calcularItem(conCantidad(), pidiendo([{ modifierOptionId: "op-mini", cantidad: 6 }]));
+
+      expect(r).toEqual({
+        ok: false,
+        error: { tipo: "cantidad_invalida", motivo: "excede_max_por_opcion" },
+      });
+    });
+
+    // `maxSelect` topa la SUMA del grupo, no cada opción por separado. Es lo que impide que
+    // 5 + 5 se cuele estando las dos dentro de `maxPorOpcion`.
+    it("maxSelect topa la suma de las dos opciones, no cada una", () => {
+      const r = calcularItem(
+        conCantidad({ maxSelect: 6 }),
+        pidiendo([
+          { modifierOptionId: "op-mini", cantidad: 5 },
+          { modifierOptionId: "op-loop", cantidad: 5 },
+        ]),
+      );
+
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toMatchObject({ tipo: "seleccion_excedida", recibidas: 10 });
+    });
+
+    // La invariante de la que dependen los dos upsell viejos: sin `permiteCantidad`, pedir dos
+    // es un error y no un silencioso "pues uno".
+    it("sin permiteCantidad, un upsell no acepta más de uno", () => {
+      const r = calcularItem(
+        conCantidad({ permiteCantidad: false, maxPorOpcion: null }),
+        pidiendo([{ modifierOptionId: "op-mini", cantidad: 2 }]),
+      );
+
+      expect(r).toEqual({
+        ok: false,
+        error: { tipo: "cantidad_invalida", motivo: "opcion_sin_permitir_cantidad" },
+      });
+    });
+  });
 });
 
 // Una bebida de upsell llega al servidor como item propio (regla 8) y se valida como

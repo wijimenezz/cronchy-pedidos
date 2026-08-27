@@ -17,7 +17,7 @@ export function ProductCard({ producto }: { producto: ProductoDeMenu }) {
   // Puramente visual: sin persistencia, no es una regla de dominio.
   const [favorito, setFavorito] = useState(false);
   const [fichaAbierta, setFichaAbierta] = useState(false);
-  const foto = producto.imagenes[0];
+  const foto = producto.fotos[0];
   const agotado = !producto.disponible;
 
   /**
@@ -103,11 +103,14 @@ export function ProductCard({ producto }: { producto: ProductoDeMenu }) {
              declaraba 640 px CSS para una tarjeta de 239 y el navegador se traía el archivo
              grande, que ni se nota ni se agradece con datos móviles. */
           <Image
-            src={foto}
+            src={foto.url}
             alt={producto.nombre}
             fill
             sizes="(min-width: 520px) 240px, 50vw"
             quality={82}
+            /* La caja es cuadrada y las fotos del negocio son verticales, así que aquí SIEMPRE
+               se recorta. Lo que elige el admin en el panel es por dónde. */
+            style={{ objectPosition: foto.foco }}
             className={`object-cover ${bloqueado ? "grayscale" : ""}`}
           />
         ) : (

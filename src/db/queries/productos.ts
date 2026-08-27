@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { modifierOption, product, productModifierGroup } from "@/db/schema";
+import { fotosConFoco, type FotoConFoco } from "@/lib/imagenes";
 import type { EngancheParaPrecio, OpcionParaPrecio, ProductoParaPrecio } from "@/lib/precios";
 
 function mapProducto(p: {
@@ -152,7 +153,7 @@ export type ProductoUpsellRef = Omit<ProductoParaPrecio, "engancles"> & {
 
 export type ProductoParaFicha = Omit<ProductoParaPrecio, "engancles"> & {
   descripcion: string | null;
-  imagenes: string[];
+  fotos: FotoConFoco[];
   engancles: EngancheParaFicha[];
   /** Info real de los productos referenciados por opciones de tipo upsell, por id. */
   productosUpsell: Record<string, ProductoUpsellRef>;
@@ -241,6 +242,7 @@ type FilaProductoFicha = {
   descripcion: string | null;
   precioBase: number;
   imagenes: string[];
+  imagenesFoco: string[];
   activo: boolean;
   disponible: boolean;
   disponibleDelivery: boolean;
@@ -261,7 +263,7 @@ function mapProductoParaFicha(
     disponibleDelivery: p.disponibleDelivery,
     disponiblePickup: p.disponiblePickup,
     descripcion: p.descripcion,
-    imagenes: p.imagenes,
+    fotos: fotosConFoco(p.imagenes, p.imagenesFoco),
     productosUpsell,
     engancles: p.productModifierGroups.map(mapEngancheParaFicha),
   };

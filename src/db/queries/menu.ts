@@ -7,6 +7,7 @@ import {
   product,
   productModifierGroup,
 } from "@/db/schema";
+import { fotosConFoco, type FotoConFoco } from "@/lib/imagenes";
 import { esVariante, precioEfectivoOpcion } from "@/lib/precios-calculo";
 
 export type ProductoDeMenu = {
@@ -15,7 +16,7 @@ export type ProductoDeMenu = {
   slug: string;
   descripcion: string | null;
   precioBase: number;
-  imagenes: string[];
+  fotos: FotoConFoco[];
   recomendado: boolean;
   disponible: boolean;
   /**
@@ -155,7 +156,7 @@ export async function obtenerMenu(storeId: string): Promise<CategoriaDeMenu[]> {
       slug: p.slug,
       descripcion: p.descripcion,
       precioBase: p.precioBase,
-      imagenes: p.imagenes,
+      fotos: fotosConFoco(p.imagenes, p.imagenesFoco),
       recomendado: p.recomendado,
       disponible: p.disponible,
       disponibleDelivery: p.disponibleDelivery,

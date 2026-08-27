@@ -151,6 +151,11 @@ export const product = pgTable("product", {
 	// Default `{}` y no `{""}`: un producto sin fotos tiene CERO fotos, no una foto vacía.
 	// El CHECK es el tope de 3 de CLAUDE.md, aplicado también en el servidor.
 	imagenes: text().array().default([]).notNull(),
+	// Qué parte de cada foto sobrevive al recorte (`object-position`), alineada por índice con
+	// `imagenes`. **Puede ser MÁS CORTA que ella, y eso es el modelo**: un hueco significa "nunca
+	// se eligió" y se lee como el centro (`focoDeFoto`), así que las fotos que ya estaban no
+	// necesitaron relleno. El CHECK impide lo único imposible, que sobren focos sin foto.
+	imagenesFoco: text("imagenes_foco").array().default([]).notNull(),
 	recomendado: boolean().default(false).notNull(),
 	activo: boolean().default(true).notNull(),
 	disponible: boolean().default(true).notNull(),
@@ -172,6 +177,7 @@ export const product = pgTable("product", {
 	unique("product_store_id_slug_key").on(table.storeId, table.slug),
 	check("product_precio_base_check", sql`precio_base >= 0`),
 	check("product_imagenes_check", sql`cardinality(imagenes) <= 3`),
+	check("product_imagenes_foco_check", sql`cardinality(imagenes_foco) <= cardinality(imagenes)`),
 ]).enableRLS();
 
 export const modifierGroup = pgTable("modifier_group", {

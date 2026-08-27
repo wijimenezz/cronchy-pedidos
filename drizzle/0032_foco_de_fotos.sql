@@ -1,0 +1,2 @@
+ALTER TABLE "product" ADD COLUMN "imagenes_foco" text[] DEFAULT '{}' NOT NULL;--> statement-breakpoint
+ALTER TABLE "product" ADD CONSTRAINT "product_imagenes_foco_check" CHECK (cardinality(imagenes_foco) <= cardinality(imagenes));
