@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { recibo, type LocalDelRecibo, type PedidoParaRecibo } from "./recibo";
-import { columnasDelTicket, lineasDelTicket, textoDelTicket } from "./pruebas/decodificar";
+import {
+  columnasDelTicket,
+  lineasDelTicket,
+  negritasDelTicket,
+  textoDelTicket,
+} from "./pruebas/decodificar";
 import type { ItemSnapshot, ModificadorSnapshot } from "@/lib/notificaciones/plantillas";
 
 const AHORA = new Date("2026-08-21T20:45:00Z");
@@ -27,6 +32,7 @@ function pedido(parcial: Partial<PedidoParaRecibo> = {}): PedidoParaRecibo {
     tipo: "domicilio",
     creadoEn: AHORA,
     clienteNombre: "Wilson Jiménez",
+    direccion: "Carrera 7 #12-45, apto 302",
     items: [item()],
     subtotal: 19000,
     descuento: 0,
@@ -42,6 +48,7 @@ function pedido(parcial: Partial<PedidoParaRecibo> = {}): PedidoParaRecibo {
 const texto = (p: PedidoParaRecibo, local = LOCAL) => textoDelTicket(recibo(p, local));
 const lineas = (p: PedidoParaRecibo, local = LOCAL) => lineasDelTicket(recibo(p, local));
 const columnas = (p: PedidoParaRecibo, local = LOCAL) => columnasDelTicket(recibo(p, local));
+const negritas = (p: PedidoParaRecibo, local = LOCAL) => negritasDelTicket(recibo(p, local));
 
 describe("recibo", () => {
   it("encabeza con el nombre del local y cómo encontrarlo", () => {
@@ -70,6 +77,37 @@ describe("recibo", () => {
 
     expect(t).toContain("#1042");
     expect(t).toContain("Wilson Jiménez");
+  });
+
+  it("la dirección de entrega va justo debajo del cliente", () => {
+    const t = lineas(pedido());
+    const indice = (etiqueta: string) => t.findIndex((l) => l.startsWith(etiqueta));
+
+    expect(indice("Cliente:")).toBeGreaterThan(-1);
+    expect(indice("Dirección:")).toBe(indice("Cliente:") + 1);
+    expect(t.join("\n")).toContain("Carrera 7 #12-45, apto 302");
+  });
+
+  // Mismo criterio que el barrio de la comanda: en un recoger no hay a dónde llevarlo, y la
+  // dirección del cliente bajo el nombre de quien vino al mostrador solo confunde.
+  it("quien recoge no ve una dirección de entrega", () => {
+    const t = texto(pedido({ tipo: "recoger", costoDomicilio: 0, total: 19000 }));
+
+    expect(t).not.toContain("Dirección");
+    expect(t).not.toContain("Carrera 7");
+  });
+
+  // La del negocio va en el encabezado y la del cliente en el cuerpo: son dos columnas
+  // distintas y aquí conviven, así que un recibo tiene que poder llevar las dos.
+  it("la dirección del local y la del cliente no se pisan", () => {
+    const t = texto(pedido());
+
+    expect(t).toContain("Calle 12 #5-30, Fusagasugá");
+    expect(t).toContain("Carrera 7 #12-45, apto 302");
+  });
+
+  it("un pedido sin dirección guardada no deja el renglón vacío", () => {
+    expect(lineas(pedido({ direccion: null })).some((l) => l.startsWith("Dirección"))).toBe(false);
   });
 
   it("cada ítem lleva cantidad, precio unitario y subtotal de línea", () => {
@@ -185,6 +223,35 @@ describe("recibo", () => {
     expect(String(bytes)).toContain(String([0x1b, 0x45, 0x01]));
   });
 
+  // Un comprobante de pago no es una factura de venta, y el papel tiene que decirlo: es lo que
+  // separa este recibo de un documento tributario.
+  it("declara qué es este papel y qué no", () => {
+    const t = texto(pedido());
+
+    expect(t).toContain("RECIBO DE CAJA");
+    expect(t).toContain("Este documento es un comprobante");
+    expect(t).toContain("de pago y no constituye una factura");
+    expect(t).toContain("de venta.");
+  });
+
+  it("el aviso legal va al final, después de la despedida", () => {
+    const t = lineas(pedido());
+    const indice = (texto: string) => t.findIndex((l) => l.includes(texto));
+
+    expect(indice("churrísima")).toBeLessThan(indice("RECIBO DE CAJA"));
+    expect(indice("RECIBO DE CAJA")).toBeLessThan(indice("de venta."));
+  });
+
+  // En texto normal a propósito: es una advertencia al pie y no puede competir con el TOTAL,
+  // que es lo único que el cliente busca de un vistazo.
+  it("el aviso legal no va en negrita", () => {
+    const marcadas = negritas(pedido());
+
+    expect(marcadas.some((l) => l.startsWith("TOTAL:"))).toBe(true);
+    expect(marcadas.some((l) => l.includes("RECIBO DE CAJA"))).toBe(false);
+    expect(marcadas.some((l) => l.includes("factura"))).toBe(false);
+  });
+
   // El enum sigue diciendo `nequi` porque es historial escrito; el rótulo es de la pantalla.
   it("el método de pago se rotula como lo lee el cliente", () => {
     expect(texto(pedido({ metodoPago: "nequi" }))).toContain("Nequi o Bre-B");
@@ -203,6 +270,8 @@ describe("recibo", () => {
     const t = columnas(
       pedido({
         clienteNombre: "María Fernanda Rodríguez de la Espriella Buenaventura",
+        direccion:
+          "Carrera 15A Bis #128-77 Sur, conjunto Altos del Balmoral, torre 4, apto 1502, portería B",
         items: [
           item({
             nombre: "Cronchy Familiar con todos los toppings y salsas de la carta",

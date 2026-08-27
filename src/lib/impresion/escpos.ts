@@ -266,9 +266,20 @@ const RESET: number[] = [ESC, 0x40];
  */
 const PAGINA_437: number[] = [ESC, 0x74, 0x00];
 
+/**
+ * Negrita: énfasis (`ESC E`) **y** doble golpe (`ESC G`), siempre los dos.
+ *
+ * No es redundancia. Una térmica barata suele implementar bien uno de los dos y hacer poco o nada
+ * con el otro, y cuál sea depende del fabricante — el mismo problema que resuelve `PAGINA_437`, y
+ * la misma respuesta: no adivinar. Con `ESC E` solo, la comanda salía con el nombre del producto
+ * indistinguible del resto del papel, que es justo lo que la cocina tiene que leer de un vistazo.
+ *
+ * Doble golpe es literalmente eso: la impresora pasa el cabezal dos veces por la línea. Sale más
+ * lento, y en un ticket de veinte líneas eso no se nota.
+ */
 const NEGRITA: Record<"on" | "off", number[]> = {
-  on: [ESC, 0x45, 0x01],
-  off: [ESC, 0x45, 0x00],
+  on: [ESC, 0x45, 0x01, ESC, 0x47, 0x01],
+  off: [ESC, 0x45, 0x00, ESC, 0x47, 0x00],
 };
 
 const ALINEAR: Record<"izquierda" | "centro", number[]> = {

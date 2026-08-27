@@ -176,8 +176,17 @@ describe("crearTicket", () => {
   // ticket. Aquí el estilo se cierra en la misma línea que lo abrió.
   it("la negrita se cierra sola al terminar la línea", () => {
     expect(desdeElTexto(crearTicket().linea("a", { negrita: true }))).toEqual([
-      0x1b, 0x45, 0x01, 0x61, 0x0a, 0x1b, 0x45, 0x00,
+      0x1b, 0x45, 0x01, 0x1b, 0x47, 0x01, 0x61, 0x0a, 0x1b, 0x45, 0x00, 0x1b, 0x47, 0x00,
     ]);
+  });
+
+  // Con `ESC E` solo, la comanda salía con el nombre del producto igual que el resto del papel:
+  // cuál de los dos comandos obedece una térmica depende del fabricante, así que van los dos.
+  it("la negrita manda énfasis Y doble golpe, y cierra los dos", () => {
+    const bytes = String(desdeElTexto(crearTicket().linea("a", { negrita: true })));
+
+    expect(bytes).toContain(String([0x1b, 0x45, 0x01, 0x1b, 0x47, 0x01]));
+    expect(bytes).toContain(String([0x1b, 0x45, 0x00, 0x1b, 0x47, 0x00]));
   });
 
   it("el tamaño doble y el centrado también se cierran solos", () => {

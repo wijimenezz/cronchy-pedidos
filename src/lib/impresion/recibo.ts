@@ -41,6 +41,12 @@ export type PedidoParaRecibo = {
   tipo: TipoPedido;
   creadoEn: Date;
   clienteNombre: string;
+  /**
+   * La dirección de entrega del pedido. **No es `local.direccion`**, que es la del negocio: aquí
+   * conviven las dos, igual que `order.barrio` y `order.zona_nombre` en el panel, y confundirlas
+   * sería mandar al cliente a su propia casa a recoger.
+   */
+  direccion?: string | null;
   items: ItemSnapshot[];
   subtotal: number;
   descuento: number;
@@ -63,6 +69,25 @@ const COL_PRODUCTO = 20;
 const COL_CANTIDAD = 5;
 const COL_PRECIO = 11;
 const COL_SUBTOTAL = ANCHO - COL_PRODUCTO - COL_CANTIDAD - COL_PRECIO;
+
+/**
+ * Lo que este papel es y lo que no.
+ *
+ * Va como **datos y no como maquetación**, misma doctrina que `plantillas.ts`: el texto de un
+ * documento que se entrega al cliente cambia sin tocar la función que lo imprime.
+ *
+ * Los saltos de línea son los que se pidieron y no los que decidiría `envolver`, así que se emite
+ * línea a línea con `linea` y no con `envuelto`. Las tres caben en las 48 columnas; si alguna
+ * creciera, el test de ancho lo dice antes que la impresora.
+ *
+ * En texto normal a propósito: es una advertencia legal al pie, no puede competir con el TOTAL.
+ */
+const PIE_LEGAL = [
+  "RECIBO DE CAJA",
+  "Este documento es un comprobante",
+  "de pago y no constituye una factura",
+  "de venta.",
+];
 
 function filaItem(nombre: string, cantidad: string, precio: string, subtotal: string): string {
   return (
@@ -103,7 +128,17 @@ export function recibo(pedido: PedidoParaRecibo, local: LocalDelRecibo): Uint8Ar
     .separador("=")
     .dato("Pedido:", `#${pedido.numero}`)
     .dato("Fecha:", fechaHora(pedido.creadoEn))
-    .dato("Cliente:", pedido.clienteNombre)
+    .dato("Cliente:", pedido.clienteNombre);
+
+  // Solo en domicilio, mismo criterio que el barrio de la comanda: en un recoger no hay a dónde
+  // llevarlo, y una dirección bajo el nombre de quien vino al mostrador solo puede confundir.
+  // `dato` y no `fila`: aquella recorta la izquierda para salvar la derecha, que es lo correcto
+  // con una cifra y desastroso con una dirección de sesenta caracteres.
+  if (pedido.tipo === "domicilio" && pedido.direccion) {
+    ticket.dato("Dirección:", pedido.direccion);
+  }
+
+  ticket
     .separador()
     .linea(filaItem("Producto", "Cant", "Precio", "Subtotal"), { negrita: true })
     .separador();
@@ -163,7 +198,7 @@ export function recibo(pedido: PedidoParaRecibo, local: LocalDelRecibo): Uint8Ar
     ticket.fila("Domicilio:", pesos(pedido.costoDomicilio));
   }
 
-  return ticket
+  ticket
     .fila("TOTAL:", pesos(pedido.total), ANCHO, { negrita: true })
     .separador()
     .dato("Método de Pago:", etiquetaMetodo(pedido.metodoPago))
@@ -171,6 +206,9 @@ export function recibo(pedido: PedidoParaRecibo, local: LocalDelRecibo): Uint8Ar
     .separador("=")
     .linea("¡Gracias por tu compra!", { centrado: true })
     .linea("Sonríe, que la vida es churrísima", { centrado: true })
-    .cortar()
-    .bytes();
+    .linea();
+
+  for (const renglon of PIE_LEGAL) ticket.linea(renglon, { centrado: true });
+
+  return ticket.cortar().bytes();
 }
