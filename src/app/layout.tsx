@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+import { metadatosCompartidos } from "@/lib/metadatos";
 import "./globals.css";
 
 /**
@@ -43,7 +44,12 @@ const nunito = localFont({
   display: "swap",
 });
 
+/**
+ * El título y la descripción son los de la carta; lo demás —la tarjeta de WhatsApp— vive en
+ * `metadatos.ts` y lo heredan todas las rutas, incluidas las dos de token que viajan por chat.
+ */
 export const metadata: Metadata = {
+  ...metadatosCompartidos,
   title: "Cronchy - Churros y Helados",
   description: "Pide tus churros y helados favoritos en línea. Sonríe, que la vida es churrísima.",
 };

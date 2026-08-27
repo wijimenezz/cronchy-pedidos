@@ -1,11 +1,15 @@
 /**
  * La URL pública de la app.
  *
- * Tiene **un solo consumidor**: el link de seguimiento que viaja en el WhatsApp al cliente
- * (`tiendaParaMensaje`). Eso decide todo lo demás — el destinatario es el teléfono de alguien que
- * está en la calle esperando sus churros, así que **`localhost` nunca es un valor correcto aquí,
- * ni siquiera en desarrollo**. Un link que solo abre en la máquina de quien programa es un link
- * muerto para la única persona que lo va a tocar.
+ * Quien manda es el link de seguimiento que viaja en el WhatsApp al cliente (`tiendaParaMensaje`).
+ * Eso decide todo lo demás — el destinatario es el teléfono de alguien que está en la calle
+ * esperando sus churros, así que **`localhost` nunca es un valor correcto aquí, ni siquiera en
+ * desarrollo**. Un link que solo abre en la máquina de quien programa es un link muerto para la
+ * única persona que lo va a tocar.
+ *
+ * El segundo consumidor es el `metadataBase` de `metadatos.ts`, y sale de aquí a propósito: es la
+ * misma pregunta —cuál es la URL pública de esto— y así la tarjeta de WhatsApp no puede acabar
+ * apuntando a un sitio distinto del link que la abre.
  *
  * Orden: la variable explícita manda; si no, las que Vercel inyecta sola; y de último el entorno
  * de desarrollo, que es un último recurso y no una opción válida.
