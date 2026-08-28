@@ -90,7 +90,16 @@ function grupo(overrides: Partial<EngancheParaPrecio> = {}): EngancheParaPrecio 
     avisarIncompleto: false,
     permiteCantidad: false,
     maxPorOpcion: null,
-    opciones: [{ id: "op-1", nombre: "Oreo", precioDelta: 0, disponible: true, productoRef: null }],
+    opciones: [
+      {
+        id: "op-1",
+        nombre: "Oreo",
+        precioDelta: 0,
+        disponible: true,
+        productoRef: null,
+        precioProductoRef: null,
+      },
+    ],
     ...overrides,
   };
 }

@@ -206,6 +206,51 @@ describe("avisoCambioEstado y el consentimiento", () => {
     }
   });
 
+  // El aviso de aceptación lleva el detalle del pedido, así que crece con el carrito, y el
+  // transporte de hoy mete el texto entero dentro de una URL. Un carrito grande llegó a armar
+  // links de 3.652 caracteres, muy por encima de los 1.800 que el proyecto se fijó.
+  it("un pedido grande no arma un link imposible: se cae el detalle, no el link", async () => {
+    process.env.NEXT_PUBLIC_BASE_URL = "https://cronchy.co";
+
+    const muchos = Array.from({ length: 10 }, (_, i) => ({
+      nombre: `Cronchy Familiar con todos los toppings ${i + 1}`,
+      cantidad: 1,
+      subtotal: 35000,
+      modificadores: [
+        { grupo: "Salsas incluidas", nombre: "Chocolate blanco belga", cantidad: 1, precio: 0 },
+        { grupo: "Agregar más salsas", nombre: "Nutella", cantidad: 2, precio: 2000 },
+      ],
+    }));
+
+    const r = await avisoCambioEstado(
+      "preparando",
+      { ...pedidoPublico({ items: muchos, subtotal: 350000, total: 353000 }), aceptaAvisos: true },
+      TIENDA,
+    );
+
+    expect(r?.modo).toBe("link");
+    if (r?.modo === "link") {
+      expect(r.url.length).toBeLessThanOrEqual(1800);
+      // Lo que se va es el detalle. Las cifras y el link de seguimiento se quedan: ahí es donde
+      // el cliente ve el pedido completo.
+      expect(r.texto).not.toContain("*Tu pedido:*");
+      expect(r.texto).toContain("*Total:*");
+      expect(r.texto).toContain("/pedido/");
+    }
+  });
+
+  it("un pedido normal conserva el detalle", async () => {
+    process.env.NEXT_PUBLIC_BASE_URL = "https://cronchy.co";
+
+    const r = await avisoCambioEstado(
+      "preparando",
+      { ...pedidoPublico(), aceptaAvisos: true },
+      TIENDA,
+    );
+
+    if (r?.modo === "link") expect(r.texto).toContain("*Tu pedido:*");
+  });
+
   // El consentimiento no resucita un estado que nunca tuvo mensaje. Son dos preguntas distintas
   // y se responden por separado: si se colapsaran, `entregado` empezaría a avisar.
   it("un estado sin mensaje sigue sin avisar aunque el cliente sí quiera", async () => {

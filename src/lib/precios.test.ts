@@ -63,7 +63,15 @@ function enganche(overrides: Partial<EngancheParaPrecio> = {}): EngancheParaPrec
 }
 
 function opcion(overrides: Partial<OpcionParaPrecio> = {}): OpcionParaPrecio {
-  return { id: "op-1", nombre: "Arequipe", precioDelta: 0, disponible: true, productoRef: null, ...overrides };
+  return {
+    id: "op-1",
+    nombre: "Arequipe",
+    precioDelta: 0,
+    disponible: true,
+    productoRef: null,
+    precioProductoRef: null,
+    ...overrides,
+  };
 }
 
 function item(overrides: Partial<ItemSolicitado> = {}): ItemSolicitado {
@@ -373,6 +381,110 @@ describe("calcularItem", () => {
         },
       ]);
     }
+  });
+
+  // Regla 8: un upsell se cobra por el `precio_base` de SU producto, no por el `precio_delta`
+  // de la opción. Esto llegó a cobrar de menos con datos reales: los churros de upsell tienen
+  // delta 0 y el producto vale 4.000, así que esta rama los regalaba.
+  it("un upsell se cobra por el precio del producto, no por el delta de la opción", () => {
+    const p = producto({
+      engancles: [
+        enganche({
+          id: "pmg-churros",
+          tipo: "upsell",
+          modo: "adicional",
+          nombreGrupo: "¿Deseas agregar más churros?",
+          maxSelect: 3,
+          permiteCantidad: true,
+          opciones: [
+            opcion({
+              id: "op-mini",
+              nombre: "Mini Churros",
+              precioDelta: 0,
+              productoRef: "prod-mini",
+              precioProductoRef: 4000,
+            }),
+          ],
+        }),
+      ],
+    });
+
+    const r = calcularItem(
+      p,
+      item({
+        cantidad: 1,
+        seleccion: [
+          { productModifierGroupId: "pmg-churros", opciones: [{ modifierOptionId: "op-mini", cantidad: 2 }] },
+        ],
+      }),
+    );
+
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.valor.upsells[0].precioUnitario).toBe(4000);
+      expect(r.valor.upsells[0].subtotal).toBe(8000);
+    }
+  });
+
+  // El `precio_unitario` del enganche manda sobre el delta en los grupos de selección, pero no
+  // puede mandar sobre el precio de un producto: un upsell no es un modificador con recargo.
+  it("ni el precio del enganche ni un modo incluido abaratan un upsell", () => {
+    const p = producto({
+      engancles: [
+        enganche({
+          id: "pmg-churros",
+          tipo: "upsell",
+          modo: "incluido",
+          precioUnitario: 500,
+          maxSelect: 3,
+          opciones: [
+            opcion({ id: "op-mini", precioDelta: 0, productoRef: "prod-mini", precioProductoRef: 4000 }),
+          ],
+        }),
+      ],
+    });
+
+    const r = calcularItem(
+      p,
+      item({
+        seleccion: [
+          { productModifierGroupId: "pmg-churros", opciones: [{ modifierOptionId: "op-mini", cantidad: 1 }] },
+        ],
+      }),
+    );
+
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.valor.upsells[0].precioUnitario).toBe(4000);
+  });
+
+  // El respaldo, para una opción cuyo producto no se resolvió: se cae al delta, que es lo que
+  // hacía antes. Peor que el precio real, pero mejor que cobrar cero.
+  it("sin el precio del producto resuelto, cae al delta de la opción", () => {
+    const p = producto({
+      engancles: [
+        enganche({
+          id: "pmg-bebida",
+          tipo: "upsell",
+          modo: "adicional",
+          maxSelect: 3,
+          opciones: [
+            opcion({ id: "op-agua", precioDelta: 1500, productoRef: "prod-agua", precioProductoRef: null }),
+          ],
+        }),
+      ],
+    });
+
+    const r = calcularItem(
+      p,
+      item({
+        seleccion: [
+          { productModifierGroupId: "pmg-bebida", opciones: [{ modifierOptionId: "op-agua", cantidad: 1 }] },
+        ],
+      }),
+    );
+
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.valor.upsells[0].precioUnitario).toBe(1500);
   });
 
   it("varias opciones de un grupo upsell producen varios items independientes", () => {

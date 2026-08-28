@@ -603,6 +603,15 @@ function lineasDelLocal(local: Local): string[] {
  * panel, porque enviar de verdad en automático exigiría la Cloud API con un número dedicado
  * y el del negocio se usa con proveedores (regla 10).
  */
+/**
+ * Lo que se puede recortar cuando el mensaje no cabe.
+ *
+ * `sinDetalle` quita la lista de productos del aviso de aceptación. Es lo único que crece con el
+ * pedido —lo demás son líneas fijas—, así que es lo único que sirve recortar. El cliente no se
+ * queda sin el detalle: el mismo mensaje lleva el link de seguimiento, que lo muestra entero.
+ */
+export type OpcionesCambioEstado = { sinDetalle?: boolean };
+
 export function cambioEstado(
   estado: EstadoPedido,
   pedido: PedidoParaMensaje,
@@ -610,6 +619,7 @@ export function cambioEstado(
   estimado: EstimadoEntrega,
   recogida: Local,
   ahora: Date = new Date(),
+  opciones: OpcionesCambioEstado = {},
 ): string | null {
   const titulo = TEXTO_ESTADO[estado]?.(tienda.nombre);
   if (!titulo) return null;
@@ -637,19 +647,23 @@ export function cambioEstado(
         ? `*Fecha de entrega:* ${fechaLarga(pedido.horaEntregaEstimada)}`
         : null,
 
+      SEP,
+      `*Cliente:* ${pedido.clienteNombre}`,
+      `*Teléfono:* ${pedido.clienteTelefono}`,
+
       "",
 
-      "*Tu pedido:*",
-      bloqueItems(pedido),
+      // El detalle completo, que es lo que hace largo a este mensaje. Cuando no cabe en la URL
+      // de `wa.me`, quien lo manda vuelve a pedirlo con `sinDetalle` — ver `avisoCambioEstado`.
+      ...(opciones.sinDetalle ? [] : ["*Tu pedido:*", bloqueItems(pedido)]),
 
       SEP,
 
+      // El total va DENTRO del desglose y no repetido debajo. Estuvo en los dos sitios, y con
+      // un cupón de por medio las dos cifras se leían como si una corrigiera a la otra.
+      // `bloqueRecibo` lo cierra porque ahí es su resultado: productos − descuento + domicilio.
       "💰 *Resumen de pago*",
       ...bloqueRecibo(pedido),
-
-      "",
-
-      `💵 *Total: ${pesos(pedido.total)}*`,
 
       SEP,
 
