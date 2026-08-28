@@ -155,6 +155,67 @@ function resumen(lista: ListaDelPanel): string {
   return `${opciones} · en ${lista.usadaEn} ${lista.usadaEn === 1 ? "producto" : "productos"}`;
 }
 
+type TipoLista = "seleccion" | "upsell";
+
+/**
+ * Qué clase de lista se está creando, en el idioma del negocio (regla 15): ni "grupo" ni
+ * "upsell" aparecen en pantalla.
+ *
+ * **Se pregunta al crear porque después no se puede cambiar**: las opciones de una son texto y
+ * las de la otra son punteros a productos, así que convertir una en otra dejaría filas que no
+ * significan nada. Por eso cada opción dice qué va a poder escribirse dentro.
+ *
+ * Radios y no un desplegable: son dos, y la diferencia hay que leerla entera antes de elegir.
+ */
+function ElegirTipo({
+  valor,
+  onChange,
+}: {
+  valor: TipoLista;
+  onChange: (valor: TipoLista) => void;
+}) {
+  const opciones: { tipo: TipoLista; titulo: string; detalle: string }[] = [
+    {
+      tipo: "seleccion",
+      titulo: "Opciones escritas",
+      detalle: "Salsas, toppings, sabores. Cada una con su nombre y su precio.",
+    },
+    {
+      tipo: "upsell",
+      titulo: "Productos de la carta",
+      detalle: "Para ofrecer algo más encima del pedido. Llega como una línea aparte, con su precio.",
+    },
+  ];
+
+  return (
+    <fieldset className="flex flex-col gap-1">
+      <legend className="pb-1 font-cuerpo text-[13px] font-bold text-cafe-suave">
+        Qué va a tener dentro
+      </legend>
+      {opciones.map((o) => (
+        <label
+          key={o.tipo}
+          className={`flex cursor-pointer items-start gap-2 rounded-sm border p-2 transition-colors ${
+            valor === o.tipo ? "border-naranja bg-tarjeta" : "border-crema-oscura hover:bg-tarjeta"
+          }`}
+        >
+          <input
+            type="radio"
+            name="tipo-lista"
+            checked={valor === o.tipo}
+            onChange={() => onChange(o.tipo)}
+            className="mt-1 size-4 shrink-0 accent-naranja"
+          />
+          <span className="min-w-0">
+            <span className="block font-cuerpo text-[14px] font-bold text-cafe">{o.titulo}</span>
+            <span className="block font-cuerpo text-[12px] text-cafe-tenue">{o.detalle}</span>
+          </span>
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
 function FormularioNueva({
   onCerrar,
   onCreada,
@@ -164,12 +225,13 @@ function FormularioNueva({
 }) {
   const [pendiente, iniciar] = useTransition();
   const [nombre, setNombre] = useState("");
+  const [tipo, setTipo] = useState<TipoLista>("seleccion");
   const [error, setError] = useState<string | null>(null);
 
   function guardar() {
     setError(null);
     iniciar(async () => {
-      const resultado = await crearListaNueva({ nombre });
+      const resultado = await crearListaNueva({ nombre, tipo });
       if (resultado.ok) {
         onCerrar();
         onCreada(resultado.id);
@@ -185,11 +247,15 @@ function FormularioNueva({
         autoFocus
         value={nombre}
         onChange={(e) => setNombre(e.target.value)}
-        placeholder="Salsas, Toppings, Sabor de helado…"
+        placeholder={
+          tipo === "seleccion" ? "Salsas, Toppings, Sabor de helado…" : "¿Deseas agregar algo más?"
+        }
         aria-label="Nombre de la lista"
         maxLength={80}
         className="min-h-11 w-full rounded-sm border border-crema-oscura bg-tarjeta px-3 font-cuerpo text-[15px] text-cafe placeholder:text-cafe-tenue focus:outline-none focus:ring-2 focus:ring-naranja"
       />
+
+      <ElegirTipo valor={tipo} onChange={setTipo} />
 
       {error && (
         <p role="alert" className="font-cuerpo text-[13px] font-semibold text-error">

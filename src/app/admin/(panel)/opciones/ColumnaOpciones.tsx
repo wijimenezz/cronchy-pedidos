@@ -1,39 +1,52 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Check, Pencil, Plus, X } from "lucide-react";
+import { Check, Pencil, Plus, Trash2, X } from "lucide-react";
 import { BotonOrden } from "@/components/admin/BotonOrden";
 import { Interruptor } from "@/components/admin/Interruptor";
-import type { ListaDelPanel, OpcionDelPanel } from "@/db/queries/opciones";
+import type { ListaDelPanel, OpcionDelPanel, ProductoOfrecible } from "@/db/queries/opciones";
 import { pesos } from "@/lib/notificaciones/plantillas";
 import {
   crearOpcionNueva,
   guardarAyudaDeLista,
   guardarOpcion,
   marcarOpcionDisponible,
+  quitarOpcion,
   reordenarOpcionesDeLista,
 } from "./acciones";
 
 /**
  * La columna derecha: las opciones de la lista elegida, en el orden en que el cliente las ve.
  *
- * Nada se borra (regla 9): un sabor que desaparece rompe la trazabilidad de los pedidos que
- * lo llevaban. Un nombre mal escrito se corrige con el lápiz; una opción que ya no va, se
- * apaga con el switch —y eso último también lo puede hacer el colaborador, que es la
- * operación de media tarde.
+ * **Hay dos clases de lista y el formulario cambia con ellas** (regla 15: aquí no se dice
+ * "grupo" ni "upsell"). En una de opciones escritas —salsas, toppings, sabores— se teclea un
+ * nombre y un precio. En una de productos de la carta se elige el producto, y lo que llega al
+ * pedido es ese producto con su propio precio (regla 8): por eso ahí no hay campo de precio
+ * que rellenar, y el que se ve sale de la Carta.
+ *
+ * Qué se puede quitar también cambia. En una lista de opciones escritas nada se borra
+ * (regla 9): un sabor que desaparece rompe lo que significaba un pedido viejo, así que se
+ * apaga con el switch. En una de productos sí, porque quitarla solo deja de ofrecer algo que
+ * sigue entero en la Carta — el detalle está en `eliminarOpcion`.
+ *
+ * El switch es lo único que también puede tocar el colaborador: es la operación de media
+ * tarde.
  */
 export function ColumnaOpciones({
   lista,
+  productos,
   esAdmin,
   className,
 }: {
   lista: ListaDelPanel | null;
+  productos: ProductoOfrecible[];
   esAdmin: boolean;
   className: string;
 }) {
   const [pendiente, iniciar] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [quitandoId, setQuitandoId] = useState<string | null>(null);
   const [creando, setCreando] = useState(false);
 
   if (!lista) {
@@ -48,11 +61,14 @@ export function ColumnaOpciones({
     );
   }
 
-  // Las listas de tipo upsell (las bebidas que se ofrecen desde un churro) no se editan
-  // aquí: sus opciones no son texto sino productos de la carta (regla 8), y cambiarlas es
-  // cambiar qué producto se ofrece. Se ven para saber qué hay, y se apagan como cualquier
-  // otra, pero se crean y se editan desde la Carta.
-  const editable = esAdmin && lista.tipo === "seleccion";
+  const ofreceProductos = lista.tipo === "upsell";
+  const editable = esAdmin;
+
+  // Un producto ya ofrecido no vuelve a salir en el selector: dos opciones apuntando al mismo
+  // producto le enseñarían la misma bebida dos veces al cliente.
+  const yaOfrecidos = new Set(
+    lista.opciones.map((o) => o.productoRef).filter((id): id is string => id !== null),
+  );
 
   function mover(indice: number, delta: number) {
     if (!lista) return;
@@ -93,10 +109,10 @@ export function ColumnaOpciones({
         )}
       </header>
 
-      {lista.tipo === "upsell" && (
+      {ofreceProductos && (
         <p className="border-b border-crema-oscura px-3 py-2 font-cuerpo text-[13px] text-cafe-tenue">
-          Esta lista ofrece productos de la carta, no opciones escritas. Lo que llega al pedido
-          es el producto mismo, con su precio: se edita en la Carta.
+          Esta lista ofrece productos de la carta, no opciones escritas. Aquí eliges cuáles se
+          ofrecen; lo que llega al pedido es el producto mismo, y su precio se cambia en la Carta.
         </p>
       )}
 
@@ -108,28 +124,58 @@ export function ColumnaOpciones({
         </p>
       )}
 
-      {creando && (
-        <FormularioNueva
-          groupId={lista.id}
-          precioSugerido={precioSugerido(lista.opciones)}
-          onCerrar={() => setCreando(false)}
-        />
-      )}
+      {creando &&
+        (ofreceProductos ? (
+          <FormularioNuevoProducto
+            groupId={lista.id}
+            productos={productos.filter((p) => !yaOfrecidos.has(p.id))}
+            onCerrar={() => setCreando(false)}
+          />
+        ) : (
+          <FormularioNueva
+            groupId={lista.id}
+            precioSugerido={precioSugerido(lista.opciones)}
+            onCerrar={() => setCreando(false)}
+          />
+        ))}
 
       <ol className="min-h-0 flex-1 divide-y divide-crema-oscura overflow-y-auto px-3">
         {lista.opciones.map((opcion, i) => (
           <li key={opcion.id}>
-            {editandoId === opcion.id ? (
-              <FormularioEditar opcion={opcion} onCerrar={() => setEditandoId(null)} />
+            {quitandoId === opcion.id ? (
+              <ConfirmarQuitar
+                opcionId={opcion.id}
+                nombre={nombreVisible(opcion)}
+                onCerrar={() => setQuitandoId(null)}
+              />
+            ) : editandoId === opcion.id ? (
+              ofreceProductos ? (
+                <FormularioCambiarProducto
+                  opcion={opcion}
+                  productos={productos.filter(
+                    (p) => !yaOfrecidos.has(p.id) || p.id === opcion.productoRef,
+                  )}
+                  onCerrar={() => setEditandoId(null)}
+                />
+              ) : (
+                <FormularioEditar opcion={opcion} onCerrar={() => setEditandoId(null)} />
+              )
             ) : (
               <div className="flex items-center gap-1">
                 <div className="min-w-0 flex-1">
                   <Interruptor
                     id={opcion.id}
-                    nombre={etiqueta(opcion)}
+                    nombre={etiqueta(opcion, ofreceProductos)}
                     disponible={opcion.disponible}
                     accion={marcarOpcionDisponible}
                   />
+                  {/* Ofrecer algo que el cliente no puede ver es una trampa silenciosa: la
+                      sección le sale vacía y nadie sabe por qué. */}
+                  {ofreceProductos && opcion.producto && !opcion.producto.activo && (
+                    <p className="pb-1 pl-3 font-cuerpo text-[12px] font-semibold text-error">
+                      Oculto en la Carta: el cliente no lo ve.
+                    </p>
+                  )}
                 </div>
 
                 {editable && (
@@ -137,11 +183,29 @@ export function ColumnaOpciones({
                     <button
                       type="button"
                       onClick={() => setEditandoId(opcion.id)}
-                      aria-label={`Editar ${opcion.nombre}`}
+                      aria-label={
+                        ofreceProductos
+                          ? `Cambiar el producto de ${opcion.nombre}`
+                          : `Editar ${opcion.nombre}`
+                      }
                       className="flex size-9 shrink-0 items-center justify-center rounded-full text-cafe-tenue transition-colors hover:bg-crema hover:text-cafe"
                     >
                       <Pencil className="size-4" />
                     </button>
+
+                    {/* Solo donde quitar es honesto: el producto se queda en la Carta y lo
+                        único que desaparece es que se ofrezca. En una lista de salsas manda la
+                        regla 9 y la salida es el interruptor. */}
+                    {ofreceProductos && (
+                      <button
+                        type="button"
+                        onClick={() => setQuitandoId(opcion.id)}
+                        aria-label={`Quitar ${nombreVisible(opcion)} de la lista`}
+                        className="flex size-9 shrink-0 items-center justify-center rounded-full text-cafe-tenue transition-colors hover:bg-crema hover:text-error"
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
+                    )}
 
                     <span className="flex shrink-0 flex-col">
                       <BotonOrden
@@ -257,7 +321,32 @@ function EditorAyuda({ lista }: { lista: ListaDelPanel }) {
 }
 
 /** El precio solo se escribe si lo hay: un sabor de helado vale $0 y el "$0" sería ruido. */
-function etiqueta(opcion: OpcionDelPanel): string {
+/**
+ * El nombre que se lee en la fila.
+ *
+ * En un upsell manda el del producto y no el guardado en la opción: aquel es el catálogo vivo,
+ * y si alguien renombra el Mini Churros en la Carta, aquí tiene que verse el nombre nuevo. El
+ * `?? opcion.nombre` cubre el hueco de una opción sin producto — que el servidor ya no deja
+ * crear, pero que pudo entrar por SQL antes de que esta pantalla existiera.
+ */
+function nombreVisible(opcion: OpcionDelPanel): string {
+  return opcion.producto?.nombre ?? opcion.nombre;
+}
+
+/**
+ * Nombre y precio de una fila.
+ *
+ * **El precio de un upsell es el `precio_base` de su producto, no su `precioDelta`** (regla 8):
+ * pintar el delta aquí sería decir una cifra que nadie va a cobrar. Es cero en todas, así que
+ * ni siquiera se vería — y esa ausencia se lee como "esto es gratis".
+ */
+function etiqueta(opcion: OpcionDelPanel, ofreceProductos: boolean): string {
+  if (ofreceProductos) {
+    return opcion.producto
+      ? `${opcion.producto.nombre} · ${pesos(opcion.producto.precioBase)}`
+      : `${opcion.nombre} · sin producto`;
+  }
+
   return opcion.precioDelta > 0 ? `${opcion.nombre} · ${pesos(opcion.precioDelta)}` : opcion.nombre;
 }
 
@@ -455,6 +544,276 @@ function FormularioEditar({
           {error}
         </p>
       )}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// Listas que ofrecen productos de la carta (regla 8)
+// ------------------------------------------------------------
+
+/**
+ * El selector de producto. Un `<select>` nativo y no un combo propio ni un arrastre: el panel
+ * se opera en una tablet táctil (regla 15), y ahí el desplegable del sistema es lo que mejor
+ * funciona con el dedo.
+ *
+ * Agrupa por categoría porque es como está ordenada la Carta, así que cada producto se busca
+ * donde se espera. Cada opción lleva su precio al lado: es el que se le va a cobrar al cliente
+ * (regla 8), o sea el dato que decide si vale la pena ofrecerlo.
+ */
+function SelectorProducto({
+  id,
+  productos,
+  valor,
+  onChange,
+}: {
+  id: string;
+  productos: ProductoOfrecible[];
+  valor: string;
+  onChange: (valor: string) => void;
+}) {
+  const categorias = [...new Set(productos.map((p) => p.categoria))];
+
+  return (
+    <select
+      id={id}
+      value={valor}
+      onChange={(e) => onChange(e.target.value)}
+      className="min-h-11 w-full min-w-0 rounded-sm border border-crema-oscura bg-tarjeta px-2 font-cuerpo text-[15px] text-cafe focus:outline-none focus:ring-2 focus:ring-naranja"
+    >
+      <option value="">Elige un producto…</option>
+      {categorias.map((categoria) => (
+        <optgroup key={categoria} label={categoria}>
+          {productos
+            .filter((p) => p.categoria === categoria)
+            .map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nombre} · {pesos(p.precioBase)}
+                {p.activo ? "" : " (oculto)"}
+              </option>
+            ))}
+        </optgroup>
+      ))}
+    </select>
+  );
+}
+
+/** Lo que hay que saber antes de elegir, y que no se deduce del desplegable. */
+const AYUDA_PRODUCTO =
+  "El cliente lo verá con el precio que tenga en la Carta, y llegará al pedido como una línea aparte. Para cambiarle el precio o el nombre, ve a la Carta.";
+
+function FormularioNuevoProducto({
+  groupId,
+  productos,
+  onCerrar,
+}: {
+  groupId: string;
+  productos: ProductoOfrecible[];
+  onCerrar: () => void;
+}) {
+  const [pendiente, iniciar] = useTransition();
+  const [productoRef, setProductoRef] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const sinNadaQueOfrecer = productos.length === 0;
+
+  function guardar() {
+    setError(null);
+    iniciar(async () => {
+      const resultado = await crearOpcionNueva({ groupId, productoRef });
+      // La lista se queda abierta y el selector se vacía: se añaden de dos en dos, y el que
+      // acaba de entrar ya no aparece entre los que quedan por ofrecer.
+      if (resultado.ok) setProductoRef("");
+      else setError(resultado.error);
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-2 border-b border-crema-oscura bg-crema/50 p-3">
+      {sinNadaQueOfrecer ? (
+        <p className="font-cuerpo text-[13px] text-cafe-tenue">
+          Esta lista ya ofrece todos los productos de la Carta. Para ofrecer uno nuevo, créalo
+          primero allá.
+        </p>
+      ) : (
+        <>
+          <label
+            htmlFor={`nuevo-upsell-${groupId}`}
+            className="font-cuerpo text-[13px] font-bold text-cafe-suave"
+          >
+            Qué producto ofrecer
+          </label>
+          <SelectorProducto
+            id={`nuevo-upsell-${groupId}`}
+            productos={productos}
+            valor={productoRef}
+            onChange={setProductoRef}
+          />
+          <p className="font-cuerpo text-[13px] text-cafe-tenue">{AYUDA_PRODUCTO}</p>
+        </>
+      )}
+
+      {error && (
+        <p role="alert" className="font-cuerpo text-[13px] font-semibold text-error">
+          {error}
+        </p>
+      )}
+
+      <div className="flex gap-2">
+        {!sinNadaQueOfrecer && (
+          <button
+            type="button"
+            onClick={guardar}
+            disabled={pendiente || !productoRef}
+            className="min-h-11 flex-1 rounded-full bg-naranja px-4 font-cuerpo text-sm font-bold text-crema transition-colors hover:bg-naranja-osc disabled:opacity-50"
+          >
+            {pendiente ? "Añadiendo…" : "Añadir"}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onCerrar}
+          className="min-h-11 rounded-full border border-crema-oscura px-4 font-cuerpo text-sm font-bold text-cafe-suave transition-colors hover:bg-crema"
+        >
+          Listo
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Cambiar a qué producto apunta una opción ya ofrecida.
+ *
+ * No hay campo de nombre, y no es un olvido: el nombre lo pone el producto y el servidor lo
+ * reescribe al guardar. Editarlo aquí solo serviría para que la fila dijera una cosa y el
+ * pedido otra.
+ */
+function FormularioCambiarProducto({
+  opcion,
+  productos,
+  onCerrar,
+}: {
+  opcion: OpcionDelPanel;
+  productos: ProductoOfrecible[];
+  onCerrar: () => void;
+}) {
+  const [pendiente, iniciar] = useTransition();
+  const [productoRef, setProductoRef] = useState(opcion.productoRef ?? "");
+  const [error, setError] = useState<string | null>(null);
+
+  function guardar() {
+    setError(null);
+    iniciar(async () => {
+      const resultado = await guardarOpcion({ id: opcion.id, productoRef });
+      if (resultado.ok) onCerrar();
+      else setError(resultado.error);
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-2 py-2">
+      <div className="flex items-end gap-2">
+        <div className="min-w-0 flex-1">
+          <SelectorProducto
+            id={`upsell-${opcion.id}`}
+            productos={productos}
+            valor={productoRef}
+            onChange={setProductoRef}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={guardar}
+          disabled={pendiente || !productoRef || productoRef === opcion.productoRef}
+          aria-label="Guardar el producto"
+          className="flex size-11 shrink-0 items-center justify-center rounded-full text-exito transition-colors hover:bg-crema disabled:opacity-40"
+        >
+          <Check className="size-5" />
+        </button>
+        <button
+          type="button"
+          onClick={onCerrar}
+          aria-label="Cancelar"
+          className="flex size-11 shrink-0 items-center justify-center rounded-full text-cafe-tenue transition-colors hover:bg-crema"
+        >
+          <X className="size-5" />
+        </button>
+      </div>
+
+      <p className="font-cuerpo text-[13px] text-cafe-tenue">{AYUDA_PRODUCTO}</p>
+
+      {error && (
+        <p role="alert" className="font-cuerpo text-[13px] font-semibold text-error">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Pregunta antes de quitar, con el mismo panel en línea que "Eliminar producto" de la Carta y
+ * no un `window.confirm`.
+ *
+ * El texto dice sobre todo qué NO pasa, que es la duda real de quien lo pulsa: el producto se
+ * queda en la Carta con todos sus pedidos, y lo único que desaparece es que se ofrezca aquí.
+ */
+function ConfirmarQuitar({
+  opcionId,
+  nombre,
+  onCerrar,
+}: {
+  opcionId: string;
+  nombre: string;
+  onCerrar: () => void;
+}) {
+  const [pendiente, iniciar] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function quitar() {
+    setError(null);
+    iniciar(async () => {
+      const resultado = await quitarOpcion({ id: opcionId });
+      if (resultado.ok) onCerrar();
+      else setError(resultado.error);
+    });
+  }
+
+  return (
+    <div className="my-2 flex flex-col gap-2 rounded-md border border-error/40 bg-error/5 p-3">
+      <p className="font-cuerpo text-[13px] font-bold text-cafe">
+        ¿Dejar de ofrecer «{nombre}»?
+      </p>
+      <p className="font-cuerpo text-[13px] text-cafe-suave">
+        El producto se queda en la Carta con todos sus pedidos; solo deja de aparecer en esta
+        lista. Si es cosa de hoy, mejor apágalo con el interruptor.
+      </p>
+
+      {error && (
+        <p role="alert" className="font-cuerpo text-[13px] font-semibold text-error">
+          {error}
+        </p>
+      )}
+
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={quitar}
+          disabled={pendiente}
+          className="min-h-11 flex-1 rounded-full bg-error px-4 font-cuerpo text-sm font-bold text-crema transition-opacity hover:opacity-90 disabled:opacity-50"
+        >
+          {pendiente ? "Quitando…" : "Sí, quitar"}
+        </button>
+        <button
+          type="button"
+          onClick={onCerrar}
+          disabled={pendiente}
+          className="min-h-11 flex-1 rounded-full border border-crema-oscura px-4 font-cuerpo text-sm font-bold text-cafe transition-colors hover:bg-crema disabled:opacity-50"
+        >
+          No
+        </button>
+      </div>
     </div>
   );
 }

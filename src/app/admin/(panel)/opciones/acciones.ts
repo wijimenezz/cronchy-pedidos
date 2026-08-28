@@ -7,12 +7,16 @@ import {
   cambiarActivaLista,
   crearLista,
   crearOpcion,
+  eliminarOpcion,
   guardarAyudaLista,
   listaDeOpcion,
+  listarProductosParaUpsell,
   nombresDeListas,
   nombresDeOpciones,
+  productosDeLista,
   renombrarLista,
   reordenarOpciones,
+  tipoDeLista,
 } from "@/db/queries/opciones";
 import { cambiarDisponibilidadOpcion } from "@/db/queries/disponibilidad";
 import { exigirRol } from "@/lib/autorizacion";
@@ -54,10 +58,16 @@ const precioSchema = z
 // Listas
 // ------------------------------------------------------------
 
+/**
+ * El tipo se fija al crear y no se cambia después (ver `crearLista`). Por defecto, opciones
+ * escritas: es lo que se crea casi siempre, y una lista de productos es la rareza.
+ */
+const tipoListaSchema = z.enum(["seleccion", "upsell"]).default("seleccion");
+
 export async function crearListaNueva(entrada: unknown): Promise<ResultadoCreacionOpciones> {
   const sesion = await exigirRol("admin");
 
-  const parsed = z.object({ nombre: nombreSchema }).safeParse(entrada);
+  const parsed = z.object({ nombre: nombreSchema, tipo: tipoListaSchema }).safeParse(entrada);
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
   }
@@ -67,7 +77,7 @@ export async function crearListaNueva(entrada: unknown): Promise<ResultadoCreaci
     return { ok: false, error: "Ya existe una lista con ese nombre." };
   }
 
-  const { id } = await crearLista(sesion.storeId, parsed.data.nombre);
+  const { id } = await crearLista(sesion.storeId, parsed.data.nombre, parsed.data.tipo);
 
   revalidar();
   return { ok: true, id };
@@ -149,23 +159,103 @@ export async function archivarLista(entrada: {
 // Opciones
 // ------------------------------------------------------------
 
+/**
+ * Lo que llega del formulario. Los tres campos son opcionales **aquí** porque cuáles hacen
+ * falta lo decide el tipo de la lista, y ese se consulta en la base: una lista de salsas pide
+ * nombre y precio, y una de upsell pide un producto.
+ *
+ * No es un `discriminatedUnion` sobre un campo del cliente a propósito. El navegador diría de
+ * qué tipo es la lista y eso es justo lo que no se le puede creer — es la regla 1 leída sobre
+ * el catálogo: manda **qué** quiere guardar, nunca **si** vale.
+ */
+const camposOpcion = {
+  nombre: nombreSchema.optional(),
+  precioDelta: precioSchema.optional(),
+  productoRef: idSchema.optional(),
+};
+
+/**
+ * Qué escribir en la fila, según el tipo de la lista.
+ *
+ * En una de **upsell** el producto es obligatorio: sin `producto_ref` el checkout no puede
+ * calcular el pedido —`calcularItem` devuelve `upsell_sin_producto`— y el cliente se queda
+ * mirando un error al confirmar.
+ *
+ * El `nombre` se copia del producto, y **el `precioDelta` también: se le escribe el
+ * `precio_base`**. Parece redundante porque un upsell se cobra por el precio del producto
+ * (regla 8) y esa cifra no se muestra en ningún sitio, pero no lo es: si la selección del
+ * upsell llegara dentro de la del producto base en vez de como línea propia,
+ * `calcularItem` la cobra por `precioEfectivoOpcion`, que es este delta. Dejarlo en 0 haría que
+ * ese camino regalara la bebida. Copiar el precio lo deja diciendo la verdad por los dos lados.
+ *
+ * Ojo: esa copia envejece si luego suben el producto en la Carta. No se sincroniza sola —sería
+ * un disparador sobre `product` para una cifra que hoy nadie lee— y no importa mientras el
+ * checkout mande los upsell como líneas propias, que es lo que hace.
+ */
+type DatosDeOpcion = { nombre: string; precioDelta: number; productoRef?: string | null };
+
+async function datosSegunTipo(
+  storeId: string,
+  tipo: "seleccion" | "upsell",
+  campos: { nombre?: string; precioDelta?: number; productoRef?: string },
+  opcionesDeLaLista: { id: string; productoRef: string | null }[],
+  exceptoId?: string,
+): Promise<{ ok: true; datos: DatosDeOpcion } | { ok: false; error: string }> {
+  if (tipo === "seleccion") {
+    if (campos.productoRef) {
+      return { ok: false, error: "Esta lista es de opciones escritas, no de productos." };
+    }
+    if (!campos.nombre) return { ok: false, error: "Ponle un nombre" };
+
+    return { ok: true, datos: { nombre: campos.nombre, precioDelta: campos.precioDelta ?? 0 } };
+  }
+
+  if (!campos.productoRef) return { ok: false, error: "Elige el producto que se va a ofrecer." };
+
+  const yaOfrecido = opcionesDeLaLista.some(
+    (o) => o.id !== exceptoId && o.productoRef === campos.productoRef,
+  );
+  if (yaOfrecido) {
+    return { ok: false, error: "Esa lista ya ofrece ese producto." };
+  }
+
+  const producto = (await listarProductosParaUpsell(storeId)).find(
+    (p) => p.id === campos.productoRef,
+  );
+  if (!producto) return { ok: false, error: "Ese producto ya no existe." };
+
+  return {
+    ok: true,
+    datos: { nombre: producto.nombre, precioDelta: producto.precioBase, productoRef: producto.id },
+  };
+}
+
 export async function crearOpcionNueva(entrada: unknown): Promise<ResultadoCreacionOpciones> {
   const sesion = await exigirRol("admin");
 
-  const parsed = z
-    .object({ groupId: idSchema, nombre: nombreSchema, precioDelta: precioSchema })
-    .safeParse(entrada);
+  const parsed = z.object({ groupId: idSchema, ...camposOpcion }).safeParse(entrada);
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
   }
-  const { groupId, ...datos } = parsed.data;
+  const { groupId, ...campos } = parsed.data;
+
+  const tipo = await tipoDeLista(sesion.storeId, groupId);
+  if (!tipo) return { ok: false, error: "Esa lista ya no existe." };
+
+  const resuelto = await datosSegunTipo(
+    sesion.storeId,
+    tipo,
+    campos,
+    await productosDeLista(sesion.storeId, groupId),
+  );
+  if (!resuelto.ok) return resuelto;
 
   const ocupados = await nombresDeOpciones(sesion.storeId, groupId);
-  if (repetido(datos.nombre, ocupados)) {
+  if (repetido(resuelto.datos.nombre, ocupados)) {
     return { ok: false, error: "Esa lista ya tiene una opción con ese nombre." };
   }
 
-  const creada = await crearOpcion(sesion.storeId, groupId, datos);
+  const creada = await crearOpcion(sesion.storeId, groupId, resuelto.datos);
   if (!creada) return { ok: false, error: "Esa lista ya no existe." };
 
   revalidar();
@@ -175,24 +265,62 @@ export async function crearOpcionNueva(entrada: unknown): Promise<ResultadoCreac
 export async function guardarOpcion(entrada: unknown): Promise<ResultadoOpciones> {
   const sesion = await exigirRol("admin");
 
-  const parsed = z
-    .object({ id: idSchema, nombre: nombreSchema, precioDelta: precioSchema })
-    .safeParse(entrada);
+  const parsed = z.object({ id: idSchema, ...camposOpcion }).safeParse(entrada);
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
   }
-  const { id, ...datos } = parsed.data;
+  const { id, ...campos } = parsed.data;
 
-  const groupId = await listaDeOpcion(sesion.storeId, id);
-  if (!groupId) return { ok: false, error: "Esa opción ya no existe." };
+  const lista = await listaDeOpcion(sesion.storeId, id);
+  if (!lista) return { ok: false, error: "Esa opción ya no existe." };
 
-  const ocupados = await nombresDeOpciones(sesion.storeId, groupId);
-  if (repetido(datos.nombre, ocupados, id)) {
+  const resuelto = await datosSegunTipo(
+    sesion.storeId,
+    lista.tipo,
+    campos,
+    await productosDeLista(sesion.storeId, lista.id),
+    id,
+  );
+  if (!resuelto.ok) return resuelto;
+
+  const ocupados = await nombresDeOpciones(sesion.storeId, lista.id);
+  if (repetido(resuelto.datos.nombre, ocupados, id)) {
     return { ok: false, error: "Esa lista ya tiene otra opción con ese nombre." };
   }
 
-  const guardada = await actualizarOpcion(sesion.storeId, id, datos);
+  const guardada = await actualizarOpcion(sesion.storeId, id, resuelto.datos);
   if (!guardada) return { ok: false, error: "Esa opción ya no existe." };
+
+  revalidar();
+  return { ok: true };
+}
+
+/**
+ * Quitar un producto de una lista de upsell. Borra la fila de verdad.
+ *
+ * **Solo en las listas de upsell, y quien lo corta es esto y no la UI**: en una de salsas la
+ * regla 9 sigue entera, así que el error nombra la salida —apagarla— igual que hace
+ * `eliminarProducto` cuando toca decir "ocúltalo". El porqué de que aquí sí se pueda borrar
+ * está en el docblock de `eliminarOpcion`.
+ */
+export async function quitarOpcion(entrada: { id: string }): Promise<ResultadoOpciones> {
+  const sesion = await exigirRol("admin");
+
+  const parsed = z.object({ id: idSchema }).safeParse(entrada);
+  if (!parsed.success) return { ok: false, error: "Datos inválidos" };
+
+  const lista = await listaDeOpcion(sesion.storeId, parsed.data.id);
+  if (!lista) return { ok: false, error: "Esa opción ya no existe." };
+
+  if (lista.tipo !== "upsell") {
+    return {
+      ok: false,
+      error: "Las opciones de esta lista no se quitan: apágala con el interruptor.",
+    };
+  }
+
+  const quitada = await eliminarOpcion(sesion.storeId, parsed.data.id);
+  if (!quitada) return { ok: false, error: "Esa opción ya no existe." };
 
   revalidar();
   return { ok: true };

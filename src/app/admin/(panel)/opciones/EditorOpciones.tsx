@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
-import type { ListaDelPanel } from "@/db/queries/opciones";
+import type { ListaDelPanel, ProductoOfrecible } from "@/db/queries/opciones";
 import { ColumnaListas } from "./ColumnaListas";
 import { ColumnaOpciones } from "./ColumnaOpciones";
 
@@ -20,9 +20,12 @@ type Paso = "listas" | "opciones";
 
 export function EditorOpciones({
   listas,
+  productos,
   esAdmin,
 }: {
   listas: ListaDelPanel[];
+  /** La carta entera, para el selector de las listas que ofrecen productos (regla 8). */
+  productos: ProductoOfrecible[];
   esAdmin: boolean;
 }) {
   const router = useRouter();
@@ -52,7 +55,7 @@ export function EditorOpciones({
           <h1 className="font-titulo text-xl font-bold text-cafe">Opciones</h1>
           <p className="font-cuerpo text-[13px] text-cafe-tenue">
             {esAdmin
-              ? "Las salsas, los toppings y los sabores que el cliente elige dentro de un producto. Qué producto lleva cuáles se decide en la Carta."
+              ? "Las salsas, los toppings y los sabores que el cliente elige dentro de un producto, y lo que se le ofrece encima. Qué producto lleva cuáles se decide en la Carta."
               : "Puedes apagar lo que se acabó. El resto lo edita un administrador."}
           </p>
         </div>
@@ -82,6 +85,7 @@ export function EditorOpciones({
         <ColumnaOpciones
           key={lista?.id ?? "vacia"}
           lista={lista}
+          productos={productos}
           esAdmin={esAdmin}
           className={paso === "opciones" ? "flex" : "hidden md:flex"}
         />

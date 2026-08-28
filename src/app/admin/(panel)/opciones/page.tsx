@@ -1,5 +1,5 @@
 import { getStore } from "@/db/queries/store";
-import { listarListasDelPanel } from "@/db/queries/opciones";
+import { listarListasDelPanel, listarProductosParaUpsell } from "@/db/queries/opciones";
 import { exigirRol } from "@/lib/autorizacion";
 import { EditorOpciones } from "./EditorOpciones";
 
@@ -20,13 +20,19 @@ export default async function OpcionesPage() {
   const sesion = await exigirRol("colaborador");
   const tienda = await getStore();
 
-  const listas = await listarListasDelPanel(tienda.id);
+  // Los productos alimentan el selector de las listas de upsell. Se traen siempre y no solo
+  // para el admin: son unas decenas de filas de tres columnas, y condicionarlo obligaría a un
+  // estado de carga en una pantalla que hoy no tiene ninguno.
+  const [listas, productos] = await Promise.all([
+    listarListasDelPanel(tienda.id),
+    listarProductosParaUpsell(tienda.id),
+  ]);
 
   // El tope de ancho lo pone cada pantalla desde que el tablero de pedidos necesita el ancho
   // completo; salió de `<main>` en el layout.
   return (
     <div className="mx-auto w-full max-w-contenido">
-      <EditorOpciones listas={listas} esAdmin={sesion.rol === "admin"} />
+      <EditorOpciones listas={listas} productos={productos} esAdmin={sesion.rol === "admin"} />
     </div>
   );
 }
