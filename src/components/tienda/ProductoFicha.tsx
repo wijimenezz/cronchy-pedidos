@@ -1074,7 +1074,7 @@ export function ProductoFicha({
           {/* Sin flechas: aquí se pasa la foto con el dedo, y dos botones sobre una caja de
               288 px taparían justo lo que se está mirando. */}
           <CarruselFotos
-            imagenes={producto.imagenes}
+            fotos={producto.fotos}
             nombre={producto.nombre}
             className="absolute inset-x-0 top-0 h-72"
           />
@@ -1088,7 +1088,16 @@ export function ProductoFicha({
           </button>
 
           <div className="absolute inset-0 overflow-y-auto">
-            <div className="h-72" aria-hidden />
+            {/* **`pointer-events-none` es lo que hace que el carrusel funcione en el teléfono.**
+                Esta capa se pinta ENCIMA de la foto (es hermana posterior y va en absoluto), así
+                que sus primeros 288 px son transparentes pero capturaban el gesto: al deslizar
+                sobre la foto, el dedo lo recibía este contenedor —que solo hace scroll vertical—
+                y las fotos 2 y 3 eran inalcanzables. Los puntos tampoco se podían tocar.
+
+                El precio es que arrastrar en vertical SOBRE LA FOTO ya no sube la información;
+                hay que arrastrar sobre la información. Es como se comporta cualquier galería, y
+                es lo que cuesta que la foto responda al dedo. */}
+            <div className="h-72 pointer-events-none" aria-hidden />
             <div className="relative rounded-t-lg bg-tarjeta px-5 py-4">
               {infoContenido}
             </div>
@@ -1101,7 +1110,7 @@ export function ProductoFicha({
           {/* Con flechas: el ratón no desliza, así que sin ellas las fotos 2 y 3 no se
               alcanzan (haría falta shift+rueda, que no se le ocurre a nadie). */}
           <CarruselFotos
-            imagenes={producto.imagenes}
+            fotos={producto.fotos}
             nombre={producto.nombre}
             className="relative h-full w-[45%] shrink-0"
             conFlechas

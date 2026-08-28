@@ -77,18 +77,26 @@ export function comanda(pedido: PedidoParaComanda, ahora: Date = new Date()): Ui
 
   ticket.separador();
 
+  // De aquí abajo va TODO en negrita —título, incluidos, extras y notas—, y en texto normal se
+  // quedan el encabezado y el conteo del pie. El criterio no es "lo importante", que acabaría
+  // siendo todo, sino **lo que hay que preparar**: es el bloque que se lee agachado sobre la
+  // freidora, y lo demás es contexto.
   for (const item of pedido.items) {
     const { incluidos, extras } = agruparModificadores(item.modificadores);
 
     ticket.envuelto(tituloItem(item), { negrita: true });
 
     for (const grupo of incluidos) {
-      ticket.envuelto(`${grupo.etiqueta}: ${grupo.valores.join(", ")}`, { sangria: 3 });
+      ticket.envuelto(`${grupo.etiqueta}: ${grupo.valores.join(", ")}`, {
+        sangria: 3,
+        negrita: true,
+      });
     }
 
-    // Lo cobrado aparte se marca con un `+` y en negrita: en cocina es lo que se olvida, porque
-    // no viene con el producto. Se separa por PRECIO y no por el nombre del grupo, que el
-    // snapshot no distingue (regla 2).
+    // Lo cobrado aparte se marca con un `+`, que es lo que lo distingue de un incluido: se separa
+    // por PRECIO y no por el nombre del grupo, que el snapshot no distingue (regla 2). La negrita
+    // NO es lo que los separa —va en todo el bloque del ítem—, y por eso el `+` no se puede
+    // quitar por redundante.
     for (const extra of extras) {
       const cantidad = extra.cantidad > 1 ? ` x${extra.cantidad}` : "";
       ticket.envuelto(`+ ${extra.nombre}${cantidad}`, { sangria: 3, negrita: true });

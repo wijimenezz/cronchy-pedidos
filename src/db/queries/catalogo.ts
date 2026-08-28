@@ -9,6 +9,7 @@ import {
   productModifierGroup,
 } from "@/db/schema";
 import type { EngancheActual, PlanEngancles } from "@/lib/catalogo/engancles";
+import { fotosConFoco, type FotoConFoco } from "@/lib/imagenes";
 
 /**
  * El catálogo visto desde el panel: lo que alimenta el CRUD de `/admin/productos`.
@@ -49,7 +50,7 @@ export type ProductoDelPanel = {
   slug: string;
   descripcion: string | null;
   precioBase: number;
-  imagenes: string[];
+  fotos: FotoConFoco[];
   recomendado: boolean;
   activo: boolean;
   disponible: boolean;
@@ -114,7 +115,9 @@ export async function listarCatalogoDelPanel(storeId: string): Promise<Categoria
       precioBase: p.precioBase,
       // El default viejo dejaba `{""}` en las filas sin foto. La migración 0011 las saneó,
       // pero filtrar aquí cuesta nada y evita que un hueco vacío llegue a la rejilla.
-      imagenes: p.imagenes.filter(Boolean),
+      // `fotosConFoco` filtra la pareja entera: filtrar solo las URLs correría los índices y
+      // cada encuadre acabaría aplicado a la foto del vecino.
+      fotos: fotosConFoco(p.imagenes, p.imagenesFoco),
       recomendado: p.recomendado,
       activo: p.activo,
       disponible: p.disponible,
@@ -366,11 +369,17 @@ export async function reordenarProductos(
  * comiéndose el free tier.
  *
  * `null` si el producto no existe, para distinguirlo de "existía y no tenía fotos".
+ *
+ * **Las dos columnas se escriben en el mismo `UPDATE`, y ese es el seguro del modelo.** El foco
+ * va alineado por índice con la URL, así que si se pudieran guardar por separado acabarían
+ * describiendo fotos distintas —reordenar la lista sin mover los focos deja cada encuadre en la
+ * foto del vecino—. Aquí no hay forma de tocar una sin la otra.
  */
 export async function guardarImagenesProducto(
   storeId: string,
   productId: string,
   urls: string[],
+  focos: string[],
 ): Promise<{ previas: string[] } | null> {
   return db.transaction(async (tx) => {
     const [antes] = await tx
@@ -382,7 +391,7 @@ export async function guardarImagenesProducto(
 
     await tx
       .update(product)
-      .set({ imagenes: urls })
+      .set({ imagenes: urls, imagenesFoco: focos })
       .where(and(eq(product.storeId, storeId), eq(product.id, productId)));
 
     return { previas: antes.imagenes.filter(Boolean) };

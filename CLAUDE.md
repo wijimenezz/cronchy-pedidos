@@ -267,6 +267,29 @@ regla 4, imposible de añadir al carrito. Por lo mismo `listarGruposEnganchables
 también las archivadas —es el diccionario con el que el panel resuelve el nombre de cada
 enganche ya guardado— y quien filtra es la UI, solo sobre lo que se puede **añadir**.
 
+**La excepción son las opciones de una lista `upsell`, y por el mismo criterio que
+`eliminarProducto`: esta regla habla de CATÁLOGO.** Una salsa o un sabor son catálogo — al
+borrarlos se pierde lo que significaba un pedido viejo, y por eso se apagan. Una opción de
+upsell no: es un **puntero** a un producto (regla 8), o sea configuración de la oferta, y
+quitarla solo deja de ofrecer algo que sigue entero en la Carta con todos sus pedidos. Es el
+mismo trato que ya reciben los enganches, que `sincronizarEngancles` **borra** sin más al apagar
+un upsell en un producto.
+
+Y no rompe nada hacia atrás porque **ninguna tabla apunta a `modifier_option.id`** —no hay una
+sola FK— ya que lo que el pedido guarda son nombres y precios dentro del snapshot (regla 2). El
+DELETE vive en `eliminarOpcion` y quien lo restringe al tipo `upsell` es `quitarOpcion`, en el
+servidor: la UI esconde el botón, pero una server action se invoca sin pasar por la pantalla
+(regla 12).
+
+**Esas listas se editan desde `/admin/opciones`, no desde la Carta.** Aquí llegó a decirse lo
+contrario —la propia pantalla mandaba a la Carta— y era falso: `/admin/productos` solo enciende
+y apaga la lista entera por producto, así que durante un tiempo la única forma de añadir una
+bebida al "¿Deseas agregar más churros?" fue un INSERT a mano. Lo que sí se edita en la Carta es
+el **producto**: su precio y su nombre, que es lo que el cliente acaba viendo (regla 8). El
+selector del panel ofrece la carta entera —incluidos los ocultos, mismo motivo que
+`listarGruposEnganchables`— y marca en rojo el que esté oculto: ofrecer algo que el cliente no
+puede ver deja la sección vacía sin explicación.
+
 ### 10. Mensajería: el texto y el transporte van separados
 
 El **contenido** de cada mensaje vive en `src/lib/notificaciones/plantillas.ts` y se
@@ -548,10 +571,20 @@ Cuatro cosas que no se cambian:
 - **La web nunca sabrá si el papel salió.** En cuanto se entrega la URL el control se va a otra
   app y no vuelve, igual que con `wa.me`. El acuse lo da el `Toast` del APK. No inventes una
   confirmación en pantalla.
-- **La comanda no lleva precios ni dirección; el recibo sí lleva el desglose.** Son dos lectores:
-  quien prepara y quien paga. La dirección la necesita el domiciliario y le llega por WhatsApp
-  (regla 18) — misma doctrina que el payload del push: lo que no hace falta en un papel que se
-  queda en el mostrador, no se imprime.
+- **La comanda no lleva precios ni dirección; el recibo lleva las dos cosas.** Son dos lectores:
+  quien prepara y quien paga. En la comanda la dirección sobra —ese papel se queda grapado a la
+  bolsa, y quien reparte la recibe por WhatsApp (regla 18)—, misma doctrina que el payload del
+  push: lo que no hace falta en un papel que se queda en el mostrador, no se imprime. En el recibo
+  sí va, bajo el nombre del cliente y **solo en domicilio**, porque es el comprobante que se
+  entrega con el pedido. Ojo al leer `recibo.ts`: ahí conviven `local.direccion` (la del negocio,
+  en el encabezado) y `pedido.direccion` (la de entrega), igual que `barrio` y `zona_nombre` en el
+  panel.
+- **La negrita del papel son DOS comandos, `ESC E` y `ESC G`.** No es redundancia: cuál de los dos
+  obedece una térmica depende del fabricante, el mismo problema que resuelve fijar la página de
+  códigos. Con `ESC E` solo, el nombre del producto salía indistinguible del resto de la comanda.
+  Y en la comanda va marcado **todo el bloque de lo que hay que preparar** —título, incluidos,
+  extras y notas—, con el encabezado y el conteo del pie en texto normal; lo que distingue un
+  extra cobrado de un incluido es el `+`, nunca la negrita.
 
 El desglose del recibo es **el mismo que el de `bloqueRecibo`** en `plantillas.ts`, hasta en qué
 líneas se callan (regla 20: productos, descuento, subtotal, domicilio, total). Que el papel y el
@@ -609,7 +642,7 @@ impresora.
 | `admin/pedidos`   | ver, aceptar, cambiar estado, imprimir, avisos, domiciliario | todo, más el rango de entrega estimada, el resumen del día y la descarga XLSX |
 | `admin/catalogo`  | switches `disponible` / `agotado` de productos y opciones    | igual                                                             |
 | `admin/productos` | solo Visible↔Agotado (ni ocultar ni reactivar)               | CRUD completo, precios, fotos (de producto y de categoría), categorías, enganches |
-| `admin/opciones`  | solo switch `disponible` (sabores de la semana)              | crear/renombrar/ordenar opciones, precio propio, archivar listas  |
+| `admin/opciones`  | solo switch `disponible` (sabores de la semana)              | crear/renombrar/ordenar opciones, precio propio, archivar listas; y en las listas de productos de la carta, elegir cuáles se ofrecen |
 | `admin/zonas`     | sin acceso (ni lectura)                                      | mapa: dibujar, editar vértices, precio, prioridad, activar/apagar |
 | `admin/cupones`   | sin acceso (ni lectura)                                      | crear cupones, porcentaje, a qué aplican, vencimiento, aviso de la carta, apagar |
 | `admin/ajustes`   | sin acceso (ni lectura)                                      | dirección y teléfono del local, con qué se paga (llave, titular, QR) y los nombres de barrio que OSM devuelve mal |
@@ -894,8 +927,28 @@ pedidos*, no a cómo llegó, así que solo cambia quién llama a `setPedidos`.
 El aviso son dos disparadores: suena al aparecer un id que no estaba, y **insiste cada 30 s**
 mientras quede algo sin aceptar, así que el silencio significa que alguien lo tiene. No suena al
 abrir el panel por lo que ya estaba —la lista de vistos se siembra con lo que llega del
-servidor— y el audio necesita **un gesto del usuario** antes de poder sonar: de ahí el botón de
-"Activar sonido", que no es un adorno sino el requisito del navegador.
+servidor.
+
+**El gesto del usuario dejó de ser obligatorio, y eso lo trajo instalar el panel.** Aquí decía que
+el audio necesita un gesto «antes de poder sonar» y que el botón era «el requisito del navegador».
+Vale **en una pestaña**; instalado no: Chrome exime del autoplay a las PWA instaladas, igual que al
+sitio con el que ya se interactuó. Así que el efecto de montaje **intenta armar primero** y solo
+cae a esperar un toque (`reanudarAlPrimerToque`) si no lo consigue — que es lo que hace que en la
+tablet el aviso quede encendido solo, sin tocar nada, después de una recarga o de que Android
+descargue la app.
+
+Lo que decide es `sonidoListo()`, o sea si el `AudioContext` **arrancó de verdad**, y no
+`display-mode: standalone`: mirar el modo sería adivinar la causa en vez de medir el efecto, y
+dejaría fuera los demás casos en que Chrome lo permite. El botón sigue existiendo, pero ahora su
+trabajo principal es **apagarlo**.
+
+**Y la alarma propia solo suena con la página viva.** Con el empleado en otra aplicación —AppSheet,
+el navegador— quien avisa es la notificación del sistema con el tono de Android, no los 3100 Hz que
+se diseñaron para oírse sobre la freidora. **No tiene arreglo por código**: un service worker puede
+mostrar notificaciones, pero no reproducir audio. Por eso `sw.js` pide `vibrate` —lo único de ese
+canal que la web controla, y aun así una petición que los ajustes del teléfono pueden ignorar—, y
+lo demás (importancia del canal, sonido propio, quitar la app del ahorro de batería) se ajusta en
+Android y no aquí.
 
 **El volumen del aviso no sale de la ganancia, y por eso está escrito.** El pitido original —dos
 notas triangulares a 880 y 1320 Hz con la ganancia en `0.35`— no se oía en la tablet del mostrador,

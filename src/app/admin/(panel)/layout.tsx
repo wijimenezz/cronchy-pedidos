@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getStore } from "@/db/queries/store";
 import { exigirRol, NoAutenticadoError } from "@/lib/autorizacion";
 import { BotonSalir } from "./BotonSalir";
+import { Enlace } from "./Enlace";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,11 @@ export const dynamic = "force-dynamic";
  * decide (regla 12). Rol mínimo `colaborador` — el suelo para entrar al panel; cada
  * pantalla y cada acción exigen lo suyo por encima de esto.
  */
-export default async function PanelLayout({ children }: { children: React.ReactNode }) {
+export default async function PanelLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   let sesion;
   try {
     sesion = await exigirRol("colaborador");
@@ -48,10 +53,10 @@ export default async function PanelLayout({ children }: { children: React.ReactN
             de que se desbordaran no hacía falta. */}
         <nav className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
           <Enlace href="/admin/pedidos">Pedidos</Enlace>
-          <Enlace href="/admin/catalogo">Qué hay hoy</Enlace>
+          <Enlace href="/admin/catalogo">Catalogo</Enlace>
           {/* El colaborador entra: necesita ver la carta y marcar agotados. Los controles
               de edición los esconde la propia pantalla según el rol. */}
-          <Enlace href="/admin/productos">Carta</Enlace>
+          <Enlace href="/admin/productos">Menu</Enlace>
           {/* Igual que la Carta: el colaborador entra a apagar el sabor que se acabó. */}
           <Enlace href="/admin/opciones">Opciones</Enlace>
           {/* El colaborador no tiene acceso a zonas ni de lectura, así que tampoco ve el
@@ -59,9 +64,13 @@ export default async function PanelLayout({ children }: { children: React.ReactN
               propia pantalla (regla 12). */}
           {sesion.rol === "admin" && <Enlace href="/admin/zonas">Zonas</Enlace>}
           {/* Igual que Zonas: un cupón decide cuánto se cobra. */}
-          {sesion.rol === "admin" && <Enlace href="/admin/cupones">Cupones</Enlace>}
+          {sesion.rol === "admin" && (
+            <Enlace href="/admin/cupones">Cupones</Enlace>
+          )}
           {/* Lo mismo que Zonas: la llave de pago decide a qué cuenta llega la plata. */}
-          {sesion.rol === "admin" && <Enlace href="/admin/ajustes">Ajustes</Enlace>}
+          {sesion.rol === "admin" && (
+            <Enlace href="/admin/ajustes">Ajustes</Enlace>
+          )}
         </nav>
 
         <div className="shrink-0">
@@ -76,18 +85,9 @@ export default async function PanelLayout({ children }: { children: React.ReactN
         pone cada pantalla que lo quiere (`mx-auto w-full max-w-contenido`), y la de pedidos
         —la única que se opera de un vistazo y no se lee— se queda sin él.
       */}
-      <main className="min-h-0 flex-1 overflow-y-auto px-4 py-4">{children}</main>
+      <main className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        {children}
+      </main>
     </div>
-  );
-}
-
-function Enlace({ href, children }: { href: string; children: React.ReactNode }) {
-  return (
-    <Link
-      href={href}
-      className="flex min-h-11 shrink-0 items-center rounded-full px-4 font-cuerpo text-sm font-bold text-cafe-suave transition-colors hover:bg-crema-oscura"
-    >
-      {children}
-    </Link>
   );
 }

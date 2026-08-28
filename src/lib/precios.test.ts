@@ -63,7 +63,15 @@ function enganche(overrides: Partial<EngancheParaPrecio> = {}): EngancheParaPrec
 }
 
 function opcion(overrides: Partial<OpcionParaPrecio> = {}): OpcionParaPrecio {
-  return { id: "op-1", nombre: "Arequipe", precioDelta: 0, disponible: true, productoRef: null, ...overrides };
+  return {
+    id: "op-1",
+    nombre: "Arequipe",
+    precioDelta: 0,
+    disponible: true,
+    productoRef: null,
+    precioProductoRef: null,
+    ...overrides,
+  };
 }
 
 function item(overrides: Partial<ItemSolicitado> = {}): ItemSolicitado {
@@ -375,6 +383,110 @@ describe("calcularItem", () => {
     }
   });
 
+  // Regla 8: un upsell se cobra por el `precio_base` de SU producto, no por el `precio_delta`
+  // de la opción. Esto llegó a cobrar de menos con datos reales: los churros de upsell tienen
+  // delta 0 y el producto vale 4.000, así que esta rama los regalaba.
+  it("un upsell se cobra por el precio del producto, no por el delta de la opción", () => {
+    const p = producto({
+      engancles: [
+        enganche({
+          id: "pmg-churros",
+          tipo: "upsell",
+          modo: "adicional",
+          nombreGrupo: "¿Deseas agregar más churros?",
+          maxSelect: 3,
+          permiteCantidad: true,
+          opciones: [
+            opcion({
+              id: "op-mini",
+              nombre: "Mini Churros",
+              precioDelta: 0,
+              productoRef: "prod-mini",
+              precioProductoRef: 4000,
+            }),
+          ],
+        }),
+      ],
+    });
+
+    const r = calcularItem(
+      p,
+      item({
+        cantidad: 1,
+        seleccion: [
+          { productModifierGroupId: "pmg-churros", opciones: [{ modifierOptionId: "op-mini", cantidad: 2 }] },
+        ],
+      }),
+    );
+
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.valor.upsells[0].precioUnitario).toBe(4000);
+      expect(r.valor.upsells[0].subtotal).toBe(8000);
+    }
+  });
+
+  // El `precio_unitario` del enganche manda sobre el delta en los grupos de selección, pero no
+  // puede mandar sobre el precio de un producto: un upsell no es un modificador con recargo.
+  it("ni el precio del enganche ni un modo incluido abaratan un upsell", () => {
+    const p = producto({
+      engancles: [
+        enganche({
+          id: "pmg-churros",
+          tipo: "upsell",
+          modo: "incluido",
+          precioUnitario: 500,
+          maxSelect: 3,
+          opciones: [
+            opcion({ id: "op-mini", precioDelta: 0, productoRef: "prod-mini", precioProductoRef: 4000 }),
+          ],
+        }),
+      ],
+    });
+
+    const r = calcularItem(
+      p,
+      item({
+        seleccion: [
+          { productModifierGroupId: "pmg-churros", opciones: [{ modifierOptionId: "op-mini", cantidad: 1 }] },
+        ],
+      }),
+    );
+
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.valor.upsells[0].precioUnitario).toBe(4000);
+  });
+
+  // El respaldo, para una opción cuyo producto no se resolvió: se cae al delta, que es lo que
+  // hacía antes. Peor que el precio real, pero mejor que cobrar cero.
+  it("sin el precio del producto resuelto, cae al delta de la opción", () => {
+    const p = producto({
+      engancles: [
+        enganche({
+          id: "pmg-bebida",
+          tipo: "upsell",
+          modo: "adicional",
+          maxSelect: 3,
+          opciones: [
+            opcion({ id: "op-agua", precioDelta: 1500, productoRef: "prod-agua", precioProductoRef: null }),
+          ],
+        }),
+      ],
+    });
+
+    const r = calcularItem(
+      p,
+      item({
+        seleccion: [
+          { productModifierGroupId: "pmg-bebida", opciones: [{ modifierOptionId: "op-agua", cantidad: 1 }] },
+        ],
+      }),
+    );
+
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.valor.upsells[0].precioUnitario).toBe(1500);
+  });
+
   it("varias opciones de un grupo upsell producen varios items independientes", () => {
     const p = producto({
       engancles: [
@@ -429,6 +541,112 @@ describe("calcularItem", () => {
       }),
     );
     expect(r).toEqual({ ok: false, error: { tipo: "upsell_sin_producto", modifierOptionId: "op-agua" } });
+  });
+
+  // La cantidad sobre un grupo `seleccion` ya está probada arriba; sobre un UPSELL no lo estaba,
+  // y es lo que estrena "¿Deseas agregar más churros?" — los dos upsell que existían (bebida y
+  // helado) llevan `permiteCantidad: false`. El motor lo valida de forma genérica, así que estos
+  // tests no descubren nada nuevo: fijan la mecánica de la que ahora depende la carta.
+  describe("cantidad sobre un upsell", () => {
+    const conCantidad = (overrides = {}) =>
+      producto({
+        engancles: [
+          enganche({
+            id: "pmg-churros",
+            tipo: "upsell",
+            modo: "adicional",
+            nombreGrupo: "¿Deseas agregar más churros?",
+            minSelect: 0,
+            maxSelect: 10,
+            permiteCantidad: true,
+            maxPorOpcion: 5,
+            opciones: [
+              opcion({ id: "op-mini", nombre: "Mini Churros", precioDelta: 4000, productoRef: "prod-mini" }),
+              opcion({ id: "op-loop", nombre: "Churros Loop", precioDelta: 4000, productoRef: "prod-loop" }),
+            ],
+            ...overrides,
+          }),
+        ],
+      });
+
+    const pidiendo = (opciones: { modifierOptionId: string; cantidad: number }[]) =>
+      item({ seleccion: [{ productModifierGroupId: "pmg-churros", opciones }] });
+
+    // Tres porciones son UNA línea de cantidad 3, no tres líneas de a una: así es como el
+    // carrito y la comanda las cuentan.
+    it("tres porciones son un solo item con cantidad 3", () => {
+      const r = calcularItem(conCantidad(), pidiendo([{ modifierOptionId: "op-mini", cantidad: 3 }]));
+
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        expect(r.valor.upsells).toHaveLength(1);
+        expect(r.valor.upsells[0]).toMatchObject({
+          productId: "prod-mini",
+          cantidad: 3,
+          precioUnitario: 4000,
+          subtotal: 12000,
+        });
+      }
+    });
+
+    it("los dos productos a la vez salen como items independientes, cada uno con su cantidad", () => {
+      const r = calcularItem(
+        conCantidad(),
+        pidiendo([
+          { modifierOptionId: "op-mini", cantidad: 2 },
+          { modifierOptionId: "op-loop", cantidad: 1 },
+        ]),
+      );
+
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        expect(r.valor.upsells.map((u) => [u.productId, u.cantidad])).toEqual([
+          ["prod-mini", 2],
+          ["prod-loop", 1],
+        ]);
+        // Y el churro de abajo sigue sin enterarse: un upsell nunca lo encarece (regla 8).
+        expect(r.valor.base.precioUnitario).toBe(5000);
+        expect(r.valor.base.modificadores).toEqual([]);
+      }
+    });
+
+    it("maxPorOpcion corta: seis porciones con el tope en cinco no pasan", () => {
+      const r = calcularItem(conCantidad(), pidiendo([{ modifierOptionId: "op-mini", cantidad: 6 }]));
+
+      expect(r).toEqual({
+        ok: false,
+        error: { tipo: "cantidad_invalida", motivo: "excede_max_por_opcion" },
+      });
+    });
+
+    // `maxSelect` topa la SUMA del grupo, no cada opción por separado. Es lo que impide que
+    // 5 + 5 se cuele estando las dos dentro de `maxPorOpcion`.
+    it("maxSelect topa la suma de las dos opciones, no cada una", () => {
+      const r = calcularItem(
+        conCantidad({ maxSelect: 6 }),
+        pidiendo([
+          { modifierOptionId: "op-mini", cantidad: 5 },
+          { modifierOptionId: "op-loop", cantidad: 5 },
+        ]),
+      );
+
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toMatchObject({ tipo: "seleccion_excedida", recibidas: 10 });
+    });
+
+    // La invariante de la que dependen los dos upsell viejos: sin `permiteCantidad`, pedir dos
+    // es un error y no un silencioso "pues uno".
+    it("sin permiteCantidad, un upsell no acepta más de uno", () => {
+      const r = calcularItem(
+        conCantidad({ permiteCantidad: false, maxPorOpcion: null }),
+        pidiendo([{ modifierOptionId: "op-mini", cantidad: 2 }]),
+      );
+
+      expect(r).toEqual({
+        ok: false,
+        error: { tipo: "cantidad_invalida", motivo: "opcion_sin_permitir_cantidad" },
+      });
+    });
   });
 });
 

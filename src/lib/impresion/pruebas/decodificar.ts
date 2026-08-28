@@ -44,6 +44,8 @@ export type LineaImpresa = {
   texto: string;
   /** Cuántas columnas de las 48 gasta, ya contando el doble ancho. */
   columnas: number;
+  /** Si salió marcada. Se mira `ESC E`, que es el que abre y cierra el estilo. */
+  negrita: boolean;
 };
 
 /**
@@ -61,12 +63,15 @@ function leerTicket(bytes: Uint8Array): LineaImpresa[] {
   let texto = "";
   let columnas = 0;
   let ancho = 1;
+  let negrita = false;
 
   for (let i = 0; i < bytes.length; ) {
     const salto = largoDelComando(bytes, i);
 
     if (salto > 0) {
       if (bytes[i] === GS && bytes[i + 1] === 0x21) ancho = multiplicadorDeAncho(bytes[i + 2]);
+      // `ESC G` (doble golpe) viaja siempre pegado a este, así que mirar uno basta.
+      if (bytes[i] === ESC && bytes[i + 1] === 0x45) negrita = bytes[i + 2] === 0x01;
       i += salto;
       continue;
     }
@@ -74,7 +79,10 @@ function leerTicket(bytes: Uint8Array): LineaImpresa[] {
     const byte = bytes[i];
 
     if (byte === LF) {
-      lineas.push({ texto, columnas });
+      // El estilo se cierra DESPUÉS del salto de línea —`escribir` lo hace así—, o sea que aquí
+      // la bandera todavía es la de la línea que acaba de terminar. Leerla más tarde daría la de
+      // la siguiente.
+      lineas.push({ texto, columnas, negrita });
       texto = "";
       columnas = 0;
     } else {
@@ -85,7 +93,7 @@ function leerTicket(bytes: Uint8Array): LineaImpresa[] {
     i += 1;
   }
 
-  lineas.push({ texto, columnas });
+  lineas.push({ texto, columnas, negrita });
 
   return lineas;
 }
@@ -110,4 +118,17 @@ export function lineasDelTicket(bytes: Uint8Array): string[] {
  */
 export function columnasDelTicket(bytes: Uint8Array): number[] {
   return leerTicket(bytes).map((linea) => linea.columnas);
+}
+
+/**
+ * Las líneas que salieron en negrita, sin espacios de relleno ni sangría.
+ *
+ * Sin esto, "el nombre del producto va marcado" solo se podía afirmar buscando `[0x1b,0x45,0x01]`
+ * en el ticket entero —que pasa en cuanto haya UNA línea en negrita en cualquier parte— o
+ * comparando bytes a mano. Es el mismo motivo por el que el decodificador ya seguía el tamaño.
+ */
+export function negritasDelTicket(bytes: Uint8Array): string[] {
+  return leerTicket(bytes)
+    .filter((linea) => linea.negrita)
+    .map((linea) => linea.texto.trim());
 }

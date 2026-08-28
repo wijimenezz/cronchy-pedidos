@@ -35,6 +35,17 @@ export type OpcionParaPrecio = {
   disponible: boolean;
   /** Solo relevante en grupos tipo "upsell": producto real que representa esta opción (regla 8). */
   productoRef: string | null;
+  /**
+   * El `precio_base` de ese producto, resuelto por la capa de datos.
+   *
+   * **Es lo que se cobra por un upsell** (regla 8), y viaja hasta aquí porque sin él este módulo
+   * solo tenía el `precio_delta` de la opción — una cifra que no es la que se cobra y que en el
+   * catálogo real vale cero para los churros. Ver la rama `upsell` de `calcularItem`.
+   *
+   * `null` cuando la opción no apunta a ningún producto, o cuando quien cargó los datos no lo
+   * resolvió; ahí se cae al delta, que es el comportamiento viejo.
+   */
+  precioProductoRef: number | null;
 };
 
 export type EngancheParaPrecio = {
@@ -431,6 +442,20 @@ export function calcularItem(
         if (!opcion.productoRef) {
           return { ok: false, error: { tipo: "upsell_sin_producto", modifierOptionId: opcion.id } };
         }
+
+        // **Y se cobra por el `precio_base` de ese producto, no por el delta de la opción.**
+        //
+        // Esto llegó a cobrar de menos. El delta es un número suelto que nadie mantiene: en el
+        // catálogo real vale 0 para los churros —así lo dejó escrito la migración 0031, con la
+        // idea de que la línea se cobraría aparte— y 9.000 para un Latte Frío que cuesta 11.500.
+        // Como ningún enganche de upsell tiene `precio_unitario`, `precioEfectivoOpcion` caía
+        // siempre en ese delta y esta rama regalaba los churros.
+        //
+        // No se resuelve rechazando la selección: la ficha llama a `calcularItem` con los upsell
+        // dentro para pintar el total en vivo, y de ahí saca qué bebidas eligió el cliente.
+        // Se resuelve sabiendo el precio de verdad, que es lo que trae `precioProductoRef`.
+        const precioUpsell = opcion.precioProductoRef ?? precioUnitarioOpcion;
+
         upsells.push({
           productId: opcion.productoRef,
           nombreProducto: opcion.nombre,
@@ -439,8 +464,8 @@ export function calcularItem(
           // llega al checkout como línea propia (regla 8) y pasa por la rama de arriba.
           imagen: null,
           cantidad: sel.cantidad,
-          precioUnitario: precioUnitarioOpcion,
-          subtotal: precioUnitarioOpcion * sel.cantidad,
+          precioUnitario: precioUpsell,
+          subtotal: precioUpsell * sel.cantidad,
           modificadores: [],
           avisos: [],
           notas: null,

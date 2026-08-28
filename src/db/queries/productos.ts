@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { modifierOption, product, productModifierGroup } from "@/db/schema";
+import { fotosConFoco, type FotoConFoco } from "@/lib/imagenes";
 import type { EngancheParaPrecio, OpcionParaPrecio, ProductoParaPrecio } from "@/lib/precios";
 
 function mapProducto(p: {
@@ -34,7 +35,7 @@ function mapProducto(p: {
       }[];
     };
   }[];
-}): ProductoParaPrecio {
+}, preciosUpsell: Record<string, number> = {}): ProductoParaPrecio {
   return {
     id: p.id,
     nombre: p.nombre,
@@ -63,6 +64,9 @@ function mapProducto(p: {
         precioDelta: o.precioDelta,
         disponible: o.disponible,
         productoRef: o.productoRef,
+        // Lo que de verdad se cobra por un upsell. Ver la rama `upsell` de `calcularItem`: sin
+        // esto el motor solo veía el `precio_delta`, que en el catálogo real vale cero.
+        precioProductoRef: o.productoRef ? preciosUpsell[o.productoRef] ?? null : null,
       })),
     })),
   };
@@ -78,6 +82,45 @@ const conEngancles = {
   },
 } as const;
 
+/**
+ * Lo que cuesta cada producto ofrecido como upsell, por id.
+ *
+ * Va en una **segunda consulta** y no colgada de `conEngancles`, aunque anidarla sería una
+ * línea. Drizzle arma el alias de cada subconsulta concatenando el camino de relaciones, y
+ * `product → productModifierGroups → modifierGroup → modifierOptions → product` mide 69
+ * caracteres: por encima del límite de 63 de Postgres, que lo trunca y suelta un `NOTICE` en
+ * **cada** consulta —la ficha y cada recálculo de precios—. Funcionaba, pero llenaba los logs y
+ * dejaba dos alias a un carácter de colisionar.
+ *
+ * Es además el patrón que ya usa `obtenerProductoParaFicha` unas líneas más abajo para traer
+ * las bebidas completas. Son dos docenas de filas y una sola consulta más.
+ */
+async function preciosDeUpsell(
+  storeId: string,
+  filas: { productModifierGroups: { modifierGroup: { modifierOptions: { productoRef: string | null }[] } }[] }[],
+): Promise<Record<string, number>> {
+  const refIds = [
+    ...new Set(
+      filas.flatMap((p) =>
+        p.productModifierGroups.flatMap((pmg) =>
+          pmg.modifierGroup.modifierOptions
+            .map((o) => o.productoRef)
+            .filter((id): id is string => id !== null),
+        ),
+      ),
+    ),
+  ];
+
+  if (refIds.length === 0) return {};
+
+  const refs = await db
+    .select({ id: product.id, precioBase: product.precioBase })
+    .from(product)
+    .where(and(eq(product.storeId, storeId), inArray(product.id, refIds)));
+
+  return Object.fromEntries(refs.map((r) => [r.id, r.precioBase]));
+}
+
 export async function obtenerProductoConEngancles(
   storeId: string,
   productId: string,
@@ -86,8 +129,9 @@ export async function obtenerProductoConEngancles(
     where: and(eq(product.storeId, storeId), eq(product.id, productId)),
     with: conEngancles,
   });
+  if (!p) return null;
 
-  return p ? mapProducto(p) : null;
+  return mapProducto(p, await preciosDeUpsell(storeId, [p]));
 }
 
 export async function obtenerProductosConEngancles(
@@ -101,7 +145,10 @@ export async function obtenerProductosConEngancles(
     with: conEngancles,
   });
 
-  return new Map(productos.map((p) => [p.id, mapProducto(p)]));
+  // Una sola consulta para todos los upsell del carrito, no una por producto.
+  const preciosUpsell = await preciosDeUpsell(storeId, productos);
+
+  return new Map(productos.map((p) => [p.id, mapProducto(p, preciosUpsell)]));
 }
 
 // ------------------------------------------------------------
@@ -152,7 +199,7 @@ export type ProductoUpsellRef = Omit<ProductoParaPrecio, "engancles"> & {
 
 export type ProductoParaFicha = Omit<ProductoParaPrecio, "engancles"> & {
   descripcion: string | null;
-  imagenes: string[];
+  fotos: FotoConFoco[];
   engancles: EngancheParaFicha[];
   /** Info real de los productos referenciados por opciones de tipo upsell, por id. */
   productosUpsell: Record<string, ProductoUpsellRef>;
@@ -206,7 +253,14 @@ type FilaEngancheFicha = {
  * metiera un `filter` en `mapProducto` para que `imagenUrl` y `recomendado` se
  * desalinearan en silencio.
  */
-function mapEngancheParaFicha(pmg: FilaEngancheFicha): EngancheParaFicha {
+function mapEngancheParaFicha(
+  pmg: FilaEngancheFicha,
+  /**
+   * Precio de cada producto ofrecido, por id. Lo aporta quien ya los tiene: la ficha los trae
+   * enteros en `productosUpsell`, así que aquí no hace falta ninguna consulta más.
+   */
+  preciosUpsell: Record<string, number> = {},
+): EngancheParaFicha {
   return {
     id: pmg.id,
     modo: pmg.modo,
@@ -228,6 +282,7 @@ function mapEngancheParaFicha(pmg: FilaEngancheFicha): EngancheParaFicha {
       precioDelta: o.precioDelta,
       disponible: o.disponible,
       productoRef: o.productoRef,
+      precioProductoRef: o.productoRef ? preciosUpsell[o.productoRef] ?? null : null,
       imagenUrl: o.imagenUrl,
       recomendado: o.recomendado,
       orden: o.orden,
@@ -241,6 +296,7 @@ type FilaProductoFicha = {
   descripcion: string | null;
   precioBase: number;
   imagenes: string[];
+  imagenesFoco: string[];
   activo: boolean;
   disponible: boolean;
   disponibleDelivery: boolean;
@@ -261,9 +317,15 @@ function mapProductoParaFicha(
     disponibleDelivery: p.disponibleDelivery,
     disponiblePickup: p.disponiblePickup,
     descripcion: p.descripcion,
-    imagenes: p.imagenes,
+    fotos: fotosConFoco(p.imagenes, p.imagenesFoco),
     productosUpsell,
-    engancles: p.productModifierGroups.map(mapEngancheParaFicha),
+    // Los precios salen de las bebidas que ya se trajeron enteras: son el mismo dato.
+    engancles: p.productModifierGroups.map((pmg) =>
+      mapEngancheParaFicha(
+        pmg,
+        Object.fromEntries(Object.values(productosUpsell).map((r) => [r.id, r.precioBase])),
+      ),
+    ),
   };
 }
 
@@ -287,7 +349,10 @@ function mapProductoUpsellRef(pr: {
     disponibleDelivery: pr.disponibleDelivery,
     disponiblePickup: pr.disponiblePickup,
     imagen: pr.imagenes[0] || null,
-    engancles: pr.productModifierGroups.map(mapEngancheParaFicha),
+    // Sin precios de upsell y con el arrow explícito: la anidación se corta aquí (ver el
+    // docblock de `ProductoUpsellRef`), así que una bebida no resuelve las suyas. Pasar la
+    // función a `.map` directamente le colaría el índice como segundo argumento.
+    engancles: pr.productModifierGroups.map((pmg) => mapEngancheParaFicha(pmg)),
   };
 }
 

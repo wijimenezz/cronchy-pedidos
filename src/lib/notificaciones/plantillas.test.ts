@@ -111,6 +111,13 @@ function aceptacion(pedido: PedidoParaMensaje = PEDIDO): string {
   return cambioEstado("preparando", pedido, TIENDA, ESTIMADO, LOCAL, CUANDO_SE_ACEPTA)!;
 }
 
+/** El mismo mensaje recortado, que es a lo que cae `avisoCambioEstado` cuando no cabe en la URL. */
+function aceptacionCorta(pedido: PedidoParaMensaje = PEDIDO): string {
+  return cambioEstado("preparando", pedido, TIENDA, ESTIMADO, LOCAL, CUANDO_SE_ACEPTA, {
+    sinDetalle: true,
+  })!;
+}
+
 // `preparando` es el mensaje de la aceptación: aceptar un pedido lo pone ahí de una vez, y
 // como ya no se avisa en `nuevo`, este es el PRIMERO que recibe el cliente. Por eso carga el
 // resumen que antes iba en el de "recibimos tu pedido".
@@ -200,6 +207,37 @@ describe("cambioEstado al aceptar", () => {
     expect(texto).toContain("*Teléfono:* 3116435036");
   });
 
+  // El detalle es lo único que crece con el carrito, así que es lo único que sirve recortar
+  // cuando el mensaje no cabe en la URL de `wa.me`. Lo demás —cifras, hora y link— se queda:
+  // recortar el total para que quepa el detalle sería el reparto equivocado.
+  it("sin detalle se van los productos, y nada más", () => {
+    const corto = aceptacionCorta();
+
+    expect(corto).not.toContain("*Tu pedido:*");
+    expect(corto).not.toContain("Cronchy Familiar");
+
+    expect(corto).toContain("*Cliente:* Wilson");
+    expect(corto).toContain("*Total:*");
+    expect(corto).toContain("*Llega:*");
+    expect(corto).toContain(`/pedido/${PEDIDO.tokenPublico}`);
+  });
+
+  it("recortar el detalle acorta el mensaje de verdad", () => {
+    expect(aceptacionCorta().length).toBeLessThan(aceptacion().length);
+  });
+
+  // El total llegó a salir dos veces —una al cerrar el desglose y otra destacada debajo— y con
+  // un cupón de por medio las dos cifras se leen como si una corrigiera a la otra. Se queda la
+  // del desglose, que es donde el número es el resultado de la suma que tiene encima.
+  it("el total se dice una sola vez", () => {
+    const lineas = aceptacion({ ...PEDIDO, descuento: 3500, cuponCodigo: "CHURRO10" })
+      .split("\n")
+      .filter((l) => l.includes("Total"));
+
+    expect(lineas).toHaveLength(1);
+    expect(lineas[0]).toMatch(/^\*Total:\*/);
+  });
+
   // Sin hora elegida el mensaje no puede callarse: una línea ausente se lee como un olvido.
   it("dice cuándo llega también cuando es para ya, con el rango que promete la tienda", () => {
     expect(aceptacion()).toContain("*Llega:* lo antes posible (30-45 min)");
@@ -230,8 +268,15 @@ describe("cambioEstado al aceptar", () => {
     expect(texto).not.toContain("min)");
   });
 
-  it("la fecha de entrega es la de hoy cuando el pedido es para ya", () => {
-    expect(aceptacion()).toContain("*Fecha de entrega:* 14 de agosto de 2026");
+  // Un pedido para ya no lleva línea de fecha, y eso NO es la ausencia que la regla 10 llama
+  // "un olvido": lo que el cliente pregunta —cuándo llega— lo contesta `*Llega:*` unas líneas
+  // más abajo, con el rango de la tienda. Escribir además "hoy" al lado sería decir dos veces
+  // lo mismo en un mensaje que ya pelea por caber en la URL.
+  it("un pedido para ya no repite la fecha: la responde la línea de Llega", () => {
+    const texto = aceptacion();
+
+    expect(texto).not.toContain("*Fecha de entrega:*");
+    expect(texto).toContain("*Llega:* lo antes posible (30-45 min)");
   });
 
   it("la fecha de entrega es la programada cuando la hay", () => {

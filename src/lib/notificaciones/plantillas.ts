@@ -118,7 +118,10 @@ export function pesos(valor: number): string {
  * Para el domiciliario esta es, además, **la única cifra de productos que ve** (ver
  * `pedidoParaDomiciliario`): él no cobra un descuento, cobra un número.
  */
-export function subtotalConDescuento(subtotal: number, descuento: number): number {
+export function subtotalConDescuento(
+  subtotal: number,
+  descuento: number,
+): number {
   return subtotal - descuento;
 }
 
@@ -339,7 +342,9 @@ function bloqueTotales(pedido: PedidoParaMensaje): string {
  */
 function lineaCuando(pedido: PedidoParaMensaje, etiqueta: string): string {
   return `*${etiqueta}:* ${
-    pedido.horaEntregaEstimada ? cuandoCorto(pedido.horaEntregaEstimada) : "lo antes posible"
+    pedido.horaEntregaEstimada
+      ? cuandoCorto(pedido.horaEntregaEstimada)
+      : "lo antes posible"
   }`;
 }
 
@@ -448,7 +453,12 @@ export function confirmacionCliente(
   partes.push(`*Pedido:* #${pedido.numero}`);
   partes.push(bloqueEntrega(pedido));
 
-  partes.push(lineaCuando(pedido, pedido.tipo === "recoger" ? "Listo" : "Hora de entrega"));
+  partes.push(
+    lineaCuando(
+      pedido,
+      pedido.tipo === "recoger" ? "Listo" : "Hora de entrega",
+    ),
+  );
 
   partes.push(SEP);
   partes.push("*Tu pedido:*");
@@ -542,8 +552,10 @@ const TEXTO_ESTADO: Partial<Record<EstadoPedido, (t: string) => string>> = {
   // `aceptado` ya no se genera —aceptar un pedido lo pone en `preparando` de una vez, ver
   // `pasosDelPedido`—, pero conserva su texto por si algún pedido guardado con él sigue sin
   // avisar. Dice lo mismo que `preparando`, porque significaba lo mismo.
-  aceptado: (t) => `¡Holii, Tu pedido en *${t}* fue aceptado y ya está en preparación!`,
-  preparando: (t) => `¡Holii, Tu pedido en *${t}* fue aceptado y ya está en preparación!`,
+  aceptado: (t) =>
+    `¡Holii, Tu pedido en *${t}* fue aceptado y ya está en preparación!`,
+  preparando: (t) =>
+    `¡Holii, Tu pedido en *${t}* fue aceptado y ya está en preparación!`,
   en_camino: (t) => `¡Tu pedido en *${t}* ya va en camino!`,
   listo: (t) => `¡Tu pedido en *${t}* ya está listo para recoger!`,
   cancelado: (t) =>
@@ -591,6 +603,15 @@ function lineasDelLocal(local: Local): string[] {
  * panel, porque enviar de verdad en automático exigiría la Cloud API con un número dedicado
  * y el del negocio se usa con proveedores (regla 10).
  */
+/**
+ * Lo que se puede recortar cuando el mensaje no cabe.
+ *
+ * `sinDetalle` quita la lista de productos del aviso de aceptación. Es lo único que crece con el
+ * pedido —lo demás son líneas fijas—, así que es lo único que sirve recortar. El cliente no se
+ * queda sin el detalle: el mismo mensaje lleva el link de seguimiento, que lo muestra entero.
+ */
+export type OpcionesCambioEstado = { sinDetalle?: boolean };
+
 export function cambioEstado(
   estado: EstadoPedido,
   pedido: PedidoParaMensaje,
@@ -598,6 +619,7 @@ export function cambioEstado(
   estimado: EstimadoEntrega,
   recogida: Local,
   ahora: Date = new Date(),
+  opciones: OpcionesCambioEstado = {},
 ): string | null {
   const titulo = TEXTO_ESTADO[estado]?.(tienda.nombre);
   if (!titulo) return null;
@@ -612,26 +634,60 @@ export function cambioEstado(
     return [
       titulo,
       "",
-      `*Pedido:* #${pedido.numero}`,
-      pedido.tipo === "recoger" ? "*Tipo:* Recoger en tienda" : "*Tipo:* Domicilio",
-      // Sin hora elegida, la fecha de entrega es hoy: el pedido se prepara y sale ya.
-      `*Fecha de entrega:* ${fechaLarga(pedido.horaEntregaEstimada ?? ahora)}`,
+
+      `🧾 *Pedido #${pedido.numero}*`,
+
+      // Solo mostrar el tipo si ayuda a identificar cómo recibirá el pedido.
+      pedido.tipo === "recoger"
+        ? "*Tipo:* Recoger en tienda"
+        : "*Tipo:* Domicilio",
+
+      // Mostrar fecha solo cuando el cliente programó una hora específica.
+      pedido.horaEntregaEstimada
+        ? `*Fecha de entrega:* ${fechaLarga(pedido.horaEntregaEstimada)}`
+        : null,
+
       SEP,
       `*Cliente:* ${pedido.clienteNombre}`,
       `*Teléfono:* ${pedido.clienteTelefono}`,
+
       "",
-      ...bloqueRecibo(pedido),
+
+      // El detalle completo, que es lo que hace largo a este mensaje. Cuando no cabe en la URL
+      // de `wa.me`, quien lo manda vuelve a pedirlo con `sinDetalle` — ver `avisoCambioEstado`.
+      ...(opciones.sinDetalle ? [] : ["*Tu pedido:*", bloqueItems(pedido)]),
+
       SEP,
-      lineaLlegada(pedido, estimado, pedido.tipo === "recoger" ? "Listo" : "Llega", ahora),
-      // Dónde recogerlo, junto a cuándo estará listo: son la misma pregunta partida en dos.
+
+      // El total va DENTRO del desglose y no repetido debajo. Estuvo en los dos sitios, y con
+      // un cupón de por medio las dos cifras se leían como si una corrigiera a la otra.
+      // `bloqueRecibo` lo cierra porque ahí es su resultado: productos − descuento + domicilio.
+      "💰 *Resumen de pago*",
+      ...bloqueRecibo(pedido),
+
+      SEP,
+
+      `🛵 *${pedido.tipo === "recoger" ? "Recogida" : "Entrega"}*`,
+      lineaLlegada(
+        pedido,
+        estimado,
+        pedido.tipo === "recoger" ? "Listo" : "Llega",
+        ahora,
+      ),
+
+      // Dónde recogerlo, junto a cuándo estará listo.
       ...local,
+
       "",
-      "Sigue tu pedido en tiempo real aquí:",
+
+      "📍 Sigue tu pedido en tiempo real aquí:",
       "",
       enlace,
       "",
-      "¡Estaremos en contacto!",
-    ].join("\n");
+      "¡Estaremos en contacto! 🍫",
+    ]
+      .filter((linea): linea is string => linea !== null)
+      .join("\n");
   }
 
   if (estado === "en_camino") {
@@ -654,7 +710,15 @@ export function cambioEstado(
   // `listo`: está en el mostrador, y este es el momento en que la persona sale de su casa. Aquí la
   // dirección vale más que en ningún otro mensaje — antes solo iba el link de seguimiento, que
   // obliga a abrir el navegador para saber a dónde ir.
-  return [titulo, "", ...local, local.length > 0 ? "" : null, enlace, "", "¡Estaremos en contacto!"]
+  return [
+    titulo,
+    "",
+    ...local,
+    local.length > 0 ? "" : null,
+    enlace,
+    "",
+    "¡Estaremos en contacto!",
+  ]
     .filter((l) => l !== null)
     .join("\n");
 }
@@ -755,13 +819,14 @@ export type PedidoParaDomiciliario = {
  * escribió una máquina, y este se manda veinte veces al día a la misma persona.
  */
 function saludo(ahora: Date): string {
-  const hora = Number(
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/Bogota",
-      hour: "2-digit",
-      hour12: false,
-    }).format(ahora),
-  ) % 24;
+  const hora =
+    Number(
+      new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/Bogota",
+        hour: "2-digit",
+        hour12: false,
+      }).format(ahora),
+    ) % 24;
 
   if (hora < 12) return "Buenos días";
   if (hora < 19) return "Buenas tardes";
@@ -845,17 +910,22 @@ export function pedidoParaDomiciliario(
   partes.push(`*Pedido #${pedido.numero}*`);
   partes.push(`*Cliente:* ${pedido.clienteNombre}`);
   partes.push(`*Tel:* ${pedido.clienteTelefono}`);
+  partes.push("");
 
   // Quien recibe solo se nombra si es otra persona: repetir al cliente aquí haría dudar de si
   // hay que buscar a dos.
   if (pedido.recibeNombre) {
-    partes.push(`*Recibe:* ${pedido.recibeNombre}${pedido.recibeTelefono ? ` · ${pedido.recibeTelefono}` : ""}`);
+    partes.push(
+      `*Recibe:* ${pedido.recibeNombre}${pedido.recibeTelefono ? ` · ${pedido.recibeTelefono}` : ""}`,
+    );
   }
 
   if (pedido.direccion) partes.push(`*Dirección:* ${pedido.direccion}`);
   if (pedido.barrio) partes.push(`*Barrio:* ${pedido.barrio}`);
-  if (pedido.indicaciones) partes.push(`*Detalles entrega:* ${pedido.indicaciones}`);
-  if (pedido.ubicacion) partes.push(`*Google Maps:* ${mapsUrl(pedido.ubicacion)}`);
+  if (pedido.indicaciones)
+    partes.push(`*Detalles entrega:* ${pedido.indicaciones}`);
+  if (pedido.ubicacion)
+    partes.push(`*Google Maps:* ${mapsUrl(pedido.ubicacion)}`);
 
   partes.push(SEP);
   // Desglose y cobro salen juntos de `bloqueCobro`: son la misma decisión —qué cifras ve quien
@@ -894,7 +964,9 @@ export function fueraDeCobertura(
   ubicacion: { lat: number; lng: number },
   tienda: Tienda,
 ): string {
-  const lineas = carrito.items.map((item) => `• ${item.cantidad}x ${item.nombre}`);
+  const lineas = carrito.items.map(
+    (item) => `• ${item.cantidad}x ${item.nombre}`,
+  );
 
   return [
     `¡Hola! Quiero pedir en *${tienda.nombre}* pero mi dirección quedó fuera de cobertura.`,
@@ -957,7 +1029,10 @@ const TOPE_TELEGRAM = 4000;
  * mensaje entero**, así que el aviso no llega y nadie se entera de por qué.
  */
 function escaparHtml(texto: string): string {
-  return texto.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return texto
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 /** Los modificadores de un item en una línea: "con Arequipe, Oreo ×2". */
@@ -1017,11 +1092,16 @@ export function pedidoNuevoTelegram(
   const lineas: string[] = [];
 
   if (pedido.programadoPara) {
-    lineas.push(`⏰ <b>PROGRAMADO — ${cuandoCorto(pedido.programadoPara, ahora)}</b>`);
+    lineas.push(
+      `⏰ <b>PROGRAMADO — ${cuandoCorto(pedido.programadoPara, ahora)}</b>`,
+    );
   }
 
-  const cabecera = pedido.tipo === "domicilio" ? "🛵 DOMICILIO" : "🏪 RECOGE EN TIENDA";
-  lineas.push(`<b>${cabecera} · #${pedido.numero} · ${pesos(pedido.total)}</b>`);
+  const cabecera =
+    pedido.tipo === "domicilio" ? "🛵 DOMICILIO" : "🏪 RECOGE EN TIENDA";
+  lineas.push(
+    `<b>${cabecera} · #${pedido.numero} · ${pesos(pedido.total)}</b>`,
+  );
   lineas.push(lineaPago(pedido));
 
   lineas.push("");
@@ -1047,14 +1127,20 @@ export function pedidoNuevoTelegram(
     // el barrio lo escribió el cliente y la zona es la que cobró.
     const ubicacion = [
       pedido.barrio ? escaparHtml(pedido.barrio) : null,
-      pedido.zonaNombre ? `${escaparHtml(pedido.zonaNombre)} (${pesos(pedido.costoDomicilio)})` : null,
+      pedido.zonaNombre
+        ? `${escaparHtml(pedido.zonaNombre)} (${pesos(pedido.costoDomicilio)})`
+        : null,
     ].filter(Boolean);
 
     if (ubicacion.length > 0) lineas.push(`   ${ubicacion.join(" · ")}`);
-    if (pedido.indicaciones) lineas.push(`   Ref: ${escaparHtml(pedido.indicaciones)}`);
+    if (pedido.indicaciones)
+      lineas.push(`   Ref: ${escaparHtml(pedido.indicaciones)}`);
   }
 
-  lineas.push("", `👤 ${escaparHtml(pedido.clienteNombre)} · ${escaparHtml(pedido.clienteTelefono)}`);
+  lineas.push(
+    "",
+    `👤 ${escaparHtml(pedido.clienteNombre)} · ${escaparHtml(pedido.clienteTelefono)}`,
+  );
   lineas.push(
     `🕐 ${horaCorta(pedido.creadoEn)}${pedido.esClienteNuevo ? " · Cliente nuevo" : ""}`,
   );
