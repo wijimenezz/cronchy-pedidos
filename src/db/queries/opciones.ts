@@ -1,6 +1,6 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { modifierGroup, modifierOption } from "@/db/schema";
+import { category, modifierGroup, modifierOption, product } from "@/db/schema";
 
 /**
  * Las listas de opciones vistas desde el panel: lo que alimenta `/admin/opciones`.
@@ -14,16 +14,33 @@ import { modifierGroup, modifierOption } from "@/db/schema";
  * árbol categoría → producto → enganche, y este es el catálogo de opciones que aquel
  * engancha. Lo único que comparten es que ambos se editan desde el panel.
  *
- * Nada se borra (regla 9). No hay DELETE de lista ni de opción: `activo = false` archiva la
- * lista y `disponible = false` apaga la opción, y las dos cosas son reversibles de un clic.
- * Borrar además sería destructivo de verdad: las dos FK que apuntan a `modifier_group` son
- * ON DELETE CASCADE, así que quitar una lista se llevaría en silencio los enganches de todos
- * los productos que la usaban.
+ * Una LISTA no se borra nunca (regla 9): `activo = false` la archiva, y es reversible de un
+ * clic. Borrarla sería destructivo de verdad, además: las dos FK que apuntan a
+ * `modifier_group` son ON DELETE CASCADE, así que quitar una se llevaría en silencio las
+ * opciones **y** los enganches de todos los productos que la usaban.
+ *
+ * Una OPCIÓN tampoco, salvo en las listas de tipo `upsell` — ver `eliminarOpcion`, que es el
+ * único DELETE del archivo y lleva escrito el porqué.
  */
 
 // ------------------------------------------------------------
 // Lecturas
 // ------------------------------------------------------------
+
+/**
+ * El producto al que apunta una opción de upsell, **tal como está hoy**.
+ *
+ * Vivo y no congelado: la regla 2 es para pedidos ya hechos, y esto es el catálogo que se está
+ * editando. Si mañana sube el Mini Churros, el panel tiene que decir el precio nuevo — el que
+ * se guardó en `modifier_option.nombre` el día que se enganchó no le sirve a nadie.
+ */
+export type ProductoDeUpsell = {
+  id: string;
+  nombre: string;
+  precioBase: number;
+  /** Si sigue visible en la carta. Ofrecer como upsell algo oculto es una trampa que se ve aquí. */
+  activo: boolean;
+};
 
 export type OpcionDelPanel = {
   id: string;
@@ -31,6 +48,13 @@ export type OpcionDelPanel = {
   precioDelta: number;
   disponible: boolean;
   orden: number;
+  /**
+   * A qué producto de la carta apunta (regla 8). Solo lo llevan las opciones de las listas
+   * `upsell`; en una de salsas es `null` y tiene que seguir siéndolo.
+   */
+  productoRef: string | null;
+  /** Ese producto, ya resuelto. `null` si la opción no apunta a ninguno o si se borró. */
+  producto: ProductoDeUpsell | null;
 };
 
 export type ListaDelPanel = {
@@ -65,7 +89,19 @@ export async function listarListasDelPanel(storeId: string): Promise<ListaDelPan
     with: {
       modifierOptions: {
         orderBy: [asc(modifierOption.orden), asc(modifierOption.nombre)],
-        columns: { id: true, nombre: true, precioDelta: true, disponible: true, orden: true },
+        columns: {
+          id: true,
+          nombre: true,
+          precioDelta: true,
+          disponible: true,
+          orden: true,
+          productoRef: true,
+        },
+        // El producto real de las opciones de upsell, en el mismo viaje. Son dos o tres por
+        // lista, así que no hay nada que paginar ni que cargar aparte.
+        with: {
+          product: { columns: { id: true, nombre: true, precioBase: true, activo: true } },
+        },
       },
       productModifierGroups: { columns: { productId: true } },
     },
@@ -81,8 +117,36 @@ export async function listarListasDelPanel(storeId: string): Promise<ListaDelPan
     // incluida y una de pago (regla 3)—, así que contar filas diría "2 productos" donde hay
     // uno solo.
     usadaEn: new Set(g.productModifierGroups.map((pmg) => pmg.productId)).size,
-    opciones: g.modifierOptions,
+    opciones: g.modifierOptions.map(({ product, ...o }) => ({ ...o, producto: product })),
   }));
+}
+
+/**
+ * Los productos de la carta que se pueden ofrecer como upsell, para el selector del panel.
+ *
+ * Consulta propia y no `listarCatalogoDelPanel` a propósito: aquella arrastra fotos y los
+ * enganches de todo el árbol para llenar un desplegable de dos docenas de filas.
+ *
+ * Devuelve **también los ocultos** (`activo = false`), misma doctrina que
+ * `listarGruposEnganchables`: esta lista es además el diccionario con el que la pantalla
+ * resuelve el nombre de un upsell ya guardado, así que filtrar aquí dejaría filas sin nombre.
+ * Quien filtra es la UI, y solo sobre lo que se puede AÑADIR.
+ */
+export type ProductoOfrecible = ProductoDeUpsell & { categoria: string };
+
+export async function listarProductosParaUpsell(storeId: string): Promise<ProductoOfrecible[]> {
+  return db
+    .select({
+      id: product.id,
+      nombre: product.nombre,
+      precioBase: product.precioBase,
+      activo: product.activo,
+      categoria: category.nombre,
+    })
+    .from(product)
+    .innerJoin(category, eq(category.id, product.categoryId))
+    .where(eq(product.storeId, storeId))
+    .orderBy(asc(category.orden), asc(category.nombre), asc(product.orden), asc(product.nombre));
 }
 
 /**
@@ -110,14 +174,54 @@ export async function nombresDeOpciones(
     .where(and(eq(modifierOption.storeId, storeId), eq(modifierOption.groupId, groupId)));
 }
 
-/** La lista a la que pertenece una opción, para poder buscar sus hermanas al renombrarla. */
-export async function listaDeOpcion(storeId: string, opcionId: string): Promise<string | null> {
+/**
+ * De qué tipo es una lista. `null` si no existe o es de otra tienda.
+ *
+ * Lo consulta el servidor antes de crear una opción: qué campos son obligatorios depende de
+ * esto, y el navegador manda **qué** quiere guardar, nunca **si** vale (regla 1 aplicada al
+ * catálogo).
+ */
+export async function tipoDeLista(
+  storeId: string,
+  groupId: string,
+): Promise<"seleccion" | "upsell" | null> {
   const [fila] = await db
-    .select({ groupId: modifierOption.groupId })
+    .select({ tipo: modifierGroup.tipo })
+    .from(modifierGroup)
+    .where(and(eq(modifierGroup.storeId, storeId), eq(modifierGroup.id, groupId)));
+
+  return fila?.tipo ?? null;
+}
+
+/** Los productos ya ofrecidos por una lista, para no enganchar el mismo dos veces. */
+export async function productosDeLista(
+  storeId: string,
+  groupId: string,
+): Promise<{ id: string; productoRef: string | null }[]> {
+  return db
+    .select({ id: modifierOption.id, productoRef: modifierOption.productoRef })
     .from(modifierOption)
+    .where(and(eq(modifierOption.storeId, storeId), eq(modifierOption.groupId, groupId)));
+}
+
+/**
+ * La lista a la que pertenece una opción, para poder buscar sus hermanas al renombrarla.
+ *
+ * Devuelve el **tipo** al lado y no solo el id: qué se puede hacer con una opción depende de
+ * si su lista ofrece texto o productos —guardar valida cosas distintas y quitar solo existe en
+ * las de upsell—, y eso se decide en el servidor, nunca creyéndole al navegador.
+ */
+export async function listaDeOpcion(
+  storeId: string,
+  opcionId: string,
+): Promise<{ id: string; tipo: "seleccion" | "upsell" } | null> {
+  const [fila] = await db
+    .select({ id: modifierGroup.id, tipo: modifierGroup.tipo })
+    .from(modifierOption)
+    .innerJoin(modifierGroup, eq(modifierGroup.id, modifierOption.groupId))
     .where(and(eq(modifierOption.storeId, storeId), eq(modifierOption.id, opcionId)));
 
-  return fila?.groupId ?? null;
+  return fila ?? null;
 }
 
 // ------------------------------------------------------------
@@ -125,15 +229,21 @@ export async function listaDeOpcion(storeId: string, opcionId: string): Promise<
 // ------------------------------------------------------------
 
 /**
- * Una lista nace vacía y de tipo `seleccion`.
+ * Una lista nace vacía, del tipo que se le pida.
  *
- * `upsell` no se crea desde aquí: sus opciones no son texto sino productos de la carta
- * (regla 8), y eso es otro editor. Las que ya existen se leen, pero no se crean.
+ * El `tipo` decide qué son sus opciones y no se puede cambiar después: en una `seleccion` son
+ * texto con precio —salsas, toppings, sabores— y en una `upsell` son punteros a productos de
+ * la carta (regla 8). Convertir una en otra dejaría opciones que no significan nada en su
+ * nuevo tipo; se archiva la vieja y se crea la nueva.
  */
-export async function crearLista(storeId: string, nombre: string): Promise<{ id: string }> {
+export async function crearLista(
+  storeId: string,
+  nombre: string,
+  tipo: "seleccion" | "upsell" = "seleccion",
+): Promise<{ id: string }> {
   const [fila] = await db
     .insert(modifierGroup)
-    .values({ storeId, nombre, tipo: "seleccion" })
+    .values({ storeId, nombre, tipo })
     .returning({ id: modifierGroup.id });
 
   return fila;
@@ -211,7 +321,7 @@ function ordenAlFinal(groupId: string) {
 export async function crearOpcion(
   storeId: string,
   groupId: string,
-  datos: { nombre: string; precioDelta: number },
+  datos: { nombre: string; precioDelta: number; productoRef?: string | null },
 ): Promise<{ id: string } | null> {
   return db.transaction(async (tx) => {
     const [lista] = await tx
@@ -221,6 +331,13 @@ export async function crearOpcion(
 
     if (!lista) return null;
 
+    // El producto que se ofrece se comprueba por lo mismo que el grupo: llega del navegador, y
+    // sin esto una opción podría apuntar al producto de otra tienda (regla 5). La FK sola no
+    // basta — es a `product.id`, que no sabe de tiendas.
+    if (datos.productoRef && !(await esProductoDeLaTienda(tx, storeId, datos.productoRef))) {
+      return null;
+    }
+
     const [fila] = await tx
       .insert(modifierOption)
       .values({
@@ -228,12 +345,27 @@ export async function crearOpcion(
         groupId,
         nombre: datos.nombre,
         precioDelta: datos.precioDelta,
+        productoRef: datos.productoRef ?? null,
         orden: ordenAlFinal(groupId),
       })
       .returning({ id: modifierOption.id });
 
     return fila;
   });
+}
+
+/** Si ese producto existe y es de esta tienda. Ver la llamada en `crearOpcion`. */
+async function esProductoDeLaTienda(
+  tx: Pick<typeof db, "select">,
+  storeId: string,
+  productId: string,
+): Promise<boolean> {
+  const [fila] = await tx
+    .select({ id: product.id })
+    .from(product)
+    .where(and(eq(product.storeId, storeId), eq(product.id, productId)));
+
+  return Boolean(fila);
 }
 
 /**
@@ -243,11 +375,46 @@ export async function crearOpcion(
 export async function actualizarOpcion(
   storeId: string,
   opcionId: string,
-  datos: { nombre: string; precioDelta: number },
+  datos: { nombre: string; precioDelta: number; productoRef?: string | null },
 ): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    if (datos.productoRef && !(await esProductoDeLaTienda(tx, storeId, datos.productoRef))) {
+      return false;
+    }
+
+    const filas = await tx
+      .update(modifierOption)
+      .set({
+        nombre: datos.nombre,
+        precioDelta: datos.precioDelta,
+        // `undefined` deja la columna como está: así una opción de salsa, que nunca manda este
+        // campo, no puede perder por accidente un `producto_ref` que no le corresponde tener.
+        productoRef: datos.productoRef,
+      })
+      .where(and(eq(modifierOption.storeId, storeId), eq(modifierOption.id, opcionId)))
+      .returning({ id: modifierOption.id });
+
+    return filas.length > 0;
+  });
+}
+
+/**
+ * El ÚNICO DELETE del archivo, y solo lo usan las listas de upsell — quien lo hace cumplir es
+ * `quitarOpcion` en las acciones.
+ *
+ * **No contradice la regla 9, que habla de catálogo.** Una salsa o un sabor son catálogo: al
+ * borrarlos se pierde lo que significaba un pedido viejo, y por eso se apagan. Una opción de
+ * upsell es *configuración de la oferta*: un puntero a un producto que sigue entero en la
+ * Carta con toda su historia, y lo único que desaparece al quitarla es que se ofrezca encima
+ * de un churro. Es el mismo trato que ya reciben los enganches, que `sincronizarEngancles`
+ * borra sin más al apagar un upsell en un producto.
+ *
+ * Y no rompe nada hacia atrás: **ninguna tabla apunta a `modifier_option.id`** —no hay una sola
+ * FK— porque lo que el pedido guarda son nombres y precios dentro del snapshot (regla 2).
+ */
+export async function eliminarOpcion(storeId: string, opcionId: string): Promise<boolean> {
   const filas = await db
-    .update(modifierOption)
-    .set({ nombre: datos.nombre, precioDelta: datos.precioDelta })
+    .delete(modifierOption)
     .where(and(eq(modifierOption.storeId, storeId), eq(modifierOption.id, opcionId)))
     .returning({ id: modifierOption.id });
 

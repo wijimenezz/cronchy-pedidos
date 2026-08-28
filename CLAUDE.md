@@ -267,6 +267,29 @@ regla 4, imposible de añadir al carrito. Por lo mismo `listarGruposEnganchables
 también las archivadas —es el diccionario con el que el panel resuelve el nombre de cada
 enganche ya guardado— y quien filtra es la UI, solo sobre lo que se puede **añadir**.
 
+**La excepción son las opciones de una lista `upsell`, y por el mismo criterio que
+`eliminarProducto`: esta regla habla de CATÁLOGO.** Una salsa o un sabor son catálogo — al
+borrarlos se pierde lo que significaba un pedido viejo, y por eso se apagan. Una opción de
+upsell no: es un **puntero** a un producto (regla 8), o sea configuración de la oferta, y
+quitarla solo deja de ofrecer algo que sigue entero en la Carta con todos sus pedidos. Es el
+mismo trato que ya reciben los enganches, que `sincronizarEngancles` **borra** sin más al apagar
+un upsell en un producto.
+
+Y no rompe nada hacia atrás porque **ninguna tabla apunta a `modifier_option.id`** —no hay una
+sola FK— ya que lo que el pedido guarda son nombres y precios dentro del snapshot (regla 2). El
+DELETE vive en `eliminarOpcion` y quien lo restringe al tipo `upsell` es `quitarOpcion`, en el
+servidor: la UI esconde el botón, pero una server action se invoca sin pasar por la pantalla
+(regla 12).
+
+**Esas listas se editan desde `/admin/opciones`, no desde la Carta.** Aquí llegó a decirse lo
+contrario —la propia pantalla mandaba a la Carta— y era falso: `/admin/productos` solo enciende
+y apaga la lista entera por producto, así que durante un tiempo la única forma de añadir una
+bebida al "¿Deseas agregar más churros?" fue un INSERT a mano. Lo que sí se edita en la Carta es
+el **producto**: su precio y su nombre, que es lo que el cliente acaba viendo (regla 8). El
+selector del panel ofrece la carta entera —incluidos los ocultos, mismo motivo que
+`listarGruposEnganchables`— y marca en rojo el que esté oculto: ofrecer algo que el cliente no
+puede ver deja la sección vacía sin explicación.
+
 ### 10. Mensajería: el texto y el transporte van separados
 
 El **contenido** de cada mensaje vive en `src/lib/notificaciones/plantillas.ts` y se
@@ -619,7 +642,7 @@ impresora.
 | `admin/pedidos`   | ver, aceptar, cambiar estado, imprimir, avisos, domiciliario | todo, más el rango de entrega estimada, el resumen del día y la descarga XLSX |
 | `admin/catalogo`  | switches `disponible` / `agotado` de productos y opciones    | igual                                                             |
 | `admin/productos` | solo Visible↔Agotado (ni ocultar ni reactivar)               | CRUD completo, precios, fotos (de producto y de categoría), categorías, enganches |
-| `admin/opciones`  | solo switch `disponible` (sabores de la semana)              | crear/renombrar/ordenar opciones, precio propio, archivar listas  |
+| `admin/opciones`  | solo switch `disponible` (sabores de la semana)              | crear/renombrar/ordenar opciones, precio propio, archivar listas; y en las listas de productos de la carta, elegir cuáles se ofrecen |
 | `admin/zonas`     | sin acceso (ni lectura)                                      | mapa: dibujar, editar vértices, precio, prioridad, activar/apagar |
 | `admin/cupones`   | sin acceso (ni lectura)                                      | crear cupones, porcentaje, a qué aplican, vencimiento, aviso de la carta, apagar |
 | `admin/ajustes`   | sin acceso (ni lectura)                                      | dirección y teléfono del local, con qué se paga (llave, titular, QR) y los nombres de barrio que OSM devuelve mal |

@@ -8,7 +8,7 @@ import {
   type PedidoParaMensaje,
   type Tienda,
 } from "./plantillas";
-import { obtenerTransporte, type ResultadoEnvio } from "./transporte";
+import { MAX_LONGITUD_URL, obtenerTransporte, type ResultadoEnvio } from "./transporte";
 import { obtenerUbicacionTienda } from "@/db/queries/store";
 import { resolverBaseUrl } from "@/lib/url";
 import { puntoDesdeGeoJSON } from "@/lib/zonas";
@@ -233,14 +233,37 @@ export async function avisoCambioEstado(
         }
       : { direccion: null, ubicacion: null };
 
-  const texto = cambioEstado(
-    estado,
-    pedidoParaMensaje(pedido),
-    tiendaParaMensaje(store),
-    estimadoDeEntrega(store),
-    recogida,
-  );
+  const paraMensaje = pedidoParaMensaje(pedido);
+  const tienda = tiendaParaMensaje(store);
+  const estimado = estimadoDeEntrega(store);
+  const ahora = new Date();
+
+  const texto = cambioEstado(estado, paraMensaje, tienda, estimado, recogida, ahora);
   if (!texto) return null;
 
-  return obtenerTransporte().preparar(pedido.clienteTelefono, texto);
+  const transporte = obtenerTransporte();
+  const resultado = await transporte.preparar(pedido.clienteTelefono, texto);
+
+  /**
+   * El aviso de aceptación lleva el detalle del pedido, así que crece con el carrito, y el
+   * transporte de hoy mete el texto entero dentro de una URL. Medido: desde cuatro productos
+   * pasa de los 1.800 caracteres, y con diez llega a 3.652.
+   *
+   * Se comprueba **aquí y no dentro de la plantilla** porque el límite es del transporte, no del
+   * mensaje: el día que se migre a la Cloud API (regla 10) esto sobra y el texto no cambia. Y se
+   * comprueba sobre la URL ya montada porque es ahí donde se paga el precio real —cada emoji son
+   * cuatro bytes que `encodeURIComponent` convierte en doce caracteres—.
+   *
+   * Lo que se cae es el detalle de productos, que es lo único que crece; el cliente lo sigue
+   * teniendo entero en el link de seguimiento que el propio mensaje incluye.
+   */
+  if (resultado.modo === "link" && resultado.url.length > MAX_LONGITUD_URL) {
+    const corto = cambioEstado(estado, paraMensaje, tienda, estimado, recogida, ahora, {
+      sinDetalle: true,
+    });
+
+    if (corto) return transporte.preparar(pedido.clienteTelefono, corto);
+  }
+
+  return resultado;
 }

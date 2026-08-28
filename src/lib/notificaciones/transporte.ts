@@ -15,7 +15,14 @@ import {
 
 // Límite conservador. Los links wa.me llevan el texto codificado en la
 // URL; pasado cierto tamaño WhatsApp lo trunca o el navegador lo rechaza.
-const MAX_LONGITUD_URL = 1800;
+/**
+ * Lo que puede medir la URL de `wa.me` antes de dejar de ser fiable.
+ *
+ * Se exporta porque **el mensaje que hoy crece es el de la aceptación**, y ese no pasa por
+ * `prepararConfirmacion`: lo arma `avisoCambioEstado`, que comprueba esto por su cuenta. Un tope
+ * que solo vigilara una función dejó pasar durante un tiempo un mensaje de 3.652 caracteres.
+ */
+export const MAX_LONGITUD_URL = 1800;
 
 export type ResultadoEnvio =
   /** Requiere que un humano toque el botón en el panel. */
