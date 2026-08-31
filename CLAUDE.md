@@ -113,7 +113,10 @@ src/
       entrega.ts              compone tienda + horario: qué se puede ofrecer hoy
     notificaciones/
       plantillas.ts           TEXTO de los mensajes — fuente única
-      transporte.ts           adaptador: whatsapp-link | whatsapp-api | telegram
+      transporte.ts           adaptador al cliente: whatsapp-link | whatsapp-api
+      avisos.ts               compone plantilla + transporte en cada cambio de estado
+      telegram.ts             aviso al NEGOCIO del pedido nuevo — canal propio, fuera de transporte.ts
+      push.ts                 Web Push al panel (VAPID)
     impresion/
       escpos.ts               LOS BYTES de la impresora térmica — puro, testeado
       comanda.ts              el ticket de cocina — puro, testeado
@@ -321,7 +324,7 @@ Tres detalles que no se deducen del código:
 El **contenido** de cada mensaje vive en `src/lib/notificaciones/plantillas.ts` y se
 genera siempre desde el `snapshot` del pedido, nunca consultando precios actuales.
 
-El **envío** pasa por `transporte.ts`, que expone `enviar(destino, mensaje)` y hoy
+El **envío** pasa por `transporte.ts`, que expone `preparar(telefono, texto)` y hoy
 implementa `whatsapp-link`: genera una URL `wa.me/57XXXXXXXXXX?text=...` que el panel
 abre con un toque desde el WhatsApp normal del negocio. Mañana puede implementar
 `whatsapp-api` sin tocar ni una plantilla. Nunca llames a un proveedor de mensajería
@@ -347,6 +350,13 @@ idempotencia (regla 11) se cierra antes de enviar. No lo reimplementes llamando 
 `cambioEstado` con un pedido de mentira: eso se hacía antes y reventó en cuanto una plantilla
 empezó a leer el total. Y no lo dupliques en la UI: `avisoPendiente` sale de `llevaAviso` en la
 consulta del panel, así que quitar un estado de `TEXTO_ESTADO` borra su botón "Avisar" solo.
+
+**Telegram y Web Push no pasan por ese adaptador, y es deliberado.** `transporte.ts` adapta un
+mismo mensaje **al cliente** a distintos canales. Telegram es otra cosa: un canal propio del
+**negocio**, con su destino (un chat, no un teléfono), su formato (HTML) y su botón al panel, y
+lleva datos de caja que no tienen por qué existir en un aviso al cliente. Lo dispara
+`POST /api/pedidos` junto al push, en un `Promise.allSettled` y **después** de crear el pedido: un
+fallo avisando no puede convertirse en un error del checkout de quien acaba de pagar.
 
 Formato: texto plano, `*negrita*` de WhatsApp, separadores `--------------------------------`.
 
@@ -969,12 +979,34 @@ dejaría fuera los demás casos en que Chrome lo permite. El botón sigue existi
 trabajo principal es **apagarlo**.
 
 **Y la alarma propia solo suena con la página viva.** Con el empleado en otra aplicación —AppSheet,
-el navegador— quien avisa es la notificación del sistema con el tono de Android, no los 3100 Hz que
-se diseñaron para oírse sobre la freidora. **No tiene arreglo por código**: un service worker puede
-mostrar notificaciones, pero no reproducir audio. Por eso `sw.js` pide `vibrate` —lo único de ese
-canal que la web controla, y aun así una petición que los ajustes del teléfono pueden ignorar—, y
-lo demás (importancia del canal, sonido propio, quitar la app del ahorro de batería) se ajusta en
-Android y no aquí.
+el navegador— la página está congelada: los temporizadores se paran, así que el polling ni siquiera
+se entera del pedido. Aquí decía que eso «no tiene arreglo por código», y hay que matizarlo en dos
+direcciones porque tal cual llevaba a la conclusión equivocada.
+
+**Lo que sigue siendo cierto**: un service worker puede mostrar notificaciones pero **no reproducir
+audio**, y una notificación web **no puede elegir su sonido** (`sound` no está implementado en
+ningún navegador). Por eso `sw.js` solo pide `vibrate`.
+
+**La solución de verdad no es hacer sonar la página, es hacer sonar a Android.** `tono.ts` exporta
+la alarma de 3100 Hz a un WAV desde el botón «Tono para Android» del tablero, y ese archivo se pone
+como sonido del canal de notificaciones de la app instalada. Entonces suena el mismo aviso con el
+panel en segundo plano, **cerrado del todo** y con No molestar, porque lo toca el sistema operativo.
+El procedimiento completo está en `docs/avisos-android.md`; sin ese documento el ajuste se pierde,
+que es lo que pasaba antes. El archivo y el pitido en vivo salen de las **mismas líneas**
+(`programarAlarma`): divergir sería enseñarle al empleado un sonido que el panel no hace.
+
+**Y sí hay dos cosas que el código sí puede hacer**, las dos best-effort y ninguna sustituto de lo
+anterior:
+
+- **El push despierta a la página.** `sw.js` hace `postMessage` a la ventana del panel además de
+  mostrar la notificación, y el tablero refresca al recibirlo. Es el único evento que llega con los
+  temporizadores congelados, porque lo entrega Android. Solo **refresca**: quien decide si algo es
+  nuevo y suena sigue siendo `idsNuevos`, para no tener dos fuentes de esa verdad.
+- **La sesión de medios.** El testigo inaudible de Web Audio no basta en Android —lo que impide
+  congelar el proceso es tener el **foco de audio**, y ese lo toma un elemento de medios, no un
+  `OscillatorNode`—, así que `iniciarMantenerDespierto` reproduce además un WAV mudo en bucle y
+  declara `navigator.mediaSession`. El precio es un aviso permanente de "reproduciendo" en Android,
+  que además es la señal visible de que la alarma está armada.
 
 **El volumen del aviso no sale de la ganancia, y por eso está escrito.** El pitido original —dos
 notas triangulares a 880 y 1320 Hz con la ganancia en `0.35`— no se oía en la tablet del mostrador,
