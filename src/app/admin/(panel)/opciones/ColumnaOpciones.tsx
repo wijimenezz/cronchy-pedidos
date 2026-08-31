@@ -185,7 +185,7 @@ export function ColumnaOpciones({
                       onClick={() => setEditandoId(opcion.id)}
                       aria-label={
                         ofreceProductos
-                          ? `Cambiar el producto de ${opcion.nombre}`
+                          ? `Editar ${nombreVisible(opcion)}`
                           : `Editar ${opcion.nombre}`
                       }
                       className="flex size-9 shrink-0 items-center justify-center rounded-full text-cafe-tenue transition-colors hover:bg-crema hover:text-cafe"
@@ -210,13 +210,13 @@ export function ColumnaOpciones({
                     <span className="flex shrink-0 flex-col">
                       <BotonOrden
                         direccion="subir"
-                        nombre={opcion.nombre}
+                        nombre={nombreVisible(opcion)}
                         onClick={() => mover(i, -1)}
                         deshabilitado={pendiente || i === 0}
                       />
                       <BotonOrden
                         direccion="bajar"
-                        nombre={opcion.nombre}
+                        nombre={nombreVisible(opcion)}
                         onClick={() => mover(i, 1)}
                         deshabilitado={pendiente || i === lista.opciones.length - 1}
                       />
@@ -331,6 +331,18 @@ function EditorAyuda({ lista }: { lista: ListaDelPanel }) {
  */
 function nombreVisible(opcion: OpcionDelPanel): string {
   return opcion.producto?.nombre ?? opcion.nombre;
+}
+
+/**
+ * El precio de un upsell, con el mismo criterio que `nombreVisible`: manda el `precio_base` del
+ * producto, que es lo que se cobra (regla 8), y no el `precioDelta` de la fila.
+ *
+ * Ese delta es una copia que envejece —ver `datosSegunTipo`— y ahora mismo miente: el Churro Loop
+ * lo tiene en 0 con el producto a $4.000. Arrancar el formulario con él pondría el campo en $0 y
+ * bastaría con guardar sin mirar para regalar el producto en toda la Carta.
+ */
+function precioVisible(opcion: OpcionDelPanel): number {
+  return opcion.producto?.precioBase ?? opcion.precioDelta;
 }
 
 /**
@@ -600,7 +612,23 @@ function SelectorProducto({
 
 /** Lo que hay que saber antes de elegir, y que no se deduce del desplegable. */
 const AYUDA_PRODUCTO =
-  "El cliente lo verá con el precio que tenga en la Carta, y llegará al pedido como una línea aparte. Para cambiarle el precio o el nombre, ve a la Carta.";
+  "El cliente lo verá con el precio que tenga en la Carta, y llegará al pedido como una línea aparte. Para cambiarle el precio, ve a la Carta.";
+
+/**
+ * Lo mismo, más el alcance de la edición. Es una constante aparte de `AYUDA_PRODUCTO` porque en
+ * el alta no hay ni nombre ni precio: prometer ahí que se pueden cambiar sería mentir.
+ *
+ * El aviso no es un adorno, y dice las dos cosas que no se ven en esta pantalla. La primera es
+ * que aquí no se le pone un apodo ni una tarifa a la fila: se está editando el producto de la
+ * Carta, y quien pulsa el lápiz está mirando una lista de upsell. La segunda es el precio de un
+ * producto con tamaños —la Porción de Helado sale a $0 en la fila— donde el cliente paga este
+ * más el del tamaño (`precioDesde`), así que la cifra de aquí no es la que él ve.
+ *
+ * **No sirve `AYUDA_PRECIO`**: ese habla del `precio_delta` de un adicional (regla 3), que es
+ * otra cifra distinta.
+ */
+const AYUDA_NOMBRE_PRODUCTO =
+  "Son el nombre y el precio del producto en la Carta: al cambiarlos aquí cambian en toda la tienda, no solo en esta lista. Si el producto tiene tamaños, el cliente paga este precio más el del tamaño que elija.";
 
 function FormularioNuevoProducto({
   groupId,
@@ -683,11 +711,15 @@ function FormularioNuevoProducto({
 }
 
 /**
- * Cambiar a qué producto apunta una opción ya ofrecida.
+ * Cambiar qué producto ofrece una opción ya puesta, y editarle el nombre y el precio.
  *
- * No hay campo de nombre, y no es un olvido: el nombre lo pone el producto y el servidor lo
- * reescribe al guardar. Editarlo aquí solo serviría para que la fila dijera una cosa y el
- * pedido otra.
+ * Los dos campos escriben en el PRODUCTO de la Carta, no en la fila de la lista: en una lista de
+ * upsell no hay dos cosas que nombrar ni dos precios que cobrar, la opción *es* el producto
+ * (regla 8). Guardarlos aparte dejaría al cliente pidiendo "Agua Cristal 600 ml" y al ticket
+ * diciendo "Agua 600 ml"; el porqué largo está en el docblock de `guardarOpcion`.
+ *
+ * Arrancan con lo del producto y no con lo de la fila (`nombreVisible` / `precioVisible`), porque
+ * la copia de la fila envejece si alguien lo editó en la Carta (ver `datosSegunTipo`).
  */
 function FormularioCambiarProducto({
   opcion,
@@ -700,12 +732,40 @@ function FormularioCambiarProducto({
 }) {
   const [pendiente, iniciar] = useTransition();
   const [productoRef, setProductoRef] = useState(opcion.productoRef ?? "");
+  const [nombre, setNombre] = useState(nombreVisible(opcion));
+  const [precio, setPrecio] = useState(String(precioVisible(opcion)));
   const [error, setError] = useState<string | null>(null);
+
+  /**
+   * Elegir otro producto reescribe el nombre y el precio con los suyos.
+   *
+   * Es lo único de esta pantalla que puede hacer daño de verdad: sin esto, cambiar el
+   * desplegable con los campos llenos de los valores anteriores le escribiría el nombre y el
+   * precio del producto que se acaba de soltar al que se acaba de elegir, en toda la Carta.
+   */
+  function elegirProducto(id: string) {
+    setProductoRef(id);
+    const elegido = productos.find((p) => p.id === id);
+    if (elegido) {
+      setNombre(elegido.nombre);
+      setPrecio(String(elegido.precioBase));
+    }
+  }
+
+  const cambioAlgo =
+    productoRef !== opcion.productoRef ||
+    nombre.trim() !== nombreVisible(opcion) ||
+    Number(precio) !== precioVisible(opcion);
 
   function guardar() {
     setError(null);
     iniciar(async () => {
-      const resultado = await guardarOpcion({ id: opcion.id, productoRef });
+      const resultado = await guardarOpcion({
+        id: opcion.id,
+        productoRef,
+        nombre,
+        precioBase: Number(precio) || 0,
+      });
       if (resultado.ok) onCerrar();
       else setError(resultado.error);
     });
@@ -714,19 +774,46 @@ function FormularioCambiarProducto({
   return (
     <div className="flex flex-col gap-2 py-2">
       <div className="flex items-end gap-2">
-        <div className="min-w-0 flex-1">
+        {/* Con tres controles apilados las etiquetas dejan de ser opcionales: el lío que esto
+            arregla era justo no saber qué hacía el desplegable cuando estaba solo. `CampoPrecio`
+            trae la suya, así que la de arriba cubre el nombre y el precio juntos. */}
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <label
+            htmlFor={`nombre-upsell-${opcion.id}`}
+            className="font-cuerpo text-[13px] font-bold text-cafe-suave"
+          >
+            Cómo se llama y cuánto vale
+          </label>
+          <div className="flex flex-wrap items-end gap-2">
+            <input
+              autoFocus
+              id={`nombre-upsell-${opcion.id}`}
+              value={nombre}
+              onChange={(e) => setNombre(e.target.value)}
+              maxLength={80}
+              className="min-h-11 min-w-0 flex-1 rounded-sm border border-crema-oscura bg-tarjeta px-2 font-cuerpo text-[15px] text-cafe focus:outline-none focus:ring-2 focus:ring-naranja"
+            />
+            <CampoPrecio valor={precio} onChange={setPrecio} />
+          </div>
+
+          <label
+            htmlFor={`upsell-${opcion.id}`}
+            className="font-cuerpo text-[13px] font-bold text-cafe-suave"
+          >
+            Qué producto ofrece
+          </label>
           <SelectorProducto
             id={`upsell-${opcion.id}`}
             productos={productos}
             valor={productoRef}
-            onChange={setProductoRef}
+            onChange={elegirProducto}
           />
         </div>
         <button
           type="button"
           onClick={guardar}
-          disabled={pendiente || !productoRef || productoRef === opcion.productoRef}
-          aria-label="Guardar el producto"
+          disabled={pendiente || !productoRef || !nombre.trim() || !cambioAlgo}
+          aria-label="Guardar los cambios del producto"
           className="flex size-11 shrink-0 items-center justify-center rounded-full text-exito transition-colors hover:bg-crema disabled:opacity-40"
         >
           <Check className="size-5" />
@@ -741,7 +828,7 @@ function FormularioCambiarProducto({
         </button>
       </div>
 
-      <p className="font-cuerpo text-[13px] text-cafe-tenue">{AYUDA_PRODUCTO}</p>
+      <p className="font-cuerpo text-[13px] text-cafe-tenue">{AYUDA_NOMBRE_PRODUCTO}</p>
 
       {error && (
         <p role="alert" className="font-cuerpo text-[13px] font-semibold text-error">
