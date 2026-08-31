@@ -301,6 +301,30 @@ export async function actualizarProducto(
   });
 }
 
+/**
+ * Nombre y precio, y nada más. Existe aparte de `actualizarProducto` porque quien la llama no es
+ * el formulario del detalle sino el lápiz de una opción de upsell en `/admin/opciones`: ahí lo
+ * que se está editando ES el producto (regla 8), y no hay categoría, descripción ni switches que
+ * mandar. Pasar por el formulario entero obligaría a reenviar campos que nadie tocó.
+ *
+ * Los dos campos van juntos en un solo UPDATE porque el formulario los guarda de una.
+ *
+ * El `slug` no se toca, por el mismo motivo que en `actualizarProducto`: es una URL pública.
+ */
+export async function actualizarProductoOfrecido(
+  storeId: string,
+  productId: string,
+  datos: { nombre: string; precioBase: number },
+): Promise<boolean> {
+  const filas = await db
+    .update(product)
+    .set({ nombre: datos.nombre, precioBase: datos.precioBase })
+    .where(and(eq(product.storeId, storeId), eq(product.id, productId)))
+    .returning({ id: product.id });
+
+  return filas.length > 0;
+}
+
 export async function cambiarSlugProducto(
   storeId: string,
   productId: string,
