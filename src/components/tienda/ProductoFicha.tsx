@@ -1087,18 +1087,30 @@ export function ProductoFicha({
             <X className="size-4" />
           </button>
 
-          <div className="absolute inset-0 overflow-y-auto">
-            {/* **`pointer-events-none` es lo que hace que el carrusel funcione en el teléfono.**
-                Esta capa se pinta ENCIMA de la foto (es hermana posterior y va en absoluto), así
-                que sus primeros 288 px son transparentes pero capturaban el gesto: al deslizar
-                sobre la foto, el dedo lo recibía este contenedor —que solo hace scroll vertical—
-                y las fotos 2 y 3 eran inalcanzables. Los puntos tampoco se podían tocar.
+          {/* **El `pointer-events-none` de aquí es lo que hace que el carrusel funcione en el
+              teléfono, y va en ESTE contenedor y no en el espaciador de abajo.**
 
-                El precio es que arrastrar en vertical SOBRE LA FOTO ya no sube la información;
-                hay que arrastrar sobre la información. Es como se comporta cualquier galería, y
-                es lo que cuesta que la foto responda al dedo. */}
-            <div className="h-72 pointer-events-none" aria-hidden />
-            <div className="relative rounded-t-lg bg-tarjeta px-5 py-4">
+              Esta capa se pinta ENCIMA de la foto (es hermana posterior y va en absoluto), así
+              que sus primeros 288 px son transparentes pero capturaban el gesto: al deslizar
+              sobre la foto, el dedo lo recibía este contenedor —que solo hace scroll vertical—
+              y las fotos 2 y 3 eran inalcanzables. Los puntos tampoco se podían tocar.
+
+              **Ponerlo en el espaciador no bastaba, y ese fue el arreglo que se dio por bueno
+              sin serlo**: `pointer-events: none` en un hijo no hace transparente al padre. El
+              hit-test saltaba el espaciador y acto seguido encontraba a este `inset-0`, que tiene
+              su propia caja cubriendo el contenedor entero, y le entregaba el gesto igual. El
+              síntoma era idéntico al original, así que parecía que la propiedad no servía.
+
+              El scroll de la información sigue vivo porque el gesto se hit-testea sobre el panel
+              blanco —que sí es tocable— y el navegador busca hacia arriba el ancestro con scroll:
+              tener `pointer-events: none` impide ser el OBJETIVO de un gesto, no desplazarse.
+
+              El precio es que arrastrar en vertical SOBRE LA FOTO ya no sube la información;
+              hay que arrastrar sobre la información. Es como se comporta cualquier galería, y
+              es lo que cuesta que la foto responda al dedo. */}
+          <div className="pointer-events-none absolute inset-0 overflow-y-auto">
+            <div className="h-72" aria-hidden />
+            <div className="pointer-events-auto relative rounded-t-lg bg-tarjeta px-5 py-4">
               {infoContenido}
             </div>
           </div>

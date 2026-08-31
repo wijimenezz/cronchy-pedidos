@@ -120,9 +120,11 @@ export function CarruselFotos({
       {/* **Estos puntos dependen de que la ficha NO les robe el gesto**, y aquí llegó a estar
           escrito que en el teléfono eran solo un indicador porque el panel de información —un
           hermano posterior en absoluto— capturaba el toque con su espaciador transparente. Era
-          cierto, y era peor de lo que decía: ese mismo espaciador se comía también el deslizar,
-          así que el carrusel no funcionaba de ninguna de las dos formas y solo se veía la
-          portada. Se arregla con `pointer-events-none` en el espaciador, del lado de la ficha.
+          cierto, y era peor de lo que decía: esa misma capa se comía también el deslizar, así que
+          el carrusel no funcionaba de ninguna de las dos formas y solo se veía la portada. Se
+          arregla con `pointer-events-none` en el **contenedor de scroll** de la ficha —no en el
+          espaciador, que fue el primer intento y no bastaba— y `pointer-events-auto` de vuelta en
+          el panel blanco. El porqué está entero allá.
 
           Lo que sigue valiendo de aquella nota es la advertencia: **no los subas con `z-20`**
           como el botón de cerrar. Los haría tocables por su cuenta, sí, pero también los dejaría
