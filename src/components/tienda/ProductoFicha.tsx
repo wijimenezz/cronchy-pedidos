@@ -609,6 +609,24 @@ function FilaUpsell({
   );
 }
 
+/**
+ * La caja de la foto en el layout móvil, y **el espaciador que la reserva**. Los dos usan esta
+ * constante porque tienen que medir exactamente lo mismo: si se separan, el panel blanco tapa
+ * parte de la foto o deja un hueco de fondo entre las dos. Antes eran dos `h-72` iguales por
+ * casualidad, que es un acoplamiento que no se ve al editar uno solo.
+ *
+ * **Es cuadrada para que una foto cuadrada se vea COMPLETA.** Era `h-72` —288 px sobre un ancho
+ * de 390—, o sea apaisada, y con `object-cover` eso recortaba el 26% de una foto cuadrada por
+ * arriba y por abajo. Cuadrada aquí y en la tarjeta de la carta, las dos superficies que se miran
+ * desde el teléfono, la foto que se sube es la que se ve. Cuesta ~100 px de información visible
+ * antes de subir el panel, y ese es el precio aceptado.
+ *
+ * El `max-h` no hace nada en un teléfono en vertical (en 390×844 son 506 px contra una foto de
+ * 390). Está para el caso apaisado, donde una caja cuadrada se comería el modal entero; al
+ * activarse la foto vuelve a recortar, que es la degradación correcta.
+ */
+const CAJA_FOTO_MOVIL = "aspect-square max-h-[60vh]";
+
 export function ProductoFicha({
   productId,
   onClose,
@@ -1071,12 +1089,13 @@ export function ProductoFicha({
             el panel de info es una capa aparte encima, con su propio scroll —
             por eso su contenido sube y tapa la foto al hacer scroll down. */}
         <div className="relative flex-1 overflow-hidden lg:hidden">
-          {/* Sin flechas: aquí se pasa la foto con el dedo, y dos botones sobre una caja de
-              288 px taparían justo lo que se está mirando. */}
+          {/* Sin flechas: aquí se pasa la foto con el dedo, y dos botones flotando sobre la foto
+              taparían justo lo que se está mirando —más ahora que la caja es cuadrada y el
+              producto cae en el centro—. En escritorio sí van, porque el ratón no desliza. */}
           <CarruselFotos
             fotos={producto.fotos}
             nombre={producto.nombre}
-            className="absolute inset-x-0 top-0 h-72"
+            className={`absolute inset-x-0 top-0 ${CAJA_FOTO_MOVIL}`}
           />
           <button
             type="button"
@@ -1091,9 +1110,9 @@ export function ProductoFicha({
               teléfono, y va en ESTE contenedor y no en el espaciador de abajo.**
 
               Esta capa se pinta ENCIMA de la foto (es hermana posterior y va en absoluto), así
-              que sus primeros 288 px son transparentes pero capturaban el gesto: al deslizar
-              sobre la foto, el dedo lo recibía este contenedor —que solo hace scroll vertical—
-              y las fotos 2 y 3 eran inalcanzables. Los puntos tampoco se podían tocar.
+              que la parte que le corresponde a la foto es transparente pero capturaba el gesto:
+              al deslizar sobre ella, el dedo lo recibía este contenedor —que solo hace scroll
+              vertical— y las fotos 2 y 3 eran inalcanzables. Los puntos tampoco se podían tocar.
 
               **Ponerlo en el espaciador no bastaba, y ese fue el arreglo que se dio por bueno
               sin serlo**: `pointer-events: none` en un hijo no hace transparente al padre. El
@@ -1108,8 +1127,15 @@ export function ProductoFicha({
               El precio es que arrastrar en vertical SOBRE LA FOTO ya no sube la información;
               hay que arrastrar sobre la información. Es como se comporta cualquier galería, y
               es lo que cuesta que la foto responda al dedo. */}
-          <div className="pointer-events-none absolute inset-0 overflow-y-auto">
-            <div className="h-72" aria-hidden />
+          {/* La barra de scroll se oculta, y no es estética: el espaciador de abajo saca su alto
+              de SU ancho (`aspect-square`), así que una barra clásica de 15 px lo dejaba 15 px
+              más corto que la foto y el panel blanco se le solapaba. Con `h-72` fijo daba igual
+              el ancho; ahora no. En táctil la barra ya flota y no reserva sitio, así que esto
+              solo cambia algo en escritorio angosto — que es justo donde se veía el solape. */}
+          <div className="pointer-events-none absolute inset-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {/* Reserva el hueco de la foto. Misma constante que el carrusel a propósito: ver
+                `CAJA_FOTO_MOVIL`. */}
+            <div className={CAJA_FOTO_MOVIL} aria-hidden />
             <div className="pointer-events-auto relative rounded-t-lg bg-tarjeta px-5 py-4">
               {infoContenido}
             </div>
