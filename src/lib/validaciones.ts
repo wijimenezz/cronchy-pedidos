@@ -51,6 +51,72 @@ const opcional = <T extends z.ZodTypeAny>(schema: T) =>
 const textoOpcional = (max: number) =>
   opcional(z.string().trim().max(max, `Máximo ${max} caracteres`));
 
+// ------------------------------------------------------------
+// Qué caracteres admite cada tipo de campo
+// ------------------------------------------------------------
+
+/**
+ * Listas de permitidos, no de prohibidos: enumerar lo que se acepta cierra la puerta a lo que
+ * nadie previó, y lo contrario obliga a acordarse de cada símbolo raro.
+ *
+ * **Rangos Unicode explícitos y bandera `u`, nunca `\w` ni `[a-z]`.** Esos dos dejan fuera las
+ * tildes y la ñ, así que con ellos "José Ramírez" y "Ana María Peña" serían nombres inválidos —
+ * en Fusagasugá eso es la mitad de los clientes.
+ */
+const SOLO_LETRAS = /^[\p{L}\s]+$/u;
+const LETRAS_Y_NUMEROS = /^[\p{L}\p{N}\s]+$/u;
+/** Dirección: además de letras y números, lo que lleva una dirección de verdad. */
+const DIRECCION = /^[\p{L}\p{N}\s#.,-]+$/u;
+/** Texto que escribe el cliente a mano. Puntuación normal y nada de `< > { } \ | $ \``. */
+const TEXTO_LIBRE = /^[\p{L}\p{N}\s,.:;()/'"-]+$/u;
+const ALFANUMERICO = /^[\p{L}\p{N}]+$/u;
+
+/**
+ * Se normaliza **antes** de validar, no después: así "  Juan   Pérez  " se mide y se guarda como
+ * "Juan Pérez", y un campo con solo espacios cuenta como vacío en vez de pasar el `min`.
+ */
+const normalizar = (v: unknown) =>
+  typeof v === "string" ? v.trim().replace(/\s+/g, " ") : v;
+
+const texto = <T extends z.ZodTypeAny>(schema: T) => z.preprocess(normalizar, schema);
+
+const textoOpcionalCon = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess(normalizar, opcional(schema));
+
+/**
+ * Un nombre de persona: solo letras y espacios, de 3 a 60.
+ *
+ * El mínimo de 3 es deliberado y descarta "Jo" y "A". No es un capricho de formato: ese nombre lo
+ * lee quien entrega el pedido y quien lo prepara, y una inicial suelta no le sirve a ninguno.
+ */
+const nombrePersona = (etiqueta: string) =>
+  z
+    .string({ error: REQUERIDO })
+    .min(1, REQUERIDO)
+    .min(3, `${etiqueta} debe tener al menos 3 letras`)
+    .max(60, "Máximo 60 caracteres")
+    .regex(SOLO_LETRAS, `${etiqueta} solo puede contener letras`);
+
+/**
+ * Un teléfono del cliente.
+ *
+ * Los espacios, guiones y paréntesis se quitan **antes** de validar, así que "310 123 4567" y
+ * "(310) 123-4567" entran igual que "3101234567".
+ *
+ * **`esTelefonoValido` es lo que exige que sea un celular colombiano** —10 dígitos empezando por
+ * 3—. Para aceptar cualquier número de 10 dígitos basta con quitar ese `.refine`: el `regex` de
+ * arriba ya garantiza la forma. Hoy no se quita porque este número es el que arma el `wa.me/57…`
+ * del pedido (regla 10), y a un fijo no le llegaría ningún aviso.
+ */
+const telefono = z.preprocess(
+  (v) => (typeof v === "string" ? v.replace(/[\s\-().]/g, "") : v),
+  z
+    .string({ error: REQUERIDO })
+    .min(1, REQUERIDO)
+    .regex(/^\d{10}$/, "El teléfono debe tener 10 dígitos")
+    .refine(esTelefonoValido, "Debe ser un celular colombiano: empieza por 3"),
+);
+
 /**
  * El formato `YYYY-MM-DD` no garantiza que la fecha exista: ante un 31 de febrero,
  * `new Date` desborda al 3 de marzo sin avisar. Se reconstruye y se compara para
@@ -117,18 +183,10 @@ export const crearPedidoSchema = z
     // El `error` del constructor cubre el campo ausente (undefined), que no llega a los
     // checks; el `min(1)` cubre el string vacío. Sin el primero, un campo que no viaja
     // responde "Invalid input: expected string, received undefined".
-    clienteNombre: z
-      .string({ error: REQUERIDO })
-      .trim()
-      .min(1, REQUERIDO)
-      .max(120, "Máximo 120 caracteres"),
-    // El `min(1)` va antes del refine para que un campo en blanco diga "Campo requerido"
-    // y no "Teléfono inválido", que suena a que lo escribió mal.
-    clienteTelefono: z
-      .string({ error: REQUERIDO })
-      .trim()
-      .min(1, REQUERIDO)
-      .refine(esTelefonoValido, "Teléfono inválido"),
+    clienteNombre: texto(nombrePersona("El nombre")),
+    // El `min(1)` va antes del resto para que un campo en blanco diga "Campo requerido" y no
+    // "El teléfono debe tener 10 dígitos", que suena a que lo escribió mal.
+    clienteTelefono: telefono,
     clienteEmail: opcional(
       z.string().trim().email("Correo inválido").max(160, "Máximo 160 caracteres"),
     ),
@@ -138,8 +196,9 @@ export const crearPedidoSchema = z
         .regex(/^\d{4}-\d{2}-\d{2}$/, "Fecha inválida")
         .refine(esFechaRealYPasada, "Fecha inválida"),
     ),
-    recibeNombre: textoOpcional(120),
-    recibeTelefono: opcional(z.string().trim().refine(esTelefonoValido, "Teléfono inválido")),
+    // Las mismas reglas que los del cliente: son los mismos datos y alimentan el mismo WhatsApp.
+    recibeNombre: textoOpcionalCon(nombrePersona("El nombre")),
+    recibeTelefono: opcional(telefono),
     /**
      * El pin que el cliente confirmó (regla 14). El servidor vuelve a resolver la zona con
      * estas coordenadas: no llega ni el id de la zona ni el precio, porque el cliente no
@@ -151,7 +210,18 @@ export const crearPedidoSchema = z
         lng: z.number().min(-180).max(180),
       })
       .optional(),
-    direccion: textoOpcional(280),
+    /**
+     * Opcional **en el objeto**, obligatoria en domicilio: eso lo decide el `superRefine` del
+     * final, porque en `recoger` esta dirección no existe. Si se vuelve requerida aquí, recoger
+     * deja de poder pedirse.
+     */
+    direccion: textoOpcionalCon(
+      z
+        .string()
+        .min(5, "La dirección debe tener al menos 5 caracteres")
+        .max(120, "Máximo 120 caracteres")
+        .regex(DIRECCION, "La dirección solo admite letras, números y # - . ,"),
+    ),
     /**
      * El barrio que dejó escrito el cliente. Lo sugiere el pin (OSM) pero se guarda lo que él
      * confirme: el destinatario de este texto es el domiciliario, y lo que le sirve es el
@@ -160,8 +230,20 @@ export const crearPedidoSchema = z
      * No se confunde con `zona_nombre`, que es la zona que cobró el domicilio (regla 13) y no
      * viaja nunca en el request: el cliente no decide cuánto cuesta su domicilio (regla 1).
      */
-    barrio: textoOpcional(120),
-    indicaciones: textoOpcional(280),
+    barrio: textoOpcionalCon(
+      z
+        .string()
+        .min(3, "El barrio debe tener al menos 3 caracteres")
+        .max(60, "Máximo 60 caracteres")
+        // Números incluidos: "La Palma 2" y "Ciudad Jardín II" son nombres reales de barrio.
+        .regex(LETRAS_Y_NUMEROS, "El barrio solo puede contener letras y números"),
+    ),
+    indicaciones: textoOpcionalCon(
+      z
+        .string()
+        .max(200, "Máximo 200 caracteres")
+        .regex(TEXTO_LIBRE, "Las indicaciones tienen un símbolo que no podemos guardar"),
+    ),
     /**
      * La hora que el cliente eligió, en ISO 8601. Ausente = "lo más pronto posible".
      *
@@ -177,9 +259,12 @@ export const crearPedidoSchema = z
      * Con cuánto piensa pagar, para que el domiciliario lleve la devuelta. Opcional: ausente
      * significa "no lo dijo".
      *
-     * **No se compara contra el total** y no es un descuido: el total lo calcula el servidor
-     * desde la base (regla 1) y este esquema no lo conoce ni debe. Si el cliente escribe menos
-     * de lo que cuesta, el panel muestra el número tal cual y no inventa una devuelta negativa.
+     * **Aquí no se compara contra el total, y no es un olvido: este esquema no lo conoce ni
+     * debe.** El total lo calcula el servidor desde la base (regla 1), así que la comparación
+     * vive en los dos sitios que sí lo tienen — el checkout contra `totalAPagar` para avisar en
+     * el momento, y `POST /api/pedidos` contra el total que acaba de recalcular, que es el que
+     * manda. Meterla en Zod exigiría mandar el total en el request, o sea dejar que el navegador
+     * dijera cuánto cuesta su pedido.
      */
     pagaCon: opcional(
       z
@@ -205,8 +290,22 @@ export const crearPedidoSchema = z
      * manda *cuál* código, nunca *cuánto* vale. Escribir esas reglas en Zod sería una segunda
      * fuente de verdad que envejece sola en cuanto alguien apague el cupón desde el panel.
      */
-    cupon: opcional(z.string().trim().max(24, "Ese cupón no existe").transform(normalizarCodigo)),
-    notas: textoOpcional(280),
+    cupon: textoOpcionalCon(
+      z
+        .string()
+        .min(3, "El cupón debe tener al menos 3 caracteres")
+        .max(20, "Máximo 20 caracteres")
+        .regex(ALFANUMERICO, "El cupón no lleva espacios ni símbolos")
+        // `normalizarCodigo` ya pasa a MAYÚSCULAS: lo que viaja y se guarda es el valor
+        // normalizado, no lo que se vea en pantalla.
+        .transform(normalizarCodigo),
+    ),
+    notas: textoOpcionalCon(
+      z
+        .string()
+        .max(100, "Máximo 100 caracteres")
+        .regex(TEXTO_LIBRE, "Las notas tienen un símbolo que no podemos guardar"),
+    ),
     /**
      * El visto bueno del tratamiento de datos. Obligatorio y solo `true`: un pedido sin
      * consentimiento no se crea.

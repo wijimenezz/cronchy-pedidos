@@ -268,10 +268,13 @@ describe("crearPedidoSchema", () => {
   });
 
   // Un teléfono escrito mal no es lo mismo que uno vacío: el mensaje debe distinguirlo.
+  // El mensaje dice QUÉ está mal, no que el campo "es inválido": con "123" a la vista, saber que
+  // faltan dígitos es lo único accionable.
   it("distingue un teléfono mal escrito de uno vacío", () => {
     expect(mensajeDe(payloadBase({ clienteTelefono: "123" }), "clienteTelefono")).toBe(
-      "Teléfono inválido",
+      "El teléfono debe tener 10 dígitos",
     );
+    expect(mensajeDe(payloadBase({ clienteTelefono: "" }), "clienteTelefono")).toBe(REQUERIDO);
   });
 
   it("ningún mensaje sale en inglés", () => {
@@ -382,5 +385,186 @@ describe("aceptaAvisos", () => {
     expect(crearPedidoSchema.safeParse(payloadBase({ aceptaAvisos: "no" })).success).toBe(
       false,
     );
+  });
+});
+
+// ------------------------------------------------------------
+// Los caracteres que admite cada campo
+// ------------------------------------------------------------
+
+/**
+ * Antes de esto los campos solo tenían un tope de largo, así que `Juan123` y una dirección con
+ * `%&"` entraban a la base y de ahí al ticket de cocina y al WhatsApp del domiciliario.
+ *
+ * Las listas son de PERMITIDOS y con rangos Unicode (`\p{L}` y bandera `u`), nunca `\w` ni
+ * `[a-z]`: esos dos dejan fuera las tildes y la ñ, y aquí eso es la mitad de los clientes.
+ */
+describe("nombre del cliente", () => {
+  it.each(["José Ramírez", "Ana María Peña", "Ana"])("acepta %s", (nombre) => {
+    expect(crearPedidoSchema.safeParse(payloadBase({ clienteNombre: nombre })).success).toBe(true);
+  });
+
+  // Una inicial suelta no le sirve ni a quien prepara ni a quien entrega.
+  it.each(["Jo", "A"])("rechaza %s por corto", (nombre) => {
+    expect(mensajeDe(payloadBase({ clienteNombre: nombre }), "clienteNombre")).toBe(
+      "El nombre debe tener al menos 3 letras",
+    );
+  });
+
+  it.each(["Juan123", "Juan@", "Juan <b>"])("rechaza %s por los símbolos", (nombre) => {
+    expect(mensajeDe(payloadBase({ clienteNombre: nombre }), "clienteNombre")).toBe(
+      "El nombre solo puede contener letras",
+    );
+  });
+
+  // Un campo en blanco tiene que decir que falta, no que está mal escrito.
+  it("en blanco dice que es requerido, no que sea inválido", () => {
+    expect(mensajeDe(payloadBase({ clienteNombre: "   " }), "clienteNombre")).toBe(REQUERIDO);
+  });
+
+  it("colapsa los espacios internos antes de validar y de guardar", () => {
+    const r = crearPedidoSchema.safeParse(payloadBase({ clienteNombre: "  Ana   María  " }));
+
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.clienteNombre).toBe("Ana María");
+  });
+});
+
+describe("teléfono", () => {
+  it("acepta un celular escrito con espacios y lo normaliza", () => {
+    const r = crearPedidoSchema.safeParse(payloadBase({ clienteTelefono: "310 123 4567" }));
+
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.clienteTelefono).toBe("3101234567");
+  });
+
+  it("acepta paréntesis y guiones", () => {
+    const r = crearPedidoSchema.safeParse(payloadBase({ clienteTelefono: "(310) 123-4567" }));
+
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.clienteTelefono).toBe("3101234567");
+  });
+
+  // El caso que abrió el bug: al quitar `*` y `?` quedan 8 dígitos, no 10.
+  it.each(["31234*567?", "310123456", "31012345678", "abc3101234567"])(
+    "rechaza %s",
+    (tel) => {
+      expect(crearPedidoSchema.safeParse(payloadBase({ clienteTelefono: tel })).success).toBe(
+        false,
+      );
+    },
+  );
+
+  // Este número es el que arma el `wa.me/57…` del pedido: un fijo no recibiría el aviso.
+  it("rechaza un fijo de 10 dígitos que no empieza por 3", () => {
+    expect(mensajeDe(payloadBase({ clienteTelefono: "6011234567" }), "clienteTelefono")).toBe(
+      "Debe ser un celular colombiano: empieza por 3",
+    );
+  });
+});
+
+describe("dirección", () => {
+  const domicilio = (direccion: string) =>
+    payloadBase({ tipo: "domicilio", punto: PIN, barrio: "Balmoral", direccion });
+
+  it.each(["Cra. 5 # 12-34, Apto 201", "Calle 10 No 4-56"])("acepta %s", (dir) => {
+    expect(crearPedidoSchema.safeParse(domicilio(dir)).success).toBe(true);
+  });
+
+  it("rechaza los símbolos que no pinta ninguna dirección", () => {
+    expect(mensajeDe(domicilio('Calle 5 * 12 %&"'), "direccion")).toBe(
+      "La dirección solo admite letras, números y # - . ,",
+    );
+  });
+
+  it("rechaza una dirección demasiado corta para llegar", () => {
+    expect(mensajeDe(domicilio("Cra"), "direccion")).toBe(
+      "La dirección debe tener al menos 5 caracteres",
+    );
+  });
+});
+
+describe("barrio", () => {
+  const domicilio = (barrio: string) =>
+    payloadBase({ tipo: "domicilio", punto: PIN, direccion: "Cra. 5 # 12-34", barrio });
+
+  // Números incluidos: los dos son nombres reales de barrio en Fusagasugá.
+  it.each(["La Palma 2", "Ciudad Jardín II", "Antonio Nariño"])("acepta %s", (b) => {
+    expect(crearPedidoSchema.safeParse(domicilio(b)).success).toBe(true);
+  });
+
+  it("rechaza un barrio de dos letras", () => {
+    expect(mensajeDe(domicilio("Ce"), "barrio")).toBe("El barrio debe tener al menos 3 caracteres");
+  });
+
+  it("rechaza el intento de meter etiquetas", () => {
+    expect(mensajeDe(domicilio("Centro <script>"), "barrio")).toBe(
+      "El barrio solo puede contener letras y números",
+    );
+  });
+});
+
+describe("notas e indicaciones", () => {
+  it("acepta la puntuación normal", () => {
+    const r = crearPedidoSchema.safeParse(
+      payloadBase({
+        notas: "Sin cebolla, por favor.",
+        indicaciones: "Casa esquinera (portón café)",
+      }),
+    );
+
+    expect(r.success).toBe(true);
+  });
+
+  // Vacío es válido: son campos opcionales y no deben marcar error.
+  it.each(["", "   "])("acepta vacío (%s)", (v) => {
+    const r = crearPedidoSchema.safeParse(payloadBase({ notas: v, indicaciones: v }));
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.notas).toBeUndefined();
+      expect(r.data.indicaciones).toBeUndefined();
+    }
+  });
+
+  it("las notas se cortan en 100", () => {
+    expect(mensajeDe(payloadBase({ notas: "a".repeat(101) }), "notas")).toBe(
+      "Máximo 100 caracteres",
+    );
+    expect(crearPedidoSchema.safeParse(payloadBase({ notas: "a".repeat(100) })).success).toBe(true);
+  });
+
+  it("rechaza los símbolos peligrosos", () => {
+    expect(mensajeDe(payloadBase({ notas: "hola <script>" }), "notas")).toBe(
+      "Las notas tienen un símbolo que no podemos guardar",
+    );
+  });
+});
+
+describe("cupón", () => {
+  it("lo que se guarda es el código en MAYÚSCULAS, no lo que se escribió", () => {
+    const r = crearPedidoSchema.safeParse(payloadBase({ cupon: "cronchy10" }));
+
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.cupon).toBe("CRONCHY10");
+  });
+
+  it("rechaza un cupón con espacios", () => {
+    expect(mensajeDe(payloadBase({ cupon: "MI CUPON" }), "cupon")).toBe(
+      "El cupón no lleva espacios ni símbolos",
+    );
+  });
+
+  it("rechaza uno de dos caracteres", () => {
+    expect(mensajeDe(payloadBase({ cupon: "AB" }), "cupon")).toBe(
+      "El cupón debe tener al menos 3 caracteres",
+    );
+  });
+
+  it("sin cupón sigue siendo válido", () => {
+    const r = crearPedidoSchema.safeParse(payloadBase({ cupon: "" }));
+
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.cupon).toBeUndefined();
   });
 });

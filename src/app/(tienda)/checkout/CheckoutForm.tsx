@@ -31,6 +31,31 @@ import {
   useDatosClienteHidratados,
 } from "@/lib/checkout/datos-cliente";
 import { crearPedidoSchema, REQUERIDO } from "@/lib/validaciones";
+import { capitalizarNombre } from "@/lib/checkout/nombre";
+
+/**
+ * Lo que se deja teclear en un campo numérico. Impedir el carácter es mejor que aceptarlo y
+ * regañar después: el cliente no llega a ver un `*` en su teléfono.
+ *
+ * No sustituye al esquema, que lo vuelve a comprobar en el servidor (regla 1): esto es
+ * comodidad, no seguridad.
+ */
+function soloDigitos(valor: string, maximo: number): string {
+  return valor.replace(/\D/g, "").slice(0, maximo);
+}
+
+/**
+ * Deja un texto sugerido en lo que el campo Barrio admite: letras, números y espacios.
+ *
+ * Solo se usa con lo que llega de OSM. Lo que escribe el cliente NO pasa por aquí: ahí un
+ * carácter raro tiene que decirlo el mensaje de error, no desaparecer bajo el cursor.
+ */
+function saneado(valor: string): string {
+  return valor
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 import { fueraDeCobertura, pesos } from "@/lib/notificaciones/plantillas";
 import { decidirBarrio, type MotivoConsulta } from "@/lib/barrio";
 import { mensajeDeRechazo, type MotivoRechazo } from "@/lib/cupones";
@@ -85,7 +110,9 @@ function BotonesTipoPedido({ actual }: { actual: TipoPedido | null }) {
             <button
               key={t}
               type="button"
-              onClick={() => setRetirados(cambiarTipoPedido(t).map((i) => i.nombre))}
+              onClick={() =>
+                setRetirados(cambiarTipoPedido(t).map((i) => i.nombre))
+              }
               aria-pressed={elegido}
               className={`flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full px-4 py-3 font-cuerpo text-sm font-bold transition-colors ${
                 elegido
@@ -182,7 +209,10 @@ async function consultarCupon(
       body: JSON.stringify({ codigo, tipo, items }),
     });
     if (!respuesta.ok) {
-      return { estado: "rechazado", mensaje: "No pudimos comprobar el cupón. Intenta de nuevo." };
+      return {
+        estado: "rechazado",
+        mensaje: "No pudimos comprobar el cupón. Intenta de nuevo.",
+      };
     }
 
     const datos = (await respuesta.json()) as {
@@ -192,19 +222,29 @@ async function consultarCupon(
       aplicaA?: string[];
     };
 
-    if (datos.ok) return { estado: "aplicado", descuento: datos.descuento ?? 0 };
+    if (datos.ok)
+      return { estado: "aplicado", descuento: datos.descuento ?? 0 };
 
     // "no_comprobable" es un problema del carrito, no del cupón (algo se agotó mientras escribía).
     // No se le echa la culpa al código: quien lo dirá con precisión es el 422 al confirmar.
     if (!datos.motivo || datos.motivo === "no_comprobable") {
-      return { estado: "rechazado", mensaje: "No pudimos comprobar el cupón. Intenta de nuevo." };
+      return {
+        estado: "rechazado",
+        mensaje: "No pudimos comprobar el cupón. Intenta de nuevo.",
+      };
     }
 
     // El texto sale del módulo puro, el mismo que traduce el 422: un cupón rechazado se explica
     // igual por los dos caminos.
-    return { estado: "rechazado", mensaje: mensajeDeRechazo(datos.motivo, datos.aplicaA ?? []) };
+    return {
+      estado: "rechazado",
+      mensaje: mensajeDeRechazo(datos.motivo, datos.aplicaA ?? []),
+    };
   } catch {
-    return { estado: "rechazado", mensaje: "No pudimos comprobar el cupón. Revisa tu conexión." };
+    return {
+      estado: "rechazado",
+      mensaje: "No pudimos comprobar el cupón. Revisa tu conexión.",
+    };
   }
 }
 
@@ -431,7 +471,10 @@ export function CheckoutForm({
         motivo,
       });
 
-      if (nuevo !== null) setDatos({ barrio: nuevo });
+      // Se sanea lo que viene del mapa, no se rechaza: este texto lo escribe OSM, no el cliente,
+      // y un barrio que llegue con un guion o un punto dejaría el campo en rojo por algo que él
+      // no tecleó. Los 90 barrios sembrados están limpios; los que OSM añada mañana, quién sabe.
+      if (nuevo !== null) setDatos({ barrio: saneado(nuevo) });
       // Fuera del `if`: se recuerda lo que el mapa dijo, no lo que se escribió.
       if (sugerido) ultimaSugerencia.current = sugerido;
     },
@@ -553,7 +596,8 @@ export function CheckoutForm({
     : respuestaCupon?.codigo === cupon
       ? respuestaCupon.estado
       : { estado: "comprobando" };
-  const descuento = estadoCupon.estado === "aplicado" ? estadoCupon.descuento : 0;
+  const descuento =
+    estadoCupon.estado === "aplicado" ? estadoCupon.descuento : 0;
   /**
    * Lo que el cliente va a pagar. **Se usa en las cuatro partes donde antes iba
    * `total + costoDomicilio`**: el resumen, el valor a transferir por Nequi, el botón de confirmar
@@ -587,7 +631,8 @@ export function CheckoutForm({
   const metodosPermitidos = metodosDePago(tipoPedido ?? "domicilio", {
     llaveDisponible: nequiDisponible,
   });
-  const pagoPorAdelantado = !esDomicilio && !metodosPermitidos.includes("efectivo");
+  const pagoPorAdelantado =
+    !esDomicilio && !metodosPermitidos.includes("efectivo");
 
   /**
    * Corrige el método heredado cuando deja de estar permitido.
@@ -608,7 +653,9 @@ export function CheckoutForm({
     // Se recalcula aquí dentro en vez de depender de `metodosPermitidos`: ese array es nuevo
     // en cada render y como dependencia haría correr el efecto siempre. `metodosDePago` es
     // pura y trivial, así que llamarla dos veces no cuesta nada.
-    const permitidos = metodosDePago(tipoPedido, { llaveDisponible: nequiDisponible });
+    const permitidos = metodosDePago(tipoPedido, {
+      llaveDisponible: nequiDisponible,
+    });
     if (permitidos.includes(metodoPago)) return;
 
     // Cambiar de método invalida lo del anterior: un comprobante subido para el pedido a
@@ -616,7 +663,11 @@ export function CheckoutForm({
     // de "Ya realicé mi pago" enseñando un adjunto que no se pidió.
     setPago(
       permitidos[0] === "efectivo"
-        ? { metodoPago: "efectivo", comprobanteUrl: null, pagoConfirmado: false }
+        ? {
+            metodoPago: "efectivo",
+            comprobanteUrl: null,
+            pagoConfirmado: false,
+          }
         : { metodoPago: permitidos[0] },
     );
   }, [hidratado, tipoPedido, metodoPago, nequiDisponible, setPago]);
@@ -748,6 +799,12 @@ export function CheckoutForm({
   // hora, y eso solo se ve desde aquí.
   if (cuando.modo === "programar" && !cuando.franja) {
     fallosUI.programadoPara = "Elige a qué hora lo quieres.";
+  }
+  // El esquema no puede compararlo: no conoce el total, que lo calcula el servidor desde la base
+  // (regla 1). Aquí sí está a la vista, así que el aviso sale en el momento — y el servidor lo
+  // vuelve a comprobar contra SU total, que es el que manda.
+  if (metodoPago === "efectivo" && pagaCon && Number(pagaCon) < totalAPagar) {
+    fallosUI.pagaCon = `Con ${pesos(Number(pagaCon))} no alcanza: el pedido son ${pesos(totalAPagar)}.`;
   }
   if (esDomicilio) {
     if (sinCobertura) {
@@ -887,7 +944,11 @@ export function CheckoutForm({
         const mensaje = detalle.motivo
           ? mensajeDeRechazo(detalle.motivo, aplicaA)
           : "Ese cupón ya no se puede usar.";
-        if (cupon) setRespuestaCupon({ codigo: cupon, estado: { estado: "rechazado", mensaje } });
+        if (cupon)
+          setRespuestaCupon({
+            codigo: cupon,
+            estado: { estado: "rechazado", mensaje },
+          });
         return mensaje;
       }
       default:
@@ -1103,7 +1164,12 @@ export function CheckoutForm({
                 autoComplete="name"
                 value={nombre}
                 onChange={(e) => setDatos({ nombre: e.target.value })}
-                onBlur={() => alSalirDe("clienteNombre")}
+                // Se capitaliza al salir y no al escribir: hacerlo en el `onChange` pelearía con
+                // el cursor a mitad de palabra. Las partículas se respetan, ver `nombre.ts`.
+                onBlur={() => {
+                  setDatos({ nombre: capitalizarNombre(nombre) });
+                  alSalirDe("clienteNombre");
+                }}
                 placeholder="Ana Gómez"
                 className={claseControl(errorDe("clienteNombre"))}
               />
@@ -1128,9 +1194,14 @@ export function CheckoutForm({
                   inputMode="numeric"
                   autoComplete="tel"
                   value={telefono}
-                  onChange={(e) => setDatos({ telefono: e.target.value })}
+                  // Solo dígitos y tope de 10: el `*` no se puede ni teclear, que es mejor que
+                  // dejarlo escribir y regañarlo después. El esquema lo vuelve a comprobar.
+                  onChange={(e) =>
+                    setDatos({ telefono: soloDigitos(e.target.value, 10) })
+                  }
                   onBlur={() => alSalirDe("clienteTelefono")}
-                  placeholder="311 643 5036"
+                  maxLength={10}
+                  placeholder="311 234 5678"
                   className={claseControl(errorDe("clienteTelefono"))}
                 />
               </div>
@@ -1308,7 +1379,12 @@ export function CheckoutForm({
                       onChange={(e) =>
                         setDatos({ recibeNombre: e.target.value })
                       }
-                      onBlur={() => alSalirDe("recibeNombre")}
+                      onBlur={() => {
+                        setDatos({
+                          recibeNombre: capitalizarNombre(recibeNombre),
+                        });
+                        alSalirDe("recibeNombre");
+                      }}
                       placeholder="Carlos Gómez"
                       className={claseControl(errorDe("recibeNombre"))}
                     />
@@ -1330,9 +1406,12 @@ export function CheckoutForm({
                         inputMode="numeric"
                         value={recibeTelefono}
                         onChange={(e) =>
-                          setDatos({ recibeTelefono: e.target.value })
+                          setDatos({
+                            recibeTelefono: soloDigitos(e.target.value, 10),
+                          })
                         }
                         onBlur={() => alSalirDe("recibeTelefono")}
+                        maxLength={10}
                         placeholder="311 643 5036"
                         className={claseControl(errorDe("recibeTelefono"))}
                       />
@@ -1516,12 +1595,12 @@ export function CheckoutForm({
             {pagoPorAdelantado && (
               <div className="flex flex-col gap-2 rounded-sm bg-crema p-3 font-cuerpo text-[13px] text-cafe-suave">
                 <p>
-                  Como elegiste recoger tu pedido, el pago debe realizarse antes de preparar tu
-                  pedido.
+                  Como elegiste recoger tu pedido, el pago debe realizarse antes
+                  de preparar tu pedido.
                 </p>
                 <p>
-                  Puedes pagar fácilmente por Llave o Nequi. Una vez confirmado el pago,
-                  ¡comenzaremos a preparar tu pedido! 😊
+                  Puedes pagar fácilmente por Llave o Nequi. Una vez confirmado
+                  el pago, ¡comenzaremos a preparar tu pedido! 😊
                 </p>
               </div>
             )}

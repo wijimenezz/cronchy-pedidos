@@ -8,8 +8,13 @@ import { buscarCuponPorCodigo } from "@/db/queries/cupones";
 import { crearPedidoEnDB } from "@/db/queries/pedidos";
 import { enviarPushPedidoNuevo } from "@/lib/notificaciones/push";
 import { avisarPedidoNuevo } from "@/lib/notificaciones/telegram";
+import { pesos } from "@/lib/notificaciones/plantillas";
+import { exigirCupo } from "@/lib/limites";
 
 export async function POST(request: Request) {
+  const frenado = await exigirCupo(request, "pedido");
+  if (frenado) return frenado;
+
   const body = await request.json().catch(() => null);
   if (body === null) {
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
@@ -102,6 +107,23 @@ export async function POST(request: Request) {
         ...(resultado.error.tipo === "cupon_invalido" && cupon
           ? { aplicaA: cupon.aplicaA }
           : {}),
+      },
+      { status: 422 },
+    );
+  }
+
+  /**
+   * Con cuánto paga, contra el total **que acaba de calcular el servidor**.
+   *
+   * Va aquí y no en `crearPedidoSchema` porque hasta esta línea no existe el total: el esquema es
+   * puro y meterlo dentro obligaría a que el navegador mandara cuánto cuesta su pedido, que es
+   * justo lo que la regla 1 prohíbe. El checkout ya avisa antes con el total en pantalla; esta es
+   * la comprobación que no se puede saltar armando el payload a mano.
+   */
+  if (input.pagaCon !== undefined && input.pagaCon < resultado.valor.total) {
+    return NextResponse.json(
+      {
+        error: `Con ${pesos(input.pagaCon)} no alcanza: el pedido son ${pesos(resultado.valor.total)}.`,
       },
       { status: 422 },
     );

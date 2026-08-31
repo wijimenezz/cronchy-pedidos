@@ -690,3 +690,31 @@ export const orderStatusEvent = pgTable("order_status_event", {
 			name: "order_status_event_user_id_fkey"
 		}),
 ]).enableRLS();
+
+/**
+ * El contador del límite de peticiones. Una fila por clave y ventana.
+ *
+ * **Es la única tabla sin `store_id`, y es una excepción declarada a la regla 5.** Esa regla
+ * aísla datos de una tienda de los de otra; esto no es dato de dominio sino un contador por IP o
+ * por token de alguien que todavía no se sabe si es cliente —quien golpea el login no tiene
+ * tienda asignada—. Ponerle un `store_id` obligaría a inventarse uno antes de decidir si la
+ * petición siquiera se atiende.
+ *
+ * La ventana es FIJA y anclada al epoch (ver `lib/limites/politica.ts`), así que dos instancias
+ * serverless que atienden a la misma IP escriben en la misma fila sin hablar entre ellas. El
+ * `conteo` se sube con un UPSERT atómico, que es lo que impide que dos peticiones simultáneas se
+ * pisen la cuenta.
+ *
+ * Se purga con `pg_cron`, igual que los comprobantes (migración 0012): sin eso crece sin fin.
+ */
+export const rateLimit = pgTable("rate_limit", {
+	/** `"login:190.0.0.1"`, `"seguimiento:<token>"`. El prefijo separa los cupos entre sí. */
+	clave: text().notNull(),
+	/** Inicio de la ventana. Junto con la clave identifica la cuenta. */
+	ventana: timestamp({ withTimezone: true, mode: 'string' }).notNull(),
+	conteo: integer().default(1).notNull(),
+}, (table) => [
+	primaryKey({ columns: [table.clave, table.ventana], name: "rate_limit_pkey" }),
+	// Para que la purga barra por fecha sin leer la tabla entera.
+	index("idx_rate_limit_ventana").using("btree", table.ventana.asc().nullsLast()),
+]).enableRLS();

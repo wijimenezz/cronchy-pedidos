@@ -18,6 +18,7 @@ import {
   reordenarOpciones,
   tipoDeLista,
 } from "@/db/queries/opciones";
+import { actualizarProductoOfrecido } from "@/db/queries/catalogo";
 import { cambiarDisponibilidadOpcion } from "@/db/queries/disponibilidad";
 import { exigirRol } from "@/lib/autorizacion";
 import { slugify } from "@/lib/texto";
@@ -160,9 +161,15 @@ export async function archivarLista(entrada: {
 // ------------------------------------------------------------
 
 /**
- * Lo que llega del formulario. Los tres campos son opcionales **aquí** porque cuáles hacen
- * falta lo decide el tipo de la lista, y ese se consulta en la base: una lista de salsas pide
- * nombre y precio, y una de upsell pide un producto.
+ * Lo que llega del formulario. Los campos son opcionales **aquí** porque cuáles hacen falta lo
+ * decide el tipo de la lista, y ese se consulta en la base: una lista de salsas pide nombre y
+ * `precioDelta`, y una de upsell pide un producto, y acepta el nombre y el `precioBase` con los
+ * que se va a reescribir (ver `guardarOpcion`).
+ *
+ * **`precioBase` es un campo aparte y no un reuso de `precioDelta`**, aunque acaben en la misma
+ * casilla de la pantalla. No son la misma cifra: uno es lo que cuesta pedir una salsa como
+ * adicional y el otro es el precio del producto en la Carta (regla 8). Con un solo campo, el
+ * único freno para escribir el valor en la columna equivocada sería acordarse.
  *
  * No es un `discriminatedUnion` sobre un campo del cliente a propósito. El navegador diría de
  * qué tipo es la lista y eso es justo lo que no se le puede creer — es la regla 1 leída sobre
@@ -171,6 +178,7 @@ export async function archivarLista(entrada: {
 const camposOpcion = {
   nombre: nombreSchema.optional(),
   precioDelta: precioSchema.optional(),
+  precioBase: precioSchema.optional(),
   productoRef: idSchema.optional(),
 };
 
@@ -181,6 +189,11 @@ const camposOpcion = {
  * calcular el pedido —`calcularItem` devuelve `upsell_sin_producto`— y el cliente se queda
  * mirando un error al confirmar.
  *
+ * El `nombre` y el `precioBase` que lleguen del formulario se ignoran **aquí**, y eso sigue
+ * siendo correcto aunque el panel ya deje editarlos: esta función solo valida y no escribe, así
+ * que devuelve lo que el producto tiene *todavía*. Quien los sustituye por los del formulario —y
+ * quien escribe en `product`, después de que todo lo demás haya pasado— es `guardarOpcion`.
+ *
  * El `nombre` se copia del producto, y **el `precioDelta` también: se le escribe el
  * `precio_base`**. Parece redundante porque un upsell se cobra por el precio del producto
  * (regla 8) y esa cifra no se muestra en ningún sitio, pero no lo es: si la selección del
@@ -188,21 +201,25 @@ const camposOpcion = {
  * `calcularItem` la cobra por `precioEfectivoOpcion`, que es este delta. Dejarlo en 0 haría que
  * ese camino regalara la bebida. Copiar el precio lo deja diciendo la verdad por los dos lados.
  *
- * Ojo: esa copia envejece si luego suben el producto en la Carta. No se sincroniza sola —sería
- * un disparador sobre `product` para una cifra que hoy nadie lee— y no importa mientras el
- * checkout mande los upsell como líneas propias, que es lo que hace.
+ * Ojo: esa copia envejece si suben el producto desde la Carta, que es el otro sitio donde se
+ * cambia. No se sincroniza sola —sería un disparador sobre `product` para una cifra que en el
+ * camino normal nadie lee— y no importa mientras el checkout mande los upsell como líneas
+ * propias, que es lo que hace. Guardar la opción desde el panel la pone al día de paso.
  */
 type DatosDeOpcion = { nombre: string; precioDelta: number; productoRef?: string | null };
 
 async function datosSegunTipo(
   storeId: string,
   tipo: "seleccion" | "upsell",
-  campos: { nombre?: string; precioDelta?: number; productoRef?: string },
+  campos: { nombre?: string; precioDelta?: number; precioBase?: number; productoRef?: string },
   opcionesDeLaLista: { id: string; productoRef: string | null }[],
   exceptoId?: string,
 ): Promise<{ ok: true; datos: DatosDeOpcion } | { ok: false; error: string }> {
   if (tipo === "seleccion") {
-    if (campos.productoRef) {
+    // `precioBase` va en el mismo corte que `productoRef`: los dos son campos que solo tienen
+    // sentido cuando la opción apunta a un producto, y colarlos aquí sería escribir en la Carta
+    // desde una lista que no tiene ninguna.
+    if (campos.productoRef || campos.precioBase !== undefined) {
       return { ok: false, error: "Esta lista es de opciones escritas, no de productos." };
     }
     if (!campos.nombre) return { ok: false, error: "Ponle un nombre" };
@@ -262,6 +279,31 @@ export async function crearOpcionNueva(entrada: unknown): Promise<ResultadoCreac
   return { ok: true, id: creada.id };
 }
 
+/**
+ * Guardar una opción. En una lista de **upsell** el `nombre` y el `precioBase` escriben en el
+ * PRODUCTO de la Carta, no en la fila de la lista.
+ *
+ * Aquí llegó a no haber ni nombre ni precio, y la salida era quitar la opción y volver a
+ * añadirla — que no arreglaba nada, porque los dos salen del producto igual. La alternativa era
+ * guardarlos como valores propios de la opción, y es justo la que no se puede: el cliente
+ * tocaría "Agua Cristal 600 ml" y el pedido, la comanda, el recibo, el WhatsApp y el XLSX
+ * seguirían diciendo "Agua 600 ml", porque el snapshot del item derivado se arma con el producto
+ * (reglas 2 y 8). En el XLSX además `hojaProductos` agrupa por nombre, así que partiría en dos
+ * filas lo que es un producto. Con el precio sería peor todavía: la fila diría una cifra y el
+ * checkout cobraría otra, que es la regla 1.
+ *
+ * Se escribe sobre el producto que va a quedar apuntado y no sobre el que estaba, así que
+ * cambiar de producto y editarlo en el mismo guardado hace lo que se espera. Quien manda los
+ * tres campos sincronizados es el formulario.
+ *
+ * **Todas las validaciones van antes de la primera escritura**, y aquí eso importa más que de
+ * costumbre: esto toca `product`, o sea la Carta entera, mientras que el resto de la acción toca
+ * una fila de una lista. Rechazar después de haber escrito dejaría el producto con el nombre
+ * nuevo, la opción con el viejo y al admin leyendo un error que dice que no se guardó nada.
+ *
+ * El `slug` no se toca (ver `actualizarProductoOfrecido`), así que los `/producto/<slug>` que
+ * circulan por WhatsApp siguen abriendo.
+ */
 export async function guardarOpcion(entrada: unknown): Promise<ResultadoOpciones> {
   const sesion = await exigirRol("admin");
 
@@ -283,12 +325,38 @@ export async function guardarOpcion(entrada: unknown): Promise<ResultadoOpciones
   );
   if (!resuelto.ok) return resuelto;
 
+  // En una lista de upsell mandan el nombre y el precio del formulario, porque son los que se van
+  // a escribir en la Carta. `datosSegunTipo` devolvió los que el producto tiene todavía.
+  //
+  // El precio nuevo entra además como `precioDelta` de la fila, que es la copia que documenta
+  // `datosSegunTipo`: si se dejara la vieja, quedaría contradiciendo al producto que se acaba de
+  // cambiar.
+  const editaProducto = lista.tipo === "upsell";
+  const nombreNuevo = editaProducto ? campos.nombre : undefined;
+  const precioNuevo = editaProducto ? campos.precioBase : undefined;
+
+  const datos = {
+    ...resuelto.datos,
+    ...(nombreNuevo ? { nombre: nombreNuevo } : {}),
+    ...(precioNuevo !== undefined ? { precioDelta: precioNuevo } : {}),
+  };
+
   const ocupados = await nombresDeOpciones(sesion.storeId, lista.id);
-  if (repetido(resuelto.datos.nombre, ocupados, id)) {
+  if (repetido(datos.nombre, ocupados, id)) {
     return { ok: false, error: "Esa lista ya tiene otra opción con ese nombre." };
   }
 
-  const guardada = await actualizarOpcion(sesion.storeId, id, resuelto.datos);
+  // Validado todo: ahora sí se escribe. Nombre y precio van en la misma llamada; el que no haya
+  // llegado se reescribe con el valor que el producto ya tenía, o sea que no cambia nada.
+  if ((nombreNuevo || precioNuevo !== undefined) && datos.productoRef) {
+    const escrito = await actualizarProductoOfrecido(sesion.storeId, datos.productoRef, {
+      nombre: datos.nombre,
+      precioBase: datos.precioDelta,
+    });
+    if (!escrito) return { ok: false, error: "Ese producto ya no existe." };
+  }
+
+  const guardada = await actualizarOpcion(sesion.storeId, id, datos);
   if (!guardada) return { ok: false, error: "Esa opción ya no existe." };
 
   revalidar();

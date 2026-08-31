@@ -284,11 +284,37 @@ servidor: la UI esconde el botón, pero una server action se invoca sin pasar po
 **Esas listas se editan desde `/admin/opciones`, no desde la Carta.** Aquí llegó a decirse lo
 contrario —la propia pantalla mandaba a la Carta— y era falso: `/admin/productos` solo enciende
 y apaga la lista entera por producto, así que durante un tiempo la única forma de añadir una
-bebida al "¿Deseas agregar más churros?" fue un INSERT a mano. Lo que sí se edita en la Carta es
-el **producto**: su precio y su nombre, que es lo que el cliente acaba viendo (regla 8). El
-selector del panel ofrece la carta entera —incluidos los ocultos, mismo motivo que
-`listarGruposEnganchables`— y marca en rojo el que esté oculto: ofrecer algo que el cliente no
-puede ver deja la sección vacía sin explicación.
+bebida al "¿Deseas agregar más churros?" fue un INSERT a mano. El selector del panel ofrece la
+carta entera —incluidos los ocultos, mismo motivo que `listarGruposEnganchables`— y marca en rojo
+el que esté oculto: ofrecer algo que el cliente no puede ver deja la sección vacía sin
+explicación.
+
+**El nombre y el precio de un producto ofrecido se cambian desde las dos pantallas.** Aquí decía
+que eran cosa de la Carta, y la consecuencia era que corregir "Agua 600 ml" a "Agua Cristal
+600 ml" pasaba por quitar la opción y volver a añadirla —que no arreglaba nada, porque el rótulo
+sale del producto igual— y que los $4.000 del Churro Loop se veían en la fila sin poder tocarlos.
+El lápiz de `/admin/opciones` escribe ahora en el **producto** (`actualizarProductoOfrecido`), no
+en la fila de la lista, y por eso el formulario lo avisa: el cambio se ve en toda la tienda.
+
+Lo que no se puede es lo contrario, un **nombre o un precio propios** de la opción. El cliente
+tocaría "Agua Cristal 600 ml" y el pedido, la comanda, el recibo, el WhatsApp y el XLSX seguirían
+diciendo "Agua 600 ml", porque el snapshot del item derivado se arma con el producto (reglas 2
+y 8); en el XLSX además `hojaProductos` agrupa por nombre, así que partiría en dos filas lo que es
+un producto. Con el precio sería peor: la fila diría una cifra y el checkout cobraría otra, que es
+la regla 1.
+
+Tres detalles que no se deducen del código:
+
+- El `slug` **no** se toca —es una URL que los clientes comparten por WhatsApp, misma decisión que
+  en `actualizarProducto`.
+- Al cambiar el desplegable el formulario **resincroniza el nombre y el precio** con los del
+  producto recién elegido. Sin eso, elegir otro producto con los campos llenos de los valores
+  anteriores se los escribiría al que no era, en toda la Carta.
+- Los campos arrancan con lo del **producto** (`nombreVisible` / `precioVisible`) y no con lo de
+  la fila. `modifier_option.precio_delta` es una copia que envejece y hoy miente —el Churro Loop
+  la tiene en 0 con el producto a $4.000—, así que arrancar de ahí pondría el campo en $0 y
+  guardar sin mirar regalaría el producto. Guardar desde el panel pone esa copia al día de paso,
+  que es lo que tapa el camino defensivo de `precioEfectivoOpcion`.
 
 ### 10. Mensajería: el texto y el transporte van separados
 
@@ -642,7 +668,7 @@ impresora.
 | `admin/pedidos`   | ver, aceptar, cambiar estado, imprimir, avisos, domiciliario | todo, más el rango de entrega estimada, el resumen del día y la descarga XLSX |
 | `admin/catalogo`  | switches `disponible` / `agotado` de productos y opciones    | igual                                                             |
 | `admin/productos` | solo Visible↔Agotado (ni ocultar ni reactivar)               | CRUD completo, precios, fotos (de producto y de categoría), categorías, enganches |
-| `admin/opciones`  | solo switch `disponible` (sabores de la semana)              | crear/renombrar/ordenar opciones, precio propio, archivar listas; y en las listas de productos de la carta, elegir cuáles se ofrecen |
+| `admin/opciones`  | solo switch `disponible` (sabores de la semana)              | crear/renombrar/ordenar opciones, precio propio, archivar listas; y en las listas de productos de la carta, elegir cuáles se ofrecen y cambiarle el nombre y el precio al producto ofrecido |
 | `admin/zonas`     | sin acceso (ni lectura)                                      | mapa: dibujar, editar vértices, precio, prioridad, activar/apagar |
 | `admin/cupones`   | sin acceso (ni lectura)                                      | crear cupones, porcentaje, a qué aplican, vencimiento, aviso de la carta, apagar |
 | `admin/ajustes`   | sin acceso (ni lectura)                                      | dirección y teléfono del local, con qué se paga (llave, titular, QR) y los nombres de barrio que OSM devuelve mal |
@@ -1181,6 +1207,34 @@ quien dice que no no se queda a ciegas: le queda el seguimiento en `/pedido/[tok
   NULL sin tocar el snapshot (regla 2). La URL y la llave las lee de **Vault**, no del
   archivo de migración: se cargan una vez con `pnpm configurar-purga`, y sin ellas la
   función falla a propósito en vez de borrar a medias.
+- **El límite de peticiones son DOS capas, y la que protege la factura no está en el repo.**
+  `lib/limites/` corre *dentro* de la función, o sea después de que la invocación ya se pagó: lo
+  que protege es Postgres, Storage, el bcrypt del login, Nominatim y la bandeja del panel. Cortar
+  el volumen antes de llegar ahí es cosa del **Firewall de Vercel**, que se configura en el
+  dashboard. Si alguien mide el gasto y ve que un ataque igual lo dispara, no es que el límite
+  falle: es que esa mitad vive en otro sitio.
+
+  Cuatro cosas que no se cambian:
+
+  - **Se cuenta en Postgres y no en memoria.** En serverless cada instancia tiene su propia
+    memoria y un arranque en frío la borra; justo bajo ataque Vercel escala a más instancias, así
+    que un `Map` se diluye cuando más falta hace. El `conteo` sube con un UPSERT atómico: leer y
+    luego escribir dejaría pasar a dos peticiones simultáneas.
+  - **La IP se lee de `x-vercel-forwarded-for` o `x-real-ip` ANTES que de `x-forwarded-for`**, y
+    ese orden es lo que hace que el límite sirva. `x-forwarded-for` es una lista a la que Vercel
+    *añade* la IP real detrás de lo que mande el cliente, así que su primer elemento lo controla
+    quien pide: rotándolo en cada petición se saltaría el límite entero.
+  - **Las rutas de token se cuentan por token, no por IP.** Los operadores móviles colombianos
+    hacen CGNAT y muchos clientes salen por una misma IP; limitar el seguimiento por IP castigaría
+    a vecinos que no se conocen.
+  - **Falla abierto.** Si la consulta del límite revienta, la petición pasa. Un limitador que
+    cierra la tienda cuando la base tose es peor que el abuso que evita. `exigirRol` es lo
+    contrario y no ha cambiado: ese sí falla cerrado, porque es control de acceso.
+
+  La tabla `rate_limit` es **la única sin `store_id`**, y es una excepción declarada a la regla 5:
+  no es dato de dominio sino un contador de alguien que todavía no se sabe si es cliente —quien
+  golpea el login no tiene tienda asignada—. La purga es un job horario de `pg_cron` (migración
+  `0033`), mismo mecanismo que la de comprobantes.
 - **Fotos de productos:** máximo 3 por producto; se comprimen ANTES de subir
   (WebP, 1280 px, ~450 KB). La primera es la portada.
 

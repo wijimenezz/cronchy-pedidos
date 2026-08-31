@@ -232,6 +232,13 @@
       "when": 1787797642464,
       "tag": "0032_foco_de_fotos",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1787889311689,
+      "tag": "0033_freno_de_peticiones",
+      "breakpoints": true
     }
   ]
 }

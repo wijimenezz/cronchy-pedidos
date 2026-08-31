@@ -26,7 +26,11 @@ export function Campo({
   error?: string;
   ayuda?: string;
   requerido?: boolean;
-  children: (props: { id: string; "aria-invalid": boolean; "aria-describedby"?: string }) => React.ReactNode;
+  children: (props: {
+    id: string;
+    "aria-invalid": boolean;
+    "aria-describedby"?: string;
+  }) => React.ReactNode;
 }) {
   const id = useId();
   const idError = `${id}-error`;
@@ -35,18 +39,28 @@ export function Campo({
 
   return (
     <div className="flex flex-col gap-1">
-      <label htmlFor={id} className="font-cuerpo text-sm font-bold text-cafe">
+      <label
+        htmlFor={id}
+        className="font-cuerpo text-sm font-bold text-naranja-osc"
+      >
         {etiqueta}
         {requerido && <span className="text-naranja"> *</span>}
       </label>
-      {children({ id, "aria-invalid": Boolean(error), "aria-describedby": describedBy })}
+      {children({
+        id,
+        "aria-invalid": Boolean(error),
+        "aria-describedby": describedBy,
+      })}
       {ayuda && !error && (
         <p id={idAyuda} className="font-cuerpo text-[13px] text-cafe-tenue">
           {ayuda}
         </p>
       )}
       {error && (
-        <p id={idError} className="font-cuerpo text-[13px] font-semibold text-error">
+        <p
+          id={idError}
+          className="font-cuerpo text-[13px] font-semibold text-error"
+        >
           {error}
         </p>
       )}
