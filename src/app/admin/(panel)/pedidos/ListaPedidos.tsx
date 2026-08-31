@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, BellOff } from "lucide-react";
+import { Bell, BellOff, Download } from "lucide-react";
 import type { Domiciliario } from "@/db/queries/domiciliarios";
 import type { PedidoEnLista } from "@/db/queries/panel";
 import { COLUMNAS_TABLERO, columnaDeTablero } from "@/lib/pedidos/estados";
@@ -31,6 +31,7 @@ import {
   problemaDeAvisos,
 } from "./notificaciones";
 import { activarPush, desactivarPush, type ResultadoPush } from "./push";
+import { descargarTono } from "./tono";
 
 /**
  * Cada cuánto se pregunta por pedidos nuevos.
@@ -55,6 +56,9 @@ const MINIMO_ENTRE_MS = 3000;
 const INSISTIR_MS = 30_000;
 
 const TITULO_BASE = "Pedidos — Cronchy";
+
+/** Lo que manda `public/sw.js` al llegar un push. Si se cambia, se cambia en los dos sitios. */
+const MENSAJE_PEDIDO = "cronchy:pedido-nuevo";
 
 /**
  * El tablero de operación. Se refresca solo cada 15 s (CLAUDE.md: polling, nada de
@@ -110,6 +114,7 @@ export function ListaPedidos({
    * cincuenta veces para nada.
    */
   const [nivel, setNivel] = useState<Nivel>(leerNivel);
+  const [bajandoTono, setBajandoTono] = useState(false);
   /**
    * Si además del pitido va a salir la notificación del sistema. Se pinta porque un panel que
    * cree estar avisando y no avisa es peor que uno mudo declarado: quien deniega el permiso sin
@@ -195,15 +200,26 @@ export function ListaPedidos({
       setSinConexion(true);
     }
 
+    // El push que despierta al service worker (`sw.js`), que es el ÚNICO evento que llega con la
+    // pestaña congelada: Android lo entrega, no depende de un temporizador. Aquí solo refresca —
+    // quien decide si algo es nuevo y suena sigue siendo el efecto de `idsNuevos`, para no tener
+    // dos fuentes de esa verdad diciendo cosas distintas.
+    function alAvisarElWorker(evento: MessageEvent) {
+      if (evento.data?.tipo !== MENSAJE_PEDIDO) return;
+      void refrescar();
+    }
+
     document.addEventListener("visibilitychange", alVolver);
     window.addEventListener("online", refrescarSiToca);
     window.addEventListener("offline", alCaerLaRed);
+    navigator.serviceWorker?.addEventListener("message", alAvisarElWorker);
 
     return () => {
       clearInterval(reloj);
       document.removeEventListener("visibilitychange", alVolver);
       window.removeEventListener("online", refrescarSiToca);
       window.removeEventListener("offline", alCaerLaRed);
+      navigator.serviceWorker?.removeEventListener("message", alAvisarElWorker);
     };
     // `sonido` entra en las deps y por tanto reengancha los listeners al tocar el botón. Es una
     // vez por clic de un humano, no por vuelta del polling: recrear el reloj ahí no cuesta nada.
@@ -217,7 +233,7 @@ export function ListaPedidos({
    */
   const vistos = useRef<string[]>(iniciales.filter((p) => p.estado === "nuevo").map((p) => p.id));
   // El contador para el temporizador que insiste. Va en un ref y no en las dependencias del
-  // efecto: la lista se reemplaza cada 5 s con el polling, así que un efecto que dependiera
+  // efecto: la lista se reemplaza cada 15 s con el polling, así que un efecto que dependiera
   // de ella recrearía el temporizador de 30 s antes de que llegue a disparar. Nunca sonaría.
   const pendientes = useRef(0);
 
@@ -368,6 +384,17 @@ export function ListaPedidos({
     void sonarAviso();
   }
 
+  /**
+   * Baja el WAV de la alarma. El estado de "generando" existe porque el render es asincrono y en
+   * una tablet tarda lo suficiente como para que un segundo toque dispare dos descargas.
+   */
+  function bajarTono() {
+    setBajandoTono(true);
+    void descargarTono()
+      .catch(() => {})
+      .finally(() => setBajandoTono(false));
+  }
+
   function alternarSonido() {
     const activar = !sonido;
     setSonido(activar);
@@ -495,6 +522,22 @@ export function ListaPedidos({
                 </button>
               ))}
             </div>
+          )}
+
+          {/* El unico control que sirve para cuando el panel NO esta al frente, asi que vive al
+              lado del volumen y no escondido en unos ajustes: es lo que hay que encontrar cuando
+              alguien dice "no me entere del pedido". */}
+          {sonido && (
+            <button
+              type="button"
+              onClick={bajarTono}
+              disabled={bajandoTono}
+              title="Para ponerlo como sonido de notificacion en Android"
+              className="flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-crema-oscura px-3 font-cuerpo text-xs font-bold text-cafe-suave transition-colors hover:bg-crema focus:outline-none focus:ring-2 focus:ring-naranja disabled:opacity-50"
+            >
+              <Download className="size-4" />
+              {bajandoTono ? "Generando…" : "Tono para Android"}
+            </button>
           )}
         </div>
       </div>

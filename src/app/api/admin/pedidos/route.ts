@@ -6,7 +6,7 @@ import { NoAutenticadoError, SinPermisoError, exigirRol } from "@/lib/autorizaci
 export const dynamic = "force-dynamic";
 
 /**
- * Fuente del polling de la lista (cada 5 s, regla de CLAUDE.md: nada de WebSockets).
+ * Fuente del polling de la lista (cada 15 s, regla de CLAUDE.md: nada de WebSockets).
  *
  * Es un route handler y no una server action porque aquí se lee, no se muta: una acción
  * obligaría a un `router.refresh()` que redibuja la página entera y pierde el scroll en

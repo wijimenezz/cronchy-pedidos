@@ -34,6 +34,9 @@ const DESTINO = "/admin/pedidos";
  */
 const VIBRACION = [300, 150, 300, 150, 300];
 
+/** Lo que se le grita a la página cuando llega un push. Ver `avisarALaPagina`. */
+const MENSAJE_PEDIDO = "cronchy:pedido-nuevo";
+
 // Tomar el control sin esperar a que se cierren las pestañas viejas: si no, una versión nueva del
 // service worker se queda "waiting" hasta que el empleado cierre el panel, que puede ser nunca.
 self.addEventListener("install", () => self.skipWaiting());
@@ -58,21 +61,52 @@ self.addEventListener("push", (evento) => {
   const cuerpo = datos.cuerpo || "Entró un pedido nuevo";
 
   evento.waitUntil(
-    self.registration.showNotification(titulo, {
-      body: cuerpo,
-      icon: ICONO,
-      badge: ICONO,
-      tag: ETIQUETA,
-      vibrate: VIBRACION,
-      // Reemplaza a la anterior en vez de apilar, pero vuelve a alertar: cinco pedidos seguidos
-      // son cinco avisos, no una torre de cinco notificaciones.
-      renotify: true,
-      // Se queda hasta que alguien la toca. En una cocina, una notificación que se desvanece a
-      // los cinco segundos es una que nadie vio.
-      requireInteraction: true,
-    }),
+    Promise.all([
+      avisarALaPagina(),
+      self.registration.showNotification(titulo, {
+        body: cuerpo,
+        icon: ICONO,
+        badge: ICONO,
+        tag: ETIQUETA,
+        vibrate: VIBRACION,
+        // Reemplaza a la anterior en vez de apilar, pero vuelve a alertar: cinco pedidos seguidos
+        // son cinco avisos, no una torre de cinco notificaciones.
+        renotify: true,
+        // Se queda hasta que alguien la toca. En una cocina, una notificación que se desvanece a
+        // los cinco segundos es una que nadie vio.
+        requireInteraction: true,
+      }),
+    ]),
   );
 });
+
+/**
+ * Despertar al panel abierto para que suene SU alarma, no la del sistema.
+ *
+ * Este es el único evento que llega de verdad con el panel en segundo plano: lo entrega Android,
+ * no la página. Sin esto se desaprovechaba, porque el tablero solo se entera de un pedido por su
+ * polling de 15 s — y una PWA en segundo plano tiene los temporizadores congelados, así que ese
+ * polling no corre justo cuando más falta hace.
+ *
+ * Que el `postMessage` llegue depende de que Chrome no haya matado la página, así que es una
+ * mejora y no una garantía. **La garantía es el tono de notificación de Android** (ver `tono.ts`),
+ * que suena aunque aquí no quede ni un cliente al que hablarle.
+ *
+ * Solo dice que entró algo: cuántos y cuáles los sabe la página al refrescar, y decidirlo aquí
+ * sería una segunda fuente de "esto es nuevo" compitiendo con `idsNuevos`.
+ */
+function avisarALaPagina() {
+  return self.clients
+    .matchAll({ type: "window", includeUncontrolled: true })
+    .then((ventanas) => {
+      for (const ventana of ventanas) {
+        if (ventana.url.includes(DESTINO)) ventana.postMessage({ tipo: MENSAJE_PEDIDO });
+      }
+    })
+    .catch(() => {
+      // Que no haya nadie escuchando es lo normal con el panel cerrado, y la notificación ya salió.
+    });
+}
 
 /**
  * Tocaron la notificación: al panel.
