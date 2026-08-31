@@ -22,10 +22,11 @@ import { guardarFotos } from "./acciones";
  * solapa con el resto de la edición. Después se persiste la lista con su propia acción,
  * porque el orden de las fotos es un dato independiente del formulario de datos básicos.
  *
- * **Cada foto lleva además su encuadre**, porque las tres cajas de la carta tienen formas
- * distintas y todas recortan: la tarjeta es cuadrada, la ficha del teléfono apaisada y la de
- * escritorio vertical. No existe una foto que encaje en las tres, así que lo que se elige aquí
- * es qué parte sobrevive.
+ * **Cada foto lleva además su encuadre**, porque las cajas de la carta no tienen la misma forma
+ * y recortan: la tarjeta y la ficha del teléfono son cuadradas, pero la de escritorio es
+ * vertical y se come casi la mitad del ancho. Por eso se piden cuadradas —encajan en las dos
+ * superficies que se miran desde el teléfono— y lo que se elige aquí es qué parte sobrevive en
+ * la tercera.
  */
 export function SubidaFotos({
   productId,
@@ -233,10 +234,15 @@ export function SubidaFotos({
         )}
       </div>
 
+      {/* El formato va aquí y no en un manual: quien sube la foto es quien tiene que leerlo, y
+          la pregunta "¿de qué tamaño la subo?" se hace justo en esta pantalla. Los 1280 son
+          `LADO_MAXIMO`: por encima se reduce al subir, así que pedir más sería mentir. */}
       {!soloLectura && (
         <p className="font-cuerpo text-[13px] text-cafe-tenue">
-          Hasta {MAX_FOTOS} fotos. La primera es la que sale en la carta. Con el icono de
-          encuadre eliges qué parte se ve cuando la foto se recorta.
+          Hasta {MAX_FOTOS} fotos. La primera es la que sale en la carta. Súbelas{" "}
+          <strong className="font-semibold">cuadradas, de 1280 × 1280</strong>: así se ven completas
+          en la carta y en el teléfono. Deja aire alrededor del producto, porque en pantalla grande
+          la foto se recorta por los lados; con el icono de encuadre eliges qué parte se ve.
         </p>
       )}
 
