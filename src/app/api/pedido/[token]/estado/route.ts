@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { order } from "@/db/schema";
 import { getStore } from "@/db/queries/store";
+import { exigirCupo } from "@/lib/limites";
 
 export const dynamic = "force-dynamic";
 
@@ -21,13 +22,19 @@ export const dynamic = "force-dynamic";
 const FORMA_TOKEN = /^[0-9a-f]{32}$/;
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ token: string }> },
 ) {
   const { token } = await params;
   if (!FORMA_TOKEN.test(token)) {
     return NextResponse.json({ error: "No encontrado" }, { status: 404 });
   }
+
+  // Por TOKEN y no por IP: los operadores móviles colombianos hacen CGNAT, así que muchos
+  // clientes salen por una misma IP y un límite así castigaría a vecinos que no se conocen. Un
+  // pedido tiene un poller, y esa es la unidad correcta.
+  const frenado = await exigirCupo(request, "seguimiento", token);
+  if (frenado) return frenado;
 
   const tienda = await getStore();
 

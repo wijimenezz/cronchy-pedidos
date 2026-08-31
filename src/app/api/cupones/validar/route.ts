@@ -6,6 +6,7 @@ import { valorarItems } from "@/lib/precios";
 import { aplicarCupon, normalizarCodigo } from "@/lib/cupones";
 import { diaDeBogota } from "@/lib/pedidos/dias";
 import { idSchema } from "@/lib/validaciones";
+import { exigirCupo } from "@/lib/limites";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +60,9 @@ const schema = z.object({
 });
 
 export async function POST(request: Request) {
+  const frenado = await exigirCupo(request, "cupon");
+  if (frenado) return frenado;
+
   const body = await request.json().catch(() => null);
   const parsed = schema.safeParse(body);
   if (!parsed.success) {

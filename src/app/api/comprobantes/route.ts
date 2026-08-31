@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { exigirCupo } from "@/lib/limites";
 import { detectarTipoImagen, MAX_BYTES } from "@/lib/comprobantes";
 import { subirComprobante } from "@/lib/storage";
 import { opcionesDeEntrega, sePuedePedir } from "@/lib/pedidos/entrega";
@@ -15,6 +16,10 @@ export const dynamic = "force-dynamic";
  * es realmente una imagen, y que solo se sube cuando hay un pedido que hacer.
  */
 export async function POST(request: Request) {
+  // Antes de leer el archivo: subirlo cuesta cuota de Storage, y esa no se recupera.
+  const frenado = await exigirCupo(request, "comprobante");
+  if (frenado) return frenado;
+
   // La pregunta es "¿se puede pedir?" y NO "¿está abierta?", que es lo que decía antes y era un
   // callejón sin salida: con la tienda cerrada el checkout ofrece programar, pero esto devolvía
   // 409, y como el esquema exige comprobante para Nequi el pedido quedaba imposible de terminar

@@ -1181,6 +1181,34 @@ quien dice que no no se queda a ciegas: le queda el seguimiento en `/pedido/[tok
   NULL sin tocar el snapshot (regla 2). La URL y la llave las lee de **Vault**, no del
   archivo de migración: se cargan una vez con `pnpm configurar-purga`, y sin ellas la
   función falla a propósito en vez de borrar a medias.
+- **El límite de peticiones son DOS capas, y la que protege la factura no está en el repo.**
+  `lib/limites/` corre *dentro* de la función, o sea después de que la invocación ya se pagó: lo
+  que protege es Postgres, Storage, el bcrypt del login, Nominatim y la bandeja del panel. Cortar
+  el volumen antes de llegar ahí es cosa del **Firewall de Vercel**, que se configura en el
+  dashboard. Si alguien mide el gasto y ve que un ataque igual lo dispara, no es que el límite
+  falle: es que esa mitad vive en otro sitio.
+
+  Cuatro cosas que no se cambian:
+
+  - **Se cuenta en Postgres y no en memoria.** En serverless cada instancia tiene su propia
+    memoria y un arranque en frío la borra; justo bajo ataque Vercel escala a más instancias, así
+    que un `Map` se diluye cuando más falta hace. El `conteo` sube con un UPSERT atómico: leer y
+    luego escribir dejaría pasar a dos peticiones simultáneas.
+  - **La IP se lee de `x-vercel-forwarded-for` o `x-real-ip` ANTES que de `x-forwarded-for`**, y
+    ese orden es lo que hace que el límite sirva. `x-forwarded-for` es una lista a la que Vercel
+    *añade* la IP real detrás de lo que mande el cliente, así que su primer elemento lo controla
+    quien pide: rotándolo en cada petición se saltaría el límite entero.
+  - **Las rutas de token se cuentan por token, no por IP.** Los operadores móviles colombianos
+    hacen CGNAT y muchos clientes salen por una misma IP; limitar el seguimiento por IP castigaría
+    a vecinos que no se conocen.
+  - **Falla abierto.** Si la consulta del límite revienta, la petición pasa. Un limitador que
+    cierra la tienda cuando la base tose es peor que el abuso que evita. `exigirRol` es lo
+    contrario y no ha cambiado: ese sí falla cerrado, porque es control de acceso.
+
+  La tabla `rate_limit` es **la única sin `store_id`**, y es una excepción declarada a la regla 5:
+  no es dato de dominio sino un contador de alguien que todavía no se sabe si es cliente —quien
+  golpea el login no tiene tienda asignada—. La purga es un job horario de `pg_cron` (migración
+  `0033`), mismo mecanismo que la de comprobantes.
 - **Fotos de productos:** máximo 3 por producto; se comprimen ANTES de subir
   (WebP, 1280 px, ~450 KB). La primera es la portada.
 
