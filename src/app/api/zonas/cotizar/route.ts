@@ -4,6 +4,7 @@ import { correccionDeBarrio } from "@/db/queries/barrios";
 import { getStore } from "@/db/queries/store";
 import { resolverZona } from "@/lib/zonas";
 import { barrioDelPunto, resolverNombreBarrio } from "@/lib/barrio";
+import { exigirCupo } from "@/lib/limites";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,9 @@ const schema = z.object({
 });
 
 export async function POST(request: Request) {
+  const frenado = await exigirCupo(request, "cotizar");
+  if (frenado) return frenado;
+
   const body = await request.json().catch(() => null);
   const parsed = schema.safeParse(body);
   if (!parsed.success) {

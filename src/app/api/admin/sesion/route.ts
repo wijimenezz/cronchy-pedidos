@@ -4,6 +4,7 @@ import { buscarUsuarioPorEmail } from "@/db/queries/usuarios";
 import { borrarSesion, guardarSesion } from "@/lib/auth/cookie";
 import { hashear, verificarClave } from "@/lib/auth/password";
 import { loginSchema } from "@/lib/validaciones";
+import { exigirCupo } from "@/lib/limites";
 
 // bcrypt es Node puro; el Edge Runtime no sirve aquí.
 export const runtime = "nodejs";
@@ -23,6 +24,9 @@ const CREDENCIALES_INVALIDAS = "Correo o clave incorrectos";
 const HASH_SEÑUELO = hashear("señuelo para igualar el tiempo de respuesta");
 
 export async function POST(request: Request) {
+  const frenado = await exigirCupo(request, "login");
+  if (frenado) return frenado;
+
   const body = await request.json().catch(() => null);
   const parsed = loginSchema.safeParse(body);
   if (!parsed.success) {

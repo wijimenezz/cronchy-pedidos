@@ -8,8 +8,12 @@ import { buscarCuponPorCodigo } from "@/db/queries/cupones";
 import { crearPedidoEnDB } from "@/db/queries/pedidos";
 import { enviarPushPedidoNuevo } from "@/lib/notificaciones/push";
 import { avisarPedidoNuevo } from "@/lib/notificaciones/telegram";
+import { exigirCupo } from "@/lib/limites";
 
 export async function POST(request: Request) {
+  const frenado = await exigirCupo(request, "pedido");
+  if (frenado) return frenado;
+
   const body = await request.json().catch(() => null);
   if (body === null) {
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
