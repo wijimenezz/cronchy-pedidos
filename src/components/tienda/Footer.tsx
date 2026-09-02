@@ -32,10 +32,7 @@ function IconoTiktok() {
 }
 
 export function Footer({ tienda }: { tienda: Tienda }) {
-  const linkWhatsapp = linkContactoWhatsapp(
-    tienda,
-    `Hola, quiero hacer un pedido en ${tienda.nombre}`,
-  );
+  const linkWhatsapp = linkContactoWhatsapp(tienda);
 
   const hayRedes = tienda.instagramUrl || tienda.tiktokUrl;
 

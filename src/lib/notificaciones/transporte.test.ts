@@ -6,7 +6,12 @@ import {
   prepararConfirmacion,
   transporteWaLink,
 } from "./transporte";
-import type { ItemSnapshot, PedidoParaMensaje, Tienda } from "./plantillas";
+import {
+  SALUDO_CONTACTO,
+  type ItemSnapshot,
+  type PedidoParaMensaje,
+  type Tienda,
+} from "./plantillas";
 
 const TIENDA: Tienda = { nombre: "Cronchy", baseUrl: "https://cronchy.co" };
 
@@ -81,23 +86,33 @@ describe("esTelefonoValido", () => {
 });
 
 describe("linkContactoWhatsapp", () => {
-  // El link corto de WhatsApp Business ya trae su propio mensaje configurado y no
-  // admite `?text=`: se usa tal cual, sin tocarlo.
-  it("usa el link corto de la tienda si está cargado", () => {
-    const r = linkContactoWhatsapp(
-      { whatsappUrl: "https://wa.me/message/ABC123", telefono: "3001234567" },
-      "Hola",
+  // El link corto de WhatsApp Business arrastra el saludo configurado en la app del celular, que
+  // es el mismo para Instagram y para Google. El teléfono gana justo para poder llevar el nuestro.
+  it("prefiere el teléfono aunque la tienda tenga link corto", () => {
+    const r = linkContactoWhatsapp({
+      whatsappUrl: "https://wa.me/message/ABC123",
+      telefono: "3001234567",
+    });
+    expect(r).toBe(
+      `https://wa.me/573001234567?text=${encodeURIComponent(SALUDO_CONTACTO)}`,
     );
+  });
+
+  // Se compara contra la constante y no contra una copia del texto: un test con su propio literal
+  // seguiría en verde después de cambiar el saludo en producción.
+  it("codifica el saludo en la URL", () => {
+    const r = linkContactoWhatsapp({ whatsappUrl: null, telefono: "300 123 4567" });
+    expect(decodeURIComponent(new URL(r!).searchParams.get("text")!)).toBe(SALUDO_CONTACTO);
+  });
+
+  // Sin número no hay `?text=` posible, y un saludo genérico es mejor que ningún botón.
+  it("cae al link corto cuando no hay teléfono", () => {
+    const r = linkContactoWhatsapp({ whatsappUrl: "https://wa.me/message/ABC123", telefono: null });
     expect(r).toBe("https://wa.me/message/ABC123");
   });
 
-  it("cae al teléfono cuando no hay link corto", () => {
-    const r = linkContactoWhatsapp({ whatsappUrl: null, telefono: "300 123 4567" }, "Hola");
-    expect(r).toBe("https://wa.me/573001234567?text=Hola");
-  });
-
   it("devuelve null si la tienda no tiene ni link ni teléfono", () => {
-    expect(linkContactoWhatsapp({ whatsappUrl: null, telefono: null }, "Hola")).toBeNull();
+    expect(linkContactoWhatsapp({ whatsappUrl: null, telefono: null })).toBeNull();
   });
 });
 
