@@ -18,6 +18,24 @@ const ANCHO: Record<"sm" | "md" | "lg" | "xl", string> = {
 };
 
 /**
+ * `true` solo una vez montados en el navegador.
+ *
+ * Es el guardia que necesita cualquier cosa portada a `document.body`: en el servidor no existe
+ * `document`. Se hace con `useSyncExternalStore` y no con un `useState` en un efecto porque es la
+ * vía que React da para que el render de hidratación coincida con el del servidor —ahí devuelve el
+ * snapshot del servidor— en vez de provocar un render en cascada.
+ *
+ * Se exporta porque el menú lateral de la carta se porta por el mismo motivo (`Drawer.tsx`).
+ */
+export function useEnElNavegador() {
+  return useSyncExternalStore(
+    SIN_SUSCRIPCION,
+    () => true,
+    () => false,
+  );
+}
+
+/**
  * El diálogo del proyecto.
  *
  * Nace de tres copias del mismo patrón —el calendario del checkout, el selector de día del panel
@@ -73,17 +91,10 @@ export function Modal({
   // De regalo, `fixed` deja de depender de que ningún ancestro tenga `transform`, `filter` ni
   // `contain`, que lo anclarían a esa caja en vez de a la ventana.
   //
-  // El guardia es porque en el servidor no existe `document`. Hoy ningún modal se abre en el
-  // primer render —todos nacen cerrados y los abre un clic—, así que no cuesta un frame visible;
-  // está para que siga siendo cierto si algún día alguno nace abierto. Se hace con
-  // `useSyncExternalStore` y no con un `useState` en un efecto porque es la vía que React da para
-  // que el render de hidratación coincida con el del servidor —ahí devuelve el snapshot del
-  // servidor— en vez de provocar un render en cascada.
-  const enElNavegador = useSyncExternalStore(
-    SIN_SUSCRIPCION,
-    () => true,
-    () => false,
-  );
+  // El guardia (ver `useEnElNavegador`) hoy no cuesta un frame visible: ningún modal se abre en el
+  // primer render, todos nacen cerrados y los abre un clic. Está para que siga siendo cierto si
+  // algún día alguno nace abierto.
+  const enElNavegador = useEnElNavegador();
 
   if (!enElNavegador) return null;
 
