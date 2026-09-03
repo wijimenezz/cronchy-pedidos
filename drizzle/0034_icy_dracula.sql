@@ -1,0 +1,1 @@
+CREATE INDEX "idx_order_status_event_pedido" ON "order_status_event" USING btree ("order_id","estado");

@@ -812,7 +812,13 @@ function FormularioCambiarProducto({
         <button
           type="button"
           onClick={guardar}
-          disabled={pendiente || !productoRef || !nombre.trim() || !cambioAlgo}
+          // El precio vacío bloquea igual que el nombre vacío, y esa simetría no es cosmética: sin
+          // ella, borrar el campo para reescribirlo y tocar el check antes de teclear mandaba
+          // `Number("") || 0` y escribía **el producto de la Carta a $0**, en toda la tienda y sin
+          // preguntar. Es justo lo que el docblock de `precioVisible` dice querer evitar.
+          disabled={
+            pendiente || !productoRef || !nombre.trim() || !precio.trim() || !cambioAlgo
+          }
           aria-label="Guardar los cambios del producto"
           className="flex size-11 shrink-0 items-center justify-center rounded-full text-exito transition-colors hover:bg-crema disabled:opacity-40"
         >

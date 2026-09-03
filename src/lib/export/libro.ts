@@ -29,6 +29,8 @@ import {
 const PESOS = "#,##0";
 const FECHA_HORA = "yyyy-mm-dd hh:mm";
 const FECHA = "yyyy-mm-dd";
+/** Un entero con su unidad pegada. El valor sigue siendo número: `=PROMEDIO()` funciona igual. */
+const MINUTOS = '0 "min"';
 
 function titulo(texto: string): Row {
   return [{ value: texto, type: String, fontWeight: "bold" }];
@@ -55,6 +57,16 @@ function texto(valor: string | null): Row[number] {
   return valor ? { value: valor, type: String } : null;
 }
 
+/**
+ * Minutos como número, nunca como texto.
+ *
+ * `null` deja la celda **vacía** y no un 0: un pedido cancelado no tardó cero minutos, es que no
+ * tiene el dato — y un 0 se colaría en cualquier `=PROMEDIO()` tirando la cifra hacia abajo.
+ */
+function minutos(valor: number | null): Row[number] {
+  return valor === null ? null : { value: valor, type: Number, format: MINUTOS };
+}
+
 function momento(valor: Date | null, formato = FECHA_HORA): Row[number] {
   return valor ? { value: enHoraDeBogota(valor), type: Date, format: formato } : null;
 }
@@ -79,6 +91,7 @@ function datosResumen(
     dinero(f.domicilio, negrita),
     dinero(f.descuento, negrita),
     dinero(f.ventas, negrita),
+    minutos(f.minutosEntrega),
   ];
 
   const filas: SheetData = [
@@ -94,6 +107,7 @@ function datosResumen(
       "Domicilios $",
       "Descuentos",
       "Total",
+      "Tiempo promedio",
     ]),
     ...dias.map((d) =>
       filaCifras(d, { value: enHoraDeBogota(new Date(`${d.dia}T12:00:00Z`)), type: Date, format: FECHA }),
@@ -129,6 +143,9 @@ function datosPedidos(pedidos: PedidoParaExport[]): SheetData {
       "# Pedido",
       "Fecha y hora",
       "Cerrado en",
+      // Al lado de "Cerrado en" y no al final: quien lee la fila quiere la duración junto a las
+      // dos horas de las que sale, igual que "Cupón" va junto a "Descuento".
+      "Minutos hasta entrega",
       "Estado",
       "Tipo",
       "Cliente",
@@ -164,6 +181,7 @@ function datosPedidos(pedidos: PedidoParaExport[]): SheetData {
       { value: p.numero, type: Number },
       momento(p.creadoEn),
       momento(p.cerradoEn),
+      minutos(p.minutosEntrega),
       texto(p.estado),
       texto(p.tipo),
       texto(p.cliente),
@@ -272,11 +290,12 @@ function datosClientes(pedidos: PedidoParaExport[]): SheetData {
  * cabecera hay que tocar su fila de aquí.
  */
 const ANCHOS = {
-  resumen: [16, 10, 12, 12, 10, 14, 14, 12, 14],
-  // 31 columnas.
+  // 10 columnas.
+  resumen: [16, 10, 12, 12, 10, 14, 14, 12, 14, 16],
+  // 32 columnas. El 16 en cuarta posición es "Minutos hasta entrega", detrás de "Cerrado en".
   pedidos: [
-    10, 18, 18, 14, 18, 22, 16, 22, 16, 18, 34, 26, 12, 12, 16, 20, 18, 16, 12, 14, 12, 12, 12, 14,
-    14, 30, 14, 18, 16, 16, 38,
+    10, 18, 18, 16, 14, 18, 22, 16, 22, 16, 18, 34, 26, 12, 12, 16, 20, 18, 16, 12, 14, 12, 12, 12,
+    14, 14, 30, 14, 18, 16, 16, 38,
   ],
   detalle: [10, 18, 14, 30, 10, 44, 14, 26],
   productos: [34, 18, 20, 14],

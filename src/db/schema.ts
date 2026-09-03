@@ -689,6 +689,13 @@ export const orderStatusEvent = pgTable("order_status_event", {
 			foreignColumns: [appUser.id],
 			name: "order_status_event_user_id_fkey"
 		}),
+	// Esta tabla no tenía ni un índice: Postgres NO crea uno por declarar una FK, así que buscar
+	// los eventos de un pedido era un recorrido de la tabla entera. Se nota desde que el resumen
+	// del día pregunta "¿a qué hora se entregó cada uno?", que es un lateral por pedido.
+	//
+	// El `estado` va en la clave y no solo el `order_id` porque la pregunta siempre lleva las dos
+	// mitades ("los eventos `entregado` de este pedido") y así el índice la responde entera.
+	index("idx_order_status_event_pedido").on(table.orderId, table.estado),
 ]).enableRLS();
 
 /**

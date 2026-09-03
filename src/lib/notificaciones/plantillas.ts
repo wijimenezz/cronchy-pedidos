@@ -14,6 +14,31 @@ import { comoLlegarUrl, type Local } from "@/lib/tienda/local";
 
 const SEP = "--------------------------------";
 
+/**
+ * Lo que el cliente le escribe al negocio desde "Contáctanos" —el menú lateral y el pie de la
+ * carta—, precargado en el chat de WhatsApp.
+ *
+ * Es el único mensaje de este archivo que va en la dirección contraria: lo manda el cliente, no
+ * el negocio. Vive aquí igual, porque la regla 10 es que el TEXTO no se escribe suelto en un
+ * componente; hasta ahora estaba duplicado literalmente en el Drawer y en el Footer.
+ *
+ * No se interpola el nombre de la tienda: quien lo lee ya sabe a qué negocio le escribió, y "vengo
+ * de la app de pedidos" es justo el dato que el mostrador no puede deducir del chat.
+ */
+export const SALUDO_CONTACTO =
+  "Holii Cronchy 🥰 Vengo de la app de pedidos y quería preguntarte algo";
+
+/**
+ * Lo que el cliente le escribe desde el seguimiento de SU pedido.
+ *
+ * Aparte de `SALUDO_CONTACTO` porque el número es justo lo que hace útil el mensaje: quien
+ * escribe desde ahí tiene una duda de ese pedido, no del negocio en general, y sin el número el
+ * mostrador tiene que preguntarlo.
+ */
+export function saludoPorPedido(numero: number): string {
+  return `Hola, escribo por mi pedido #${numero}.`;
+}
+
 // ------------------------------------------------------------
 // Tipos
 // ------------------------------------------------------------

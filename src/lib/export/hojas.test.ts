@@ -22,6 +22,7 @@ const BASE: PedidoParaExport = {
   estado: "entregado",
   creadoEn: new Date("2025-12-09T20:00:00Z"), // 3:00 pm en Bogotá
   cerradoEn: new Date("2025-12-09T20:40:00Z"),
+  entregadoEn: new Date("2025-12-09T20:40:00Z"),
   programadoPara: null,
   clienteNombre: "Wilson",
   clienteTelefono: "3001112233",
@@ -149,6 +150,36 @@ describe("hojaResumen", () => {
     expect(dias[0]).toMatchObject({ dia: "2025-12-09", pedidos: 1 });
     expect(dias[1]).toMatchObject({ dia: "2025-12-10", pedidos: 0 });
   });
+  // El promedio del turno mide la cocina, así que un pedido tomado la noche anterior —que
+  // arrastra horas que nadie esperó— no puede entrar. Sin esto, dos programados al mes bastan
+  // para que la comparación entre días deje de significar nada.
+  it("el tiempo promedio del día deja fuera los programados", () => {
+    const { dias } = hojaResumen(
+      [
+        pedido({ entregadoEn: new Date("2025-12-09T20:40:00Z") }), // 40 min
+        pedido({ entregadoEn: new Date("2025-12-09T20:20:00Z") }), // 20 min
+        pedido({
+          programadoPara: new Date("2025-12-10T19:00:00Z"),
+          entregadoEn: new Date("2025-12-10T19:05:00Z"),
+        }),
+      ],
+      "2025-12-09",
+      "2025-12-09",
+    );
+
+    expect(dias[0].minutosEntrega).toBe(30);
+  });
+
+  // Un día sin entregas no tiene un promedio de cero: no tiene promedio.
+  it("el tiempo promedio es null si no hubo ninguna entrega", () => {
+    const { dias } = hojaResumen(
+      [pedido({ estado: "cancelado", entregadoEn: null })],
+      "2025-12-09",
+      "2025-12-09",
+    );
+
+    expect(dias[0].minutosEntrega).toBeNull();
+  });
 });
 
 describe("totalesPorMetodo", () => {
@@ -215,6 +246,34 @@ describe("hojaPedidos", () => {
     expect(typeof fila.total).toBe("number");
     expect(typeof fila.productos).toBe("number");
     expect(fila.creadoEn).toBeInstanceOf(Date);
+  });
+
+  // La columna que deja medir cuánto tarda el local. Va como número —no como "40 min"— porque
+  // una columna de texto no se promedia, y vacía en vez de 0 en lo que no se entregó: un 0 se
+  // colaría en el promedio y lo tiraría hacia abajo sin que nadie lo note.
+  it("los minutos hasta la entrega son un número, y solo en lo entregado", () => {
+    const [entregado] = hojaPedidos([pedido()]);
+    const [cancelado] = hojaPedidos([
+      pedido({ estado: "cancelado", entregadoEn: null, cerradoEn: null }),
+    ]);
+    const [vivo] = hojaPedidos([pedido({ estado: "en_camino", entregadoEn: null, cerradoEn: null })]);
+
+    expect(entregado.minutosEntrega).toBe(40);
+    expect(cancelado.minutosEntrega).toBeNull();
+    expect(vivo.minutosEntrega).toBeNull();
+  });
+
+  // Su fila dice la verdad de ESE pedido aunque quede fuera del promedio del día: lo que se
+  // excluye allí es la media, no el dato.
+  it("un programado conserva sus minutos reales en su fila", () => {
+    const [fila] = hojaPedidos([
+      pedido({
+        programadoPara: new Date("2025-12-09T20:30:00Z"),
+        entregadoEn: new Date("2025-12-09T20:35:00Z"),
+      }),
+    ]);
+
+    expect(fila.minutosEntrega).toBe(35);
   });
 
   // "Usó cupón" es columna aparte del código para poder contar sin fórmulas. Que las dos digan

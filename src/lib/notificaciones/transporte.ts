@@ -9,6 +9,7 @@
 import {
   confirmacionCliente,
   confirmacionClienteCorta,
+  SALUDO_CONTACTO,
   type PedidoParaMensaje,
   type Tienda,
 } from "./plantillas";
@@ -75,22 +76,48 @@ export function esTelefonoValido(entrada: string): boolean {
   return /^573\d{9}$/.test(normalizarTelefono(entrada));
 }
 
+type TiendaContactable = { whatsappUrl?: string | null; telefono?: string | null };
+
 /**
  * El link de "Contáctanos" que ve el cliente. Vive aquí para que el footer y el menú
  * lateral no puedan terminar apuntando a chats distintos.
  *
- * Si la tienda tiene su link corto de WhatsApp Business (`wa.me/message/XXXX`) se usa
- * tal cual: ese formato ya trae configurado su propio mensaje de bienvenida y no acepta
- * `?text=`. Si no hay link corto, se arma uno con el teléfono.
+ * **Se arma con el teléfono aunque la tienda tenga su link corto de WhatsApp Business**
+ * (`wa.me/message/XXXX`), y esa prioridad es al revés de lo que parece razonable. El corto lleva
+ * al mismo chat, pero su saludo se configura dentro de la app del celular y es **uno solo para
+ * todos los canales**: la bio de Instagram, la ficha de Google y las tarjetas entran por ahí. Un
+ * `?text=` propio es la única forma de que quien escribe desde la app de pedidos se presente como
+ * tal sin cambiárselo a todos los demás; ese formato no lo admite, así que se descarta.
+ *
+ * El corto sigue como respaldo porque `store.telefono` es nullable: sin número, un saludo genérico
+ * es mejor que ningún botón.
+ *
+ * El texto no se recibe por parámetro a propósito (`SALUDO_CONTACTO`, regla 10): mientras se
+ * pudiera pasar, el menú lateral y el pie podían volver a decir cosas distintas, que es justo de
+ * donde se viene.
  */
-export function linkContactoWhatsapp(
-  tienda: { whatsappUrl?: string | null; telefono?: string | null },
+export function linkContactoWhatsapp(tienda: TiendaContactable): string | null {
+  return linkWhatsappNegocio(tienda, SALUDO_CONTACTO);
+}
+
+/**
+ * Lo mismo, pero para un mensaje que NO es el saludo genérico: hoy solo el seguimiento del
+ * pedido, que escribe con su número (`saludoPorPedido`).
+ *
+ * Existe aparte para que quien quiera un texto propio tenga que decidirlo aquí y no acabe
+ * pasándoselo a `linkContactoWhatsapp`, que es lo que dejaba al menú lateral y al pie diciendo
+ * cosas distintas.
+ */
+export function linkWhatsappNegocio(
+  tienda: TiendaContactable,
   mensaje: string,
 ): string | null {
-  if (tienda.whatsappUrl) return tienda.whatsappUrl;
-  if (!tienda.telefono) return null;
+  if (tienda.telefono) {
+    const numero = normalizarTelefono(tienda.telefono);
+    return `https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`;
+  }
 
-  return `https://wa.me/${normalizarTelefono(tienda.telefono)}?text=${encodeURIComponent(mensaje)}`;
+  return tienda.whatsappUrl ?? null;
 }
 
 // ------------------------------------------------------------

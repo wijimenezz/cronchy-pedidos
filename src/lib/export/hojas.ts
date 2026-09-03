@@ -3,6 +3,7 @@ import { METODOS_PAGO, type TotalPorMetodo } from "@/db/queries/resumen";
 import type { ItemSnapshot } from "@/lib/notificaciones/plantillas";
 import { ETIQUETA_ESTADO, METODO_PAGO_ETIQUETA } from "@/lib/pedidos/estados";
 import { diaDeBogota, diasDelRango } from "@/lib/pedidos/dias";
+import { minutosDeEntrega, promedioDeEntrega } from "@/lib/pedidos/tiempos";
 
 /**
  * Las cinco hojas de la descarga, como datos.
@@ -44,6 +45,14 @@ export type FilaResumen = {
   domicilio: number;
   descuento: number;
   ventas: number;
+  /**
+   * Cuánto se tardó de media en entregar ese día, en minutos. `null` si no hubo entregas.
+   *
+   * Se calcula con `promedioDeEntrega`, o sea **dejando fuera los programados**: uno tomado la
+   * noche anterior arrastra horas que nadie esperó y descuadraría la comparación entre días, que
+   * es justo para lo que sirve una fila por día.
+   */
+  minutosEntrega: number | null;
 };
 
 function cifrasDe(pedidos: PedidoParaExport[], dia: string): FilaResumen {
@@ -60,6 +69,7 @@ function cifrasDe(pedidos: PedidoParaExport[], dia: string): FilaResumen {
     domicilio: suma((p) => p.costoDomicilio),
     descuento: suma((p) => p.descuento),
     ventas: suma((p) => p.total),
+    minutosEntrega: promedioDeEntrega(cobrados)?.general ?? null,
   };
 }
 
@@ -109,6 +119,18 @@ export type FilaPedido = {
   numero: number;
   creadoEn: Date;
   cerradoEn: Date | null;
+  /**
+   * Lo que tardó, en minutos, desde que entró hasta que se entregó. `null` en lo cancelado y en
+   * lo que sigue vivo, que en el archivo deja **la celda vacía**: un 0 se sumaría a los promedios
+   * y arrastraría la cifra hacia abajo sin que nadie lo note.
+   *
+   * Va como número y no como "36 min" por el mismo motivo que los montos: una columna de texto no
+   * se promedia ni se grafica, que es para lo que se descarga esto.
+   *
+   * Aquí **sí entran los programados**, al revés que en el promedio del resumen: lo que se excluye
+   * allí es la media, no el dato — su fila sigue diciendo la verdad de ese pedido.
+   */
+  minutosEntrega: number | null;
   estado: string;
   tipo: string;
   cliente: string;
@@ -171,6 +193,7 @@ export function hojaPedidos(pedidos: PedidoParaExport[]): FilaPedido[] {
     numero: p.numero,
     creadoEn: p.creadoEn,
     cerradoEn: p.cerradoEn,
+    minutosEntrega: minutosDeEntrega(p),
     estado: ETIQUETA_ESTADO[p.estado],
     tipo: p.tipo === "domicilio" ? "Domicilio" : "Recoge en tienda",
     cliente: p.clienteNombre,

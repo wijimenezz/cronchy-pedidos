@@ -20,6 +20,7 @@ import { listarDomiciliarios } from "@/db/queries/domiciliarios";
 import { exigirRol } from "@/lib/autorizacion";
 import {
   cuandoCorto,
+  horaCorta,
   pesos,
   subtotalConDescuento,
   type ItemSnapshot,
@@ -33,6 +34,7 @@ import {
   toneDeEstado,
 } from "@/lib/pedidos/estados";
 import { agruparModificadores, contarPreparacion } from "@/lib/pedidos/modificadores";
+import { duracionCorta, minutosEntre } from "@/lib/pedidos/tiempos";
 import { urlMapa } from "@/lib/zonas";
 import { AccionesPedido } from "./AccionesPedido";
 import { AsignarDomiciliario } from "./AsignarDomiciliario";
@@ -101,6 +103,14 @@ export default async function DetallePedidoPage({
   const telefono = normalizarTelefono(pedido.clienteTelefono);
   const cuenta = contarPreparacion(pedido.items);
 
+  // La hora de entrega ya viaja en el historial —es su evento `entregado`, único por pedido—,
+  // pero ahí vive dentro de un acordeón cerrado y como un renglón más entre los otros cambios de
+  // estado. Aquí sube a la cabecera, que es donde se viene a mirar cuánto tardó el pedido.
+  // `findLast` y no `find`: el historial viene en orden ascendente, y el criterio del proyecto
+  // —en `panel.ts` y `resumen.ts`— es quedarse con el evento MÁS TARDÍO. Hoy da igual porque solo
+  // hay uno, pero dos sitios diciendo lo contrario del tercero envejecen mal.
+  const entregadoEn = historial.findLast((e) => e.estado === "entregado")?.creadoEn ?? null;
+
   return (
     <div className="mx-auto flex w-full max-w-contenido flex-col gap-4">
       <Link
@@ -138,11 +148,21 @@ export default async function DetallePedidoPage({
 
         {/* El total y la hora se van al otro extremo: la izquierda es qué es este pedido, la
             derecha cuánto y cuándo. Al envolverse caen juntos a la línea siguiente. */}
-        <span className="ml-auto flex items-baseline gap-3">
-          <span className="font-titulo text-xl font-bold text-cafe">{pesos(pedido.total)}</span>
-          <span className="font-cuerpo text-[13px] text-cafe-tenue">
-            {fechaHora(pedido.creadoEn)}
+        <span className="ml-auto flex flex-col items-end">
+          <span className="flex items-baseline gap-3">
+            <span className="font-titulo text-xl font-bold text-cafe">{pesos(pedido.total)}</span>
+            <span className="font-cuerpo text-[13px] text-cafe-tenue">
+              {fechaHora(pedido.creadoEn)}
+            </span>
           </span>
+          {/* Debajo de la hora de entrada y no al lado: son el principio y el final de la misma
+              cuenta, y leerlos en columna es lo que hace evidente el "tardó". */}
+          {entregadoEn && (
+            <span className="font-cuerpo text-[13px] font-bold text-exito">
+              Entregado {horaCorta(entregadoEn)} · tardó{" "}
+              {duracionCorta(minutosEntre(pedido.creadoEn, entregadoEn))}
+            </span>
+          )}
         </span>
       </header>
 

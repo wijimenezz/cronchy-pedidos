@@ -9,6 +9,8 @@ type Tienda = {
   telefono: string | null;
   whatsappUrl: string | null;
   direccion: string | null;
+  /** Solo lo consume el <Drawer>; el header no lo pinta. */
+  googleResenasUrl: string | null;
 };
 
 type Categoria = { id: string; nombre: string; slug: string };

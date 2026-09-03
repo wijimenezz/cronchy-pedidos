@@ -20,11 +20,12 @@ import { getStore, obtenerUbicacionTienda } from "@/db/queries/store";
 import { obtenerPedidoPorToken, type PedidoPublico } from "@/db/queries/pedidos";
 import { comoLlegarUrl } from "@/lib/tienda/local";
 import { puntoDesdeGeoJSON } from "@/lib/zonas";
-import { linkContactoWhatsapp, normalizarTelefono } from "@/lib/notificaciones/transporte";
+import { linkWhatsappNegocio, normalizarTelefono } from "@/lib/notificaciones/transporte";
 import {
   cuandoCorto,
   horaCorta,
   pesos,
+  saludoPorPedido,
   subtotalConDescuento,
 } from "@/lib/notificaciones/plantillas";
 import {
@@ -114,10 +115,7 @@ export default async function SeguimientoPedido({
   const actual = indiceDeHito(pedido.estado, pedido.tipo);
   const cancelado = pedido.estado === "cancelado";
 
-  const whatsapp = linkContactoWhatsapp(
-    tienda,
-    `Hola, escribo por mi pedido #${pedido.numero}.`,
-  );
+  const whatsapp = linkWhatsappNegocio(tienda, saludoPorPedido(pedido.numero));
 
   return (
     <main className="mx-auto flex w-full max-w-[520px] flex-col gap-4 px-4 py-6">
