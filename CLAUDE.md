@@ -677,7 +677,7 @@ impresora.
 | ----------------- | ------------------------------------------------------------ | ----------------------------------------------------------------- |
 | `admin/pedidos`   | ver, aceptar, cambiar estado, imprimir, avisos, domiciliario | todo, más el rango de entrega estimada, el resumen del día y la descarga XLSX |
 | `admin/catalogo`  | switches `disponible` / `agotado` de productos y opciones    | igual                                                             |
-| `admin/productos` | solo Visible↔Agotado (ni ocultar ni reactivar)               | CRUD completo, precios, fotos (de producto y de categoría), categorías, enganches |
+| `admin/productos` | solo Visible↔Agotado (ni ocultar ni reactivar)               | CRUD completo, precios, fotos (de producto y de categoría), la frase de cada categoría, categorías, enganches |
 | `admin/opciones`  | solo switch `disponible` (sabores de la semana)              | crear/renombrar/ordenar opciones, precio propio, archivar listas; y en las listas de productos de la carta, elegir cuáles se ofrecen y cambiarle el nombre y el precio al producto ofrecido |
 | `admin/zonas`     | sin acceso (ni lectura)                                      | mapa: dibujar, editar vértices, precio, prioridad, activar/apagar |
 | `admin/cupones`   | sin acceso (ni lectura)                                      | crear cupones, porcentaje, a qué aplican, vencimiento, aviso de la carta, apagar |
@@ -1304,6 +1304,24 @@ quien dice que no no se queda a ciegas: le queda el seguimiento en `/pedido/[tok
   era falso —`ProductCard` y `ProductoFicha` tampoco lo llevaban—. El corte real es al revés y
   es más fácil de recordar: **toda la tienda pública pasa por el optimizador**; en el panel solo
   lo evitan el QR de pago y el visor de comprobantes.
+- **La frase del hero de categoría es un dato, no código.** Vive en `category.subtitulo`
+  (nullable: `NULL` = esa categoría no tiene frase y el hero muestra solo el nombre) y se escribe
+  en **el mismo modal que la foto**, que por eso se llama "Portada de …" y no "Foto de …". Está
+  ahí y no en la columna de 220 px porque ese diálogo ya pinta el `CategoryBanner` de verdad: la
+  frase se ve caer sobre el velo café mientras se teclea, que es lo único que no se puede
+  adivinar. Tope de **120 caracteres**, y no los 500 de la descripción de un producto: este texto
+  comparte el hero con la foto.
+
+  Estuvo escrita a mano en un `Record` por slug (`lib/tienda/categoria-meta.ts`, ya borrado) y
+  solo Churros tenía una; la migración `0035` la conservó al pasarla a la columna.
+
+  **Ese hero no lleva botón, y quitarlo fue el motivo del cambio.** Tenía un "Ver todos los
+  churros" que enlazaba a `#<slug>-grid`, o sea a la rejilla de productos que está justo debajo,
+  ya visible en la misma pantalla: gastaba el tercio inferior del hero en un scroll de 40 px. En
+  las demás categorías su texto salía de `Ver todos los ${nombre.toLowerCase()}` y producía
+  cosas como "Ver todos los bebidas". Por lo mismo se fue el "Ver todos" de `SectionTitle`, cuyo
+  único uso apuntaba a la sección que lo contenía. Si alguno vuelve, que sea a algún sitio que no
+  esté ya en pantalla.
 - **Server Components por defecto.** `'use client'` solo donde hay interacción real
   (modal de producto, carrito, panel, mapas).
 - **El menú público se sirve con ISR, y encima hay cuatro capas de caché.** Solo la última

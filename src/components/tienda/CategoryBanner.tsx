@@ -1,18 +1,25 @@
 import Image from "next/image";
-import { ArrowRight } from "lucide-react";
 
+/**
+ * El hero que abre cada categoría en la carta: foto, nombre y una frase.
+ *
+ * **No lleva botón, y eso es una decisión.** Tuvo un "Ver todos los churros" cuyo enlace
+ * apuntaba a la rejilla de productos que está justo debajo, ya visible en la misma pantalla:
+ * ocupaba el tercio inferior del hero para hacer un scroll de 40 px. Además su texto se
+ * generaba con `Ver todos los ${nombre.toLowerCase()}`, que en las demás categorías producía
+ * cosas como "Ver todos los bebidas".
+ *
+ * `subtitulo` sale de `category.subtitulo` y es opcional: sin frase, el hero muestra solo el
+ * nombre. Se edita desde /admin/productos, en el mismo modal que la foto.
+ */
 export function CategoryBanner({
   nombre,
   bannerUrl,
   subtitulo,
-  ctaHref,
-  ctaLabel = "Ver todos",
 }: {
   nombre: string;
   bannerUrl?: string | null;
   subtitulo?: string | null;
-  ctaHref?: string;
-  ctaLabel?: string;
 }) {
   return (
     <div className="relative aspect-[16/9] w-full overflow-hidden rounded-md shadow-tarjeta sm:aspect-[21/9]">
@@ -44,15 +51,6 @@ export function CategoryBanner({
         </h2>
         {subtitulo && (
           <p className="text-sm text-crema/90 sm:text-base">{subtitulo}</p>
-        )}
-        {ctaHref && (
-          <a
-            href={ctaHref}
-            className="mt-2 inline-flex w-fit items-center gap-1.5 rounded-full bg-naranja px-5 py-2 font-cuerpo text-sm font-bold text-crema transition-colors hover:bg-naranja-osc"
-          >
-            {ctaLabel}
-            <ArrowRight className="size-4" />
-          </a>
         )}
       </div>
     </div>

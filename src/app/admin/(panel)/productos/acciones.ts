@@ -13,6 +13,7 @@ import {
   enganclesDeProducto,
   guardarBannerCategoria,
   guardarImagenesProducto,
+  guardarSubtituloCategoria,
   renombrarCategoria,
   reordenarCategorias,
   reordenarProductos,
@@ -443,6 +444,47 @@ export async function guardarBanner(entrada: {
     guardado.previo ? [guardado.previo] : [],
     parsed.data.url ? [parsed.data.url] : [],
   );
+
+  revalidar();
+  return { ok: true };
+}
+
+/**
+ * La frase del hero de la categoría. Se edita en el mismo modal que la foto, porque es donde
+ * se ve caer sobre el velo café.
+ *
+ * 120 caracteres y no los 500 de la descripción de un producto: este texto vive DENTRO del
+ * hero, que en móvil mide `max-w-[80%]`. Más largo se come la foto.
+ */
+export async function guardarFraseCategoria(entrada: {
+  id: string;
+  subtitulo: string | null;
+}): Promise<ResultadoCatalogo> {
+  const sesion = await exigirRol("admin");
+
+  const parsed = z
+    .object({
+      id: idSchema,
+      subtitulo: z
+        .string()
+        .trim()
+        .max(120, "Máximo 120 caracteres")
+        // Mismo trato que la descripción de un producto: borrar el campo y guardar deja NULL,
+        // no una cadena vacía. `subtitulo` nullable es lo que hace que el hero omita el <p>.
+        .nullable()
+        .transform((v) => v || null),
+    })
+    .safeParse(entrada);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
+  }
+
+  const cambiada = await guardarSubtituloCategoria(
+    sesion.storeId,
+    parsed.data.id,
+    parsed.data.subtitulo,
+  );
+  if (!cambiada) return { ok: false, error: "Esa categoría ya no existe." };
 
   revalidar();
   return { ok: true };
