@@ -1,9 +1,14 @@
 import { listarBarrios } from "@/db/queries/barrios";
+import { listarExcepciones, listarHorarioSemanal } from "@/db/queries/horario";
 import { getStore, obtenerUbicacionTienda } from "@/db/queries/store";
 import { SinPermisoError, exigirRol } from "@/lib/autorizacion";
+import { diaDeBogota } from "@/lib/pedidos/dias";
 import { puntoDesdeGeoJSON } from "@/lib/zonas";
+import { AceptaPedidos } from "./AceptaPedidos";
 import { Barrios } from "./Barrios";
 import { DatosLocal } from "./DatosLocal";
+import { Excepciones } from "./Excepciones";
+import { HorarioSemanal } from "./HorarioSemanal";
 import { PagoNequi } from "./PagoNequi";
 
 export const dynamic = "force-dynamic";
@@ -12,8 +17,8 @@ export const dynamic = "force-dynamic";
 const CENTRO_POR_DEFECTO = { lat: 4.3372, lng: -74.3653 };
 
 /**
- * Los datos de la tienda que no son operación del turno: con qué se paga y cómo se llaman los
- * barrios que devuelve el mapa.
+ * Los datos de la tienda que no son operación del turno: cuándo se abre, con qué se paga y cómo
+ * se llaman los barrios que devuelve el mapa.
  *
  * Es una pantalla aparte y no un bloque en `/admin/pedidos` —donde sí vive el tiempo
  * estimado— porque el momento de cambiarlos es otro. El estimado se sube viendo la cola de
@@ -32,9 +37,14 @@ export default async function AjustesPage() {
   }
 
   const tienda = await getStore();
-  const [barrios, ubicacion] = await Promise.all([
+  // El día se resuelve en Bogotá y en el servidor (regla 6): de él dependen qué excepciones ya
+  // pasaron y cuál es la primera fecha que se puede elegir.
+  const hoy = diaDeBogota();
+  const [barrios, ubicacion, horario, excepciones] = await Promise.all([
     listarBarrios(tienda.id),
     obtenerUbicacionTienda(tienda.id),
+    listarHorarioSemanal(tienda.id),
+    listarExcepciones(tienda.id, hoy),
   ]);
 
   return (
@@ -48,6 +58,12 @@ export default async function AjustesPage() {
         // al revés que en el «Cómo llegar», que sin pin busca por la dirección escrita.
         ubicacion={puntoDesdeGeoJSON(ubicacion) ?? CENTRO_POR_DEFECTO}
       />
+      <AceptaPedidos
+        aceptaPedidos={tienda.aceptaPedidos}
+        mensajeCerrado={tienda.mensajeCerrado}
+      />
+      <HorarioSemanal dias={horario} />
+      <Excepciones excepciones={excepciones} hoy={hoy} />
       <PagoNequi
         llave={tienda.nequiLlave}
         titular={tienda.nequiLlaveTitular}
@@ -63,7 +79,7 @@ function SinPermiso() {
     <div className="mx-auto w-full max-w-contenido rounded-md border border-crema-oscura bg-tarjeta p-6">
       <h1 className="font-titulo text-xl font-bold text-cafe">Ajustes</h1>
       <p className="mt-2 font-cuerpo text-[15px] text-cafe-suave">
-        Solo los dueños pueden cambiar los datos de pago.
+        Solo los dueños pueden cambiar el horario y los datos de pago.
       </p>
     </div>
   );

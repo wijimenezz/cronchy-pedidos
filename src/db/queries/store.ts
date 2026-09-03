@@ -125,3 +125,46 @@ export async function guardarQrPago(
     return { previo: antes.nequiQrUrl };
   });
 }
+
+/**
+ * El interruptor de pánico (regla 6): apaga la tienda al instante.
+ *
+ * Gana sobre el horario y sobre las franjas programadas —`opcionesDeEntrega` corta antes de
+ * mirar nada más—, así que apagarlo no deja pasar ni un pedido para mañana. Es lo que se quiere:
+ * un botón de pánico que deja entrar pedidos no es un botón de pánico.
+ *
+ * Existe desde la primera migración y hasta ahora solo se movía con SQL a mano.
+ */
+export async function actualizarAceptaPedidos(
+  storeId: string,
+  acepta: boolean,
+): Promise<boolean> {
+  const filas = await db
+    .update(store)
+    .set({ aceptaPedidos: acepta })
+    .where(eq(store.id, storeId))
+    .returning({ id: store.id });
+
+  return filas.length > 0;
+}
+
+/**
+ * Lo que lee el cliente cuando no se le puede vender.
+ *
+ * Es el respaldo de TODOS los motivos de cierre (`calcularDisponibilidad`), no solo del
+ * interruptor: fuera de horario, sin horario del día y cierre excepcional sin motivo caen aquí.
+ * Por eso conviene que sea genérico —"Volvemos mañana a las 12"— y no hable de una causa
+ * concreta. El motivo de un día suelto se escribe en su excepción.
+ */
+export async function actualizarMensajeCerrado(
+  storeId: string,
+  mensaje: string | null,
+): Promise<boolean> {
+  const filas = await db
+    .update(store)
+    .set({ mensajeCerrado: mensaje })
+    .where(eq(store.id, storeId))
+    .returning({ id: store.id });
+
+  return filas.length > 0;
+}
