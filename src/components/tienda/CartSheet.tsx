@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { pesos } from "@/lib/notificaciones/plantillas";
 import { useCarrito } from "@/lib/carrito";
+import { useCerrarConAtras } from "@/lib/tienda/cerrar-con-atras";
 import { MAXIMO_NOTAS } from "@/lib/validaciones";
 import { Campo, claseControl } from "@/components/checkout/Campo";
 
@@ -18,6 +19,9 @@ function resumenModificadores(item: {
 }
 
 export function CartSheet({ onClose }: { onClose: () => void }) {
+  // El velo y la X cierran retrocediendo en el historial, para que el botón atrás del teléfono
+  // cierre la hoja en vez de sacar de la app.
+  const cerrar = useCerrarConAtras(onClose);
   const items = useCarrito((s) => s.items);
   const incrementar = useCarrito((s) => s.incrementar);
   const decrementar = useCarrito((s) => s.decrementar);
@@ -31,7 +35,7 @@ export function CartSheet({ onClose }: { onClose: () => void }) {
   return (
     <>
       <div
-        onClick={onClose}
+        onClick={cerrar}
         className="fixed inset-0 z-40 bg-cafe/40"
         aria-hidden
       />
@@ -42,7 +46,7 @@ export function CartSheet({ onClose }: { onClose: () => void }) {
           </h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={cerrar}
             aria-label="Cerrar"
             className="text-xl font-bold text-naranja"
           >
@@ -143,7 +147,14 @@ export function CartSheet({ onClose }: { onClose: () => void }) {
               <span>{pesos(total)}</span>
             </div>
             {/* El gate de tienda cerrada vive en /checkout, que sí tiene datos del
-                servidor; aquí no hace falta otra llamada. */}
+                servidor; aquí no hace falta otra llamada.
+
+                **Este cierra con `onClose` y no con `cerrar`, al revés que el velo y la X.**
+                Aquí no se cierra una capa, se navega: meter el `history.back()` de `cerrar`
+                —que es asíncrono— en el mismo clic que el `pushState` de Next es una carrera
+                que puede acabar deshaciendo la navegación. El precio es un escalón muerto en
+                este camino: volver del checkout muestra la carta, y un segundo atrás la vuelve
+                a mostrar antes de salir. */}
             <Link
               href="/checkout"
               onClick={onClose}

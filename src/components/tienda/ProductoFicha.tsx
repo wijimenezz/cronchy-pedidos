@@ -7,6 +7,7 @@ import { CarruselFotos } from "@/components/tienda/CarruselFotos";
 import { pesos } from "@/lib/notificaciones/plantillas";
 import { useCarrito } from "@/lib/carrito";
 import { useTipoPedido } from "@/lib/tienda/tipo-pedido";
+import { useCerrarConAtras } from "@/lib/tienda/cerrar-con-atras";
 import { precargarProducto } from "@/lib/tienda/productos-cache";
 import {
   calcularItem,
@@ -634,6 +635,10 @@ export function ProductoFicha({
   productId: string;
   onClose: () => void;
 }) {
+  // Un paso atrás del teléfono cierra la ficha y deja la carta, que es lo que se espera al venir
+  // de la tarjeta de un producto. Todo lo que cierra —la X, el velo y el "Añadir"— pasa por este
+  // `cerrar` y no por `onClose`, o el escalón que empuja la ficha se quedaría colgando.
+  const cerrar = useCerrarConAtras(onClose);
   const [producto, setProducto] = useState<ProductoParaFicha | null>(null);
   const [error, setError] = useState(false);
   const [cantidad, setCantidad] = useState(1);
@@ -870,7 +875,7 @@ export function ProductoFicha({
       });
     }
 
-    onClose();
+    cerrar();
   }
 
   const enganclesSeleccion =
@@ -921,7 +926,7 @@ export function ProductoFicha({
     return (
       <div onClick={(e) => e.stopPropagation()}>
         <div
-          onClick={onClose}
+          onClick={cerrar}
           className="fixed inset-0 z-40 bg-cafe/40"
           aria-hidden
         />
@@ -931,7 +936,7 @@ export function ProductoFicha({
           </p>
           <button
             type="button"
-            onClick={onClose}
+            onClick={cerrar}
             className="text-sm font-bold text-naranja"
           >
             Cerrar
@@ -945,7 +950,7 @@ export function ProductoFicha({
     return (
       <div onClick={(e) => e.stopPropagation()}>
         <div
-          onClick={onClose}
+          onClick={cerrar}
           className="fixed inset-0 z-40 bg-cafe/40"
           aria-hidden
         />
@@ -1080,7 +1085,7 @@ export function ProductoFicha({
   return (
     <div onClick={(e) => e.stopPropagation()}>
       <div
-        onClick={onClose}
+        onClick={cerrar}
         className="fixed inset-0 z-40 bg-cafe/40"
         aria-hidden
       />
@@ -1099,7 +1104,7 @@ export function ProductoFicha({
           />
           <button
             type="button"
-            onClick={onClose}
+            onClick={cerrar}
             aria-label="Cerrar"
             className="absolute top-3 right-3 z-20 flex size-8 items-center justify-center rounded-full bg-cafe/60 text-crema backdrop-blur-sm"
           >
@@ -1156,7 +1161,7 @@ export function ProductoFicha({
           <div className="relative flex-1 overflow-y-auto bg-tarjeta px-6 py-5">
             <button
               type="button"
-              onClick={onClose}
+              onClick={cerrar}
               aria-label="Cerrar"
               className="absolute top-4 right-4 z-10 flex size-8 items-center justify-center rounded-full text-cafe hover:bg-crema-oscura"
             >
