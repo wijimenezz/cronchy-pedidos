@@ -1,10 +1,11 @@
-import { and, asc, eq, gte, lt, sql } from "drizzle-orm";
+import { and, asc, eq, gte, lt, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
-import { order, orderItem } from "@/db/schema";
+import { order, orderItem, orderStatusEvent } from "@/db/schema";
 import { itemSnapshotSchema } from "@/lib/validaciones";
 import { rangoDeDias, rangoDelDia } from "@/lib/pedidos/dias";
 import { puntoDesdeGeoJSON } from "@/lib/zonas";
 import type { EstadoPedido, ItemSnapshot, TipoPedido } from "@/lib/notificaciones/plantillas";
+import type { PromedioEntrega } from "@/lib/pedidos/tiempos";
 
 /**
  * Las cifras del turno y los datos para la descarga.
@@ -38,6 +39,13 @@ export type ResumenDelDia = {
   ventas: number;
   /** Los cuatro métodos, siempre, aunque alguno esté en cero. */
   porMetodo: TotalPorMetodo[];
+  /**
+   * Cuánto se tardó de media entre que entró el pedido y se entregó, en minutos.
+   *
+   * `null` cuando no hubo ninguna entrega que medir ese día: un "0 min" sería una cifra falsa, no
+   * un dato que falta. Los pedidos **programados quedan fuera** — ver `pedidos/tiempos.ts`.
+   */
+  tiempos: PromedioEntrega | null;
 };
 
 /**
@@ -58,7 +66,8 @@ const CIFRAS = {
   ventas: sql<number>`COALESCE(SUM(${order.total}) FILTER (WHERE ${NO_CANCELADO}), 0)::int`,
 };
 
-const VACIO: Omit<ResumenDelDia, "porMetodo"> = {
+/** Un día sin un solo pedido. `porMetodo` y `tiempos` los pone el `return`, no esta constante. */
+const VACIO: Omit<ResumenDelDia, "porMetodo" | "tiempos"> = {
   pedidos: 0,
   cancelados: 0,
   domicilios: 0,
@@ -68,6 +77,62 @@ const VACIO: Omit<ResumenDelDia, "porMetodo"> = {
   descuento: 0,
   ventas: 0,
 };
+
+/**
+ * Cuánto se tardó de media en entregar, en total y por tipo.
+ *
+ * **Se agrega en SQL como todo lo demás de este módulo**, y no llamando a `promedioDeEntrega`:
+ * eso obligaría a traerse los pedidos del día enteros para sacar una cifra, que es justo lo que el
+ * docblock de `resumenDelDia` explica que no se hace. El precio es que el criterio vive en dos
+ * idiomas —aquí y en `lib/pedidos/tiempos.ts`, que es el que usa el XLSX— así que **si cambia uno,
+ * cambia el otro**. Son dos: entregado, y no programado.
+ *
+ * `JOIN LATERAL` con `max` y no un join a secas: si algún día un pedido llegara a tener dos
+ * eventos `entregado`, un join lo contaría dos veces y el promedio saldría mal sin avisar de nada.
+ *
+ * Puede separarse **un minuto** de lo que da `promedioDeEntrega` sobre los mismos pedidos, y no
+ * es un error: aquí se promedian segundos y se redondea al final, y allí cada pedido se trunca a
+ * minutos antes de promediar. Medido sobre un día real: 1137 contra 1136. Si alguna vez cuadra
+ * mal por más que eso, el problema es otro.
+ *
+ * `programado_para IS NULL` es la mitad que no se ve venir. Un pedido tomado a las 9 de la noche
+ * para el día siguiente a las 2 pm da 17 horas aunque la cocina tardara veinte minutos, y con dos
+ * o tres al mes esta cifra dejaría de medir el local.
+ */
+async function tiemposDelDia(delDia: SQL | undefined): Promise<PromedioEntrega | null> {
+  const filas = await db
+    .select({
+      tipo: order.tipo,
+      entregados: sql<number>`count(*)::int`,
+      minutos: sql<number>`AVG(EXTRACT(EPOCH FROM (ev.entregado_en - ${order.creadoEn})) / 60)::int`,
+    })
+    .from(order)
+    .innerJoin(
+      sql`LATERAL (
+        SELECT max(${orderStatusEvent.creadoEn}) AS entregado_en
+        FROM ${orderStatusEvent}
+        WHERE ${orderStatusEvent.orderId} = ${order.id} AND ${orderStatusEvent.estado} = 'entregado'
+      ) ev`,
+      sql`ev.entregado_en IS NOT NULL`,
+    )
+    .where(and(delDia, sql`${order.programadoPara} IS NULL`))
+    .groupBy(order.tipo);
+
+  const entregados = filas.reduce((n, f) => n + f.entregados, 0);
+  if (entregados === 0) return null;
+
+  const deTipo = (tipo: TipoPedido) => filas.find((f) => f.tipo === tipo)?.minutos ?? null;
+  // El general se recompone ponderando por tipo, no promediando los dos promedios: nueve
+  // domicilios y un recoger no pesan lo mismo.
+  const total = filas.reduce((n, f) => n + f.minutos * f.entregados, 0);
+
+  return {
+    general: Math.round(total / entregados),
+    domicilio: deTipo("domicilio"),
+    recoger: deTipo("recoger"),
+    entregados,
+  };
+}
 
 /**
  * Las cifras de un día en Bogotá.
@@ -90,7 +155,7 @@ export async function resumenDelDia(storeId: string, dia: string): Promise<Resum
     lt(order.creadoEn, hasta.toISOString()),
   );
 
-  const [totales, metodos] = await Promise.all([
+  const [totales, metodos, tiempos] = await Promise.all([
     db.select(CIFRAS).from(order).where(delDia),
     db
       .select({
@@ -102,12 +167,14 @@ export async function resumenDelDia(storeId: string, dia: string): Promise<Resum
       // El cuadre de caja es de lo que se cobró: un pedido cancelado no dejó plata en el cajón.
       .where(and(delDia, NO_CANCELADO))
       .groupBy(order.metodoPago),
+    tiemposDelDia(delDia),
   ]);
 
   const porMetodo = new Map(metodos.map((m) => [m.metodo, m]));
 
   return {
     ...(totales[0] ?? VACIO),
+    tiempos,
     // Los cuatro van siempre, incluidos los que quedaron en cero: una fila que desaparece se lee
     // como un olvido, y "Datáfono $0" es información para quien cierra.
     porMetodo: METODOS_PAGO.map((metodo) => ({
@@ -131,6 +198,13 @@ export type PedidoParaExport = {
   creadoEn: Date;
   /** Cuándo se entregó o se canceló, del último evento terminal. `null` si sigue vivo. */
   cerradoEn: Date | null;
+  /**
+   * Cuándo se entregó, y solo eso. `null` en lo cancelado y en lo que sigue vivo.
+   *
+   * Aparte de `cerradoEn` porque aquel mezcla los dos finales: sirve para "¿cuándo dejó de estar
+   * abierto?", no para medir cuánto tarda el local. La duración del pedido sale de aquí.
+   */
+  entregadoEn: Date | null;
   programadoPara: Date | null;
   clienteNombre: string;
   clienteTelefono: string;
@@ -225,6 +299,9 @@ export async function pedidosDelRango(
     const cierres = fila.orderStatusEvents
       .filter((e) => TERMINALES.includes(e.estado))
       .map((e) => new Date(e.creadoEn).getTime());
+    const entregas = fila.orderStatusEvents
+      .filter((e) => e.estado === "entregado")
+      .map((e) => new Date(e.creadoEn).getTime());
 
     return {
       id: fila.id,
@@ -233,6 +310,7 @@ export async function pedidosDelRango(
       estado: fila.estado,
       creadoEn: new Date(fila.creadoEn),
       cerradoEn: cierres.length > 0 ? new Date(Math.max(...cierres)) : null,
+      entregadoEn: entregas.length > 0 ? new Date(Math.max(...entregas)) : null,
       programadoPara: fila.programadoPara ? new Date(fila.programadoPara) : null,
       clienteNombre: fila.clienteNombre,
       clienteTelefono: fila.clienteTelefono,

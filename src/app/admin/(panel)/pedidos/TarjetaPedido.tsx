@@ -7,6 +7,7 @@ import type { Domiciliario } from "@/db/queries/domiciliarios";
 import type { PedidoEnLista } from "@/db/queries/panel";
 import { cuandoCorto, horaCorta, pesos } from "@/lib/notificaciones/plantillas";
 import { ETIQUETA_AVANCE, METODO_PAGO_ETIQUETA } from "@/lib/pedidos/estados";
+import { duracionCorta, minutosEntre } from "@/lib/pedidos/tiempos";
 import { accionesDeTarjeta } from "./acciones-tarjeta";
 import { cambiarEstado, prepararAviso, prepararImpresion } from "./acciones";
 import { DesgloseDomicilio } from "./DesgloseDomicilio";
@@ -67,16 +68,6 @@ function useAhora(): number | null {
   );
 }
 
-/** 8 -> "8 min" · 95 -> "1 h 35" · 120 -> "2 h". Compacto: es una etiqueta, no una frase. */
-function espera(minutos: number): string {
-  if (minutos < 60) return `${minutos} min`;
-
-  const horas = Math.floor(minutos / 60);
-  const resto = minutos % 60;
-
-  return resto === 0 ? `${horas} h` : `${horas} h ${resto}`;
-}
-
 /**
  * Solo la hora: el tablero es del turno de hoy, la fecha sobra y ocupa.
  *
@@ -115,15 +106,32 @@ export function TarjetaPedido({
   // El polling entrega las fechas como string al pasar por JSON; el render del servidor las
   // da como Date. Se normalizan aquí en vez de en dos sitios.
   const creadoEn = new Date(pedido.creadoEn);
+  const entregadoEn = pedido.entregadoEn ? new Date(pedido.entregadoEn) : null;
+  const cerradoEn = pedido.cerradoEn ? new Date(pedido.cerradoEn) : null;
   const programadoPara = pedido.programadoPara
     ? new Date(pedido.programadoPara)
     : null;
   const esProgramado = programadoPara !== null;
 
-  const minutosEsperando =
-    ahora === null
+  /**
+   * El contador de la esquina: **corre mientras el pedido está vivo y se congela al cerrarse**.
+   *
+   * Antes contaba siempre contra el reloj, así que en la columna Terminados un pedido de las 7 pm
+   * seguía engordando su badge toda la noche. Era gris —la urgencia sí se apaga— pero el número
+   * mentía, y es justo el sitio donde uno va a mirar cuánto se tardó.
+   *
+   * Congela con `cerradoEn` y no con `entregadoEn`, que es la diferencia que importa: un pedido
+   * **cancelado** también cae en Terminados, así que congelar solo lo entregado dejaba su reloj
+   * corriendo justo al lado de otro parado. Lo que distingue a los dos es el rótulo, no el número.
+   *
+   * Congelado no depende de `ahora`, así que a diferencia del que corre **sí se pinta ya en el
+   * servidor**. No hay riesgo de hidratación: es una resta entre dos fechas, no `Date.now()`.
+   */
+  const minutosEsperando = cerradoEn
+    ? minutosEntre(creadoEn, cerradoEn)
+    : ahora === null
       ? null
-      : Math.max(0, Math.floor((ahora - creadoEn.getTime()) / 60_000));
+      : minutosEntre(creadoEn, new Date(ahora));
 
   // El reloj solo alarma en la primera columna. Que un pedido lleve dos horas es normal si ya
   // está en camino; que lleve veinte minutos sin que nadie lo mire, no.
@@ -254,7 +262,13 @@ export function TarjetaPedido({
 
         {minutosEsperando !== null && (
           <span
-            title={`Entró hace ${espera(minutosEsperando)}`}
+            title={
+              entregadoEn
+                ? `Entregado ${hora(entregadoEn)} · tardó ${duracionCorta(minutosEsperando)}`
+                : cerradoEn
+                  ? `Cancelado ${hora(cerradoEn)}`
+                  : `Entró hace ${duracionCorta(minutosEsperando)}`
+            }
             className={`shrink-0 rounded-full px-1.5 py-0.5 font-cuerpo text-[11px] font-bold ${
               urgencia === "alarma"
                 ? "bg-error/15 text-error"
@@ -263,7 +277,7 @@ export function TarjetaPedido({
                   : "bg-crema text-cafe-tenue"
             }`}
           >
-            {espera(minutosEsperando)}
+            {duracionCorta(minutosEsperando)}
           </span>
         )}
       </div>

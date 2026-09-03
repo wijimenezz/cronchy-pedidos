@@ -16,6 +16,7 @@ const PEDIDO: PedidoParaExport = {
   estado: "entregado",
   creadoEn: new Date("2025-12-09T20:00:00Z"),
   cerradoEn: new Date("2025-12-09T20:40:00Z"),
+  entregadoEn: new Date("2025-12-09T20:40:00Z"),
   programadoPara: null,
   clienteNombre: "Wilson",
   clienteTelefono: "3001112233",
@@ -77,6 +78,9 @@ describe("libroDePedidos", () => {
           tipo: "recoger",
           estado: "cancelado",
           cerradoEn: null,
+          // Un cancelado nunca se entregó: su celda de minutos va vacía, que es el caso que
+          // rompería la librería si se colara un `null` sin envolver.
+          entregadoEn: null,
           direccion: null,
           barrio: null,
           indicaciones: null,

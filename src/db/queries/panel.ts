@@ -130,6 +130,24 @@ export type PedidoEnLista = Pick<
   avisoPendiente: boolean;
   /** El siguiente paso natural, o null si el pedido ya terminó. */
   siguiente: EstadoPedido | null;
+  /**
+   * A qué hora se entregó, o `null` si todavía no.
+   *
+   * Sale del evento de estado y no de una columna de `order`: el dato ya existe ahí, y los dos
+   * caminos que entregan un pedido —el botón del panel y el link del domiciliario— lo escriben
+   * igual. Con esto el reloj de la tarjeta puede **congelarse** en la columna Terminados en vez
+   * de seguir subiendo toda la noche.
+   */
+  entregadoEn: Date | null;
+  /**
+   * Cuándo dejó de estar abierto: el evento terminal, sea `entregado` o `cancelado`.
+   *
+   * Existe además de `entregadoEn` porque el contador de la tarjeta tiene que congelarse con los
+   * dos. Un cancelado también cae en la columna Terminados (`columnaDeTablero`), así que
+   * congelar solo lo entregado dejaba su reloj subiendo toda la noche al lado de otro parado —
+   * que es peor que el fallo original, porque parece intencionado.
+   */
+  cerradoEn: Date | null;
 };
 
 function aItems(filas: { snapshot: unknown }[]): ItemSnapshot[] {
@@ -159,7 +177,10 @@ function inicioDeHoy(ahora = new Date()): Date {
 /** Las columnas que las dos consultas de lista necesitan cargar del pedido. */
 const RELACIONES_DE_LISTA = {
   orderItems: { columns: { cantidad: true, snapshot: true } },
-  orderStatusEvents: { columns: { estado: true, notificadoEn: true } },
+  // `creadoEn` es la hora de cada paso, y en el evento `entregado` es la hora de entrega
+  // (regla: ese evento es único por pedido). Sale gratis: la relación ya se carga para
+  // `avisoPendiente`, así que pedirlo no añade ni una consulta.
+  orderStatusEvents: { columns: { estado: true, notificadoEn: true, creadoEn: true } },
 } as const;
 
 type FilaDeLista = {
@@ -181,7 +202,11 @@ type FilaDeLista = {
   aceptaAvisos: boolean;
   domiciliarioNombre: string | null;
   orderItems: { cantidad: number; snapshot: unknown }[];
-  orderStatusEvents: { estado: EstadoPedido; notificadoEn: string | null }[];
+  orderStatusEvents: {
+    estado: EstadoPedido;
+    notificadoEn: string | null;
+    creadoEn: string;
+  }[];
 };
 
 /** Fila cruda -> lo que pinta la pantalla. Compartido por las dos consultas de lista. */
@@ -190,12 +215,24 @@ function aPedidoEnLista(fila: FilaDeLista): PedidoEnLista {
     .filter((e) => e.notificadoEn !== null)
     .map((e) => e.estado);
 
+  // El evento `entregado` es único por construcción —es terminal, y `confirmarEntrega` sale
+  // temprano si el pedido ya lo estaba—, pero se toma el más tardío por si algún día deja de
+  // serlo. Mismo criterio que en `resumen.ts`.
+  const entregas = fila.orderStatusEvents
+    .filter((e) => e.estado === "entregado")
+    .map((e) => new Date(e.creadoEn).getTime());
+  const cierres = fila.orderStatusEvents
+    .filter((e) => TERMINALES.includes(e.estado))
+    .map((e) => new Date(e.creadoEn).getTime());
+
   return {
     id: fila.id,
     numero: fila.numero,
     tipo: fila.tipo,
     estado: fila.estado,
     creadoEn: new Date(fila.creadoEn),
+    entregadoEn: entregas.length > 0 ? new Date(Math.max(...entregas)) : null,
+    cerradoEn: cierres.length > 0 ? new Date(Math.max(...cierres)) : null,
     programadoPara: fila.programadoPara ? new Date(fila.programadoPara) : null,
     clienteNombre: fila.clienteNombre,
     clienteTelefono: fila.clienteTelefono,

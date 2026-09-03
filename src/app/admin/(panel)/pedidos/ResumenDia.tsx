@@ -6,6 +6,7 @@ import type { ResumenDelDia } from "@/db/queries/resumen";
 import { Modal, ModalCabecera, ModalCerrar } from "@/components/ui/Modal";
 import { pesos } from "@/lib/notificaciones/plantillas";
 import { METODO_PAGO_ETIQUETA } from "@/lib/pedidos/estados";
+import { duracionCorta } from "@/lib/pedidos/tiempos";
 
 /**
  * Las cifras del día, para cerrar el turno.
@@ -59,6 +60,38 @@ export function ResumenDia({ resumen, rotulo }: { resumen: ResumenDelDia; rotulo
               <Dato titulo="Valor productos" valor={pesos(resumen.productos)} />
               <Dato titulo="Valor en domicilios" valor={pesos(resumen.domicilio)} />
             </div>
+
+            {/* Cuánto se tardó, con el mismo criterio que el resto: condicional, porque un día
+                sin ninguna entrega no tiene un promedio de 0 min — no tiene promedio.
+
+                Domicilio y recoger van separados porque son dos operaciones distintas: una
+                incluye el viaje y la otra termina en el mostrador, así que una cifra que las
+                mezcle se mueve con la proporción del día en vez de con la cocina. Y los pedidos
+                programados quedan fuera de los tres números (ver `pedidos/tiempos.ts`). */}
+            {resumen.tiempos && (
+              <div className="grid grid-cols-3 gap-2">
+                <Dato
+                  titulo="Tiempo promedio"
+                  valor={duracionCorta(resumen.tiempos.general)}
+                  // Sin esto, "34 min" sacado de una sola entrega parece un promedio del turno.
+                  nota={`${resumen.tiempos.entregados} entrega${resumen.tiempos.entregados > 1 ? "s" : ""}`}
+                />
+                <Dato
+                  titulo="Domicilio"
+                  valor={
+                    resumen.tiempos.domicilio !== null
+                      ? duracionCorta(resumen.tiempos.domicilio)
+                      : "—"
+                  }
+                />
+                <Dato
+                  titulo="Recoger"
+                  valor={
+                    resumen.tiempos.recoger !== null ? duracionCorta(resumen.tiempos.recoger) : "—"
+                  }
+                />
+              </div>
+            )}
 
             {/* Hoy siempre es 0 —no hay cupones ni promociones—, así que aparece solo si algún
                 día deja de serlo. Un recuadro fijo en cero es ruido. */}
