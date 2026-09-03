@@ -246,6 +246,13 @@
       "when": 1788385785350,
       "tag": "0034_icy_dracula",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1788441248233,
+      "tag": "0035_frase_de_categoria",
+      "breakpoints": true
     }
   ]
 }

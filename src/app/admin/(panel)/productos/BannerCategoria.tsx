@@ -6,12 +6,15 @@ import { Modal, ModalCabecera, ModalCerrar } from "@/components/ui/Modal";
 import { CategoryBanner } from "@/components/tienda/CategoryBanner";
 import type { CategoriaPanel } from "@/db/queries/catalogo";
 import { LADO_MAXIMO_BANNER, MAX_BYTES } from "@/lib/imagenes";
-import { SUBTITULO_CATEGORIA } from "@/lib/tienda/categoria-meta";
 import { comprimirImagen } from "./comprimir";
-import { guardarBanner } from "./acciones";
+import { guardarBanner, guardarFraseCategoria } from "./acciones";
+
+/** Lo que cabe en el hero sin comerse la foto. Mismo tope que el Zod de la server action. */
+const MAX_FRASE = 120;
 
 /**
- * La foto de portada de una categoría: una sola, la que abre su sección en la carta.
+ * La portada de una categoría: la foto que abre su sección en la carta, y la frase que va
+ * bajo el nombre.
  *
  * Va en un diálogo y no en la columna porque esa columna mide 220 px y un hero de 21:9 ahí no
  * se puede juzgar. Dentro se pinta el `CategoryBanner` de verdad, no una maqueta: el velo café
@@ -19,8 +22,12 @@ import { guardarBanner } from "./acciones";
  * foto en su galería. Reusarlo también evita que la vista previa se quede vieja el día que
  * cambie el diseño de la carta.
  *
- * Mismo flujo de dos pasos que `SubidaFotos`: el route handler sube el objeto al bucket y
- * devuelve la URL, y la server action la persiste en la columna. La foto se sube al elegirla.
+ * **Y es el motivo de que la frase se edite aquí y no en la columna**: se ve caer sobre el
+ * velo mientras se teclea. Antes vivía escrita a mano en el código, solo para Churros.
+ *
+ * La foto sigue el mismo flujo de dos pasos que `SubidaFotos`: el route handler sube el objeto
+ * al bucket y devuelve la URL, y la server action la persiste en la columna. Se sube al
+ * elegirla. La frase, en cambio, tiene botón: hay que poder escribirla entera antes de guardar.
  */
 export function BannerCategoria({ categoria }: { categoria: CategoriaPanel }) {
   const [abierto, setAbierto] = useState(false);
@@ -30,7 +37,7 @@ export function BannerCategoria({ categoria }: { categoria: CategoriaPanel }) {
       <button
         type="button"
         onClick={() => setAbierto(true)}
-        aria-label={`Foto de ${categoria.nombre}`}
+        aria-label={`Portada de ${categoria.nombre}`}
         className={`flex size-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-crema ${
           categoria.bannerUrl ? "text-naranja" : "text-cafe-tenue hover:text-cafe"
         }`}
@@ -61,6 +68,13 @@ function Dialogo({
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // La frase SÍ lleva estado local, al revés que la URL de la foto: hay que teclearla, y la
+  // vista previa de arriba pinta lo que se está escribiendo. Al guardar, la acción revalida y
+  // la prop vuelve con este mismo valor, así que las dos no pueden discrepar.
+  const [frase, setFrase] = useState(categoria.subtitulo ?? "");
+  const [guardandoFrase, setGuardandoFrase] = useState(false);
+  const sucia = frase.trim() !== (categoria.subtitulo ?? "");
+
   const ocupado = subiendo || pendiente;
 
   // Sin estado local para la URL: la acción revalida `/admin/productos`, así que la prop llega
@@ -70,6 +84,16 @@ function Dialogo({
     iniciar(async () => {
       const resultado = await guardarBanner({ id: categoria.id, url });
       if (!resultado.ok) setError(resultado.error);
+    });
+  }
+
+  function guardarFrase() {
+    setError(null);
+    setGuardandoFrase(true);
+    iniciar(async () => {
+      const resultado = await guardarFraseCategoria({ id: categoria.id, subtitulo: frase });
+      if (!resultado.ok) setError(resultado.error);
+      setGuardandoFrase(false);
     });
   }
 
@@ -109,24 +133,59 @@ function Dialogo({
   }
 
   return (
-    <Modal etiqueta={`Foto de ${categoria.nombre}`} ancho="xl" onCerrar={onCerrar}>
-      <ModalCabecera>Foto de {categoria.nombre}</ModalCabecera>
+    <Modal etiqueta={`Portada de ${categoria.nombre}`} ancho="xl" onCerrar={onCerrar}>
+      <ModalCabecera>Portada de {categoria.nombre}</ModalCabecera>
 
       <div className="flex flex-col gap-3 overflow-y-auto p-4">
-        {/* El componente de la carta, no una maqueta. Sin `ctaHref`: un enlace a una sección
-            de la tienda no lleva a ninguna parte desde el panel. */}
+        {/* El componente de la carta, no una maqueta. Con `frase` y no con `categoria.subtitulo`:
+            así la vista previa va escribiendo con quien teclea. */}
         <CategoryBanner
           nombre={categoria.nombre}
           bannerUrl={categoria.bannerUrl}
-          subtitulo={SUBTITULO_CATEGORIA[categoria.slug]}
+          subtitulo={frase}
         />
 
-        <p className="font-cuerpo text-[13px] text-cafe-tenue">
-          Así se ve al abrir la categoría en la carta. El nombre va encima, sobre un velo oscuro
-          a la izquierda: deja el churro —o lo que quieras que se vea— hacia la derecha. En el
-          celular la foto se recorta más cuadrada y en computador más panorámica, así que lo
-          importante debe quedar centrado de arriba a abajo.
-        </p>
+        <div className="flex flex-col gap-1.5">
+          <label
+            htmlFor={`frase-${categoria.id}`}
+            className="font-cuerpo text-sm font-bold text-cafe"
+          >
+            Frase
+          </label>
+
+          <textarea
+            id={`frase-${categoria.id}`}
+            value={frase}
+            onChange={(e) => setFrase(e.target.value)}
+            maxLength={MAX_FRASE}
+            rows={2}
+            disabled={ocupado}
+            placeholder="Crujientes por fuera, suaves por dentro."
+            className="w-full resize-none rounded-sm border border-crema-oscura bg-white px-3 py-2 font-cuerpo text-sm text-cafe outline-none focus:border-naranja disabled:opacity-50"
+          />
+
+          <p className="font-cuerpo text-[13px] text-cafe-tenue">
+            La línea que va debajo del nombre. Es opcional: si la dejas vacía, la portada muestra
+            solo el nombre. Corta, que comparte espacio con la foto.
+          </p>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={guardarFrase}
+              disabled={!sucia || ocupado}
+              className="min-h-11 rounded-full bg-naranja px-4 font-cuerpo text-sm font-bold text-crema transition-colors hover:bg-naranja-osc disabled:opacity-50"
+            >
+              {guardandoFrase ? "Guardando…" : "Guardar frase"}
+            </button>
+
+            {/* Cerrar el modal con la frase a medio escribir la pierde, y decirlo cuesta una
+                línea: todo lo demás de este diálogo guarda solo con elegir el archivo. */}
+            <span className="min-w-0 flex-1 truncate font-cuerpo text-[13px] text-cafe-tenue">
+              {sucia ? "Sin guardar" : `${frase.length}/${MAX_FRASE}`}
+            </span>
+          </div>
+        </div>
 
         {error && (
           <p role="alert" className="font-cuerpo text-[13px] font-semibold text-error">
@@ -147,36 +206,45 @@ function Dialogo({
           }}
         />
 
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => inputRef.current?.click()}
-            disabled={ocupado}
-            className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full bg-naranja px-4 font-cuerpo text-sm font-bold text-crema transition-colors hover:bg-naranja-osc disabled:opacity-50"
-          >
-            {subiendo ? (
-              <>
-                <Loader2 className="size-4 animate-spin" />
-                Subiendo…
-              </>
-            ) : (
-              <>
-                <ImagePlus className="size-4" />
-                {categoria.bannerUrl ? "Cambiar foto" : "Subir foto"}
-              </>
-            )}
-          </button>
+        <div className="flex flex-col gap-2 border-t border-crema-oscura pt-3">
+          <p className="font-cuerpo text-[13px] text-cafe-tenue">
+            Así se ve al abrir la categoría en la carta. El nombre va encima, sobre un velo oscuro
+            a la izquierda: deja el churro —o lo que quieras que se vea— hacia la derecha. En el
+            celular la foto se recorta más cuadrada y en computador más panorámica, así que lo
+            importante debe quedar centrado de arriba a abajo.
+          </p>
 
-          {categoria.bannerUrl && (
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => persistir(null)}
+              onClick={() => inputRef.current?.click()}
               disabled={ocupado}
-              className="min-h-11 rounded-full border border-crema-oscura px-4 font-cuerpo text-sm font-bold text-cafe-suave transition-colors hover:bg-crema disabled:opacity-50"
+              className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full bg-naranja px-4 font-cuerpo text-sm font-bold text-crema transition-colors hover:bg-naranja-osc disabled:opacity-50"
             >
-              {pendiente ? "Guardando…" : "Quitar foto"}
+              {subiendo ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Subiendo…
+                </>
+              ) : (
+                <>
+                  <ImagePlus className="size-4" />
+                  {categoria.bannerUrl ? "Cambiar foto" : "Subir foto"}
+                </>
+              )}
             </button>
-          )}
+
+            {categoria.bannerUrl && (
+              <button
+                type="button"
+                onClick={() => persistir(null)}
+                disabled={ocupado}
+                className="min-h-11 rounded-full border border-crema-oscura px-4 font-cuerpo text-sm font-bold text-cafe-suave transition-colors hover:bg-crema disabled:opacity-50"
+              >
+                {pendiente && !guardandoFrase ? "Guardando…" : "Quitar foto"}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
