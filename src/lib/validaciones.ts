@@ -62,21 +62,67 @@ const textoOpcional = (max: number) =>
  * **Rangos Unicode explícitos y bandera `u`, nunca `\w` ni `[a-z]`.** Esos dos dejan fuera las
  * tildes y la ñ, así que con ellos "José Ramírez" y "Ana María Peña" serían nombres inválidos —
  * en Fusagasugá eso es la mitad de los clientes.
+ *
+ * **Y por el mismo motivo son más anchas de lo que parece necesario.** Nacieron tan cerradas que
+ * rechazaban lo que la gente escribe de verdad: "Ana-María", "D'Angelo", "Cra 7 N° 12-34",
+ * "Sin canela porfa!". Un pedido perdido cuesta más que un símbolo raro en un ticket, así que la
+ * pregunta al añadir un carácter no es "¿hace falta?" sino "¿puede hacer daño en el papel o en la
+ * pantalla del panel?". Lo que sigue fuera —`< > " \ | $ { }` y las comillas— es exactamente eso.
  */
-const SOLO_LETRAS = /^[\p{L}\s]+$/u;
-const LETRAS_Y_NUMEROS = /^[\p{L}\p{N}\s]+$/u;
+const SOLO_LETRAS = /^[\p{L}\s'.-]+$/u;
+const LETRAS_Y_NUMEROS = /^[\p{L}\p{N}\s'.-]+$/u;
 /** Dirección: además de letras y números, lo que lleva una dirección de verdad. */
-const DIRECCION = /^[\p{L}\p{N}\s#.,-]+$/u;
-/** Texto que escribe el cliente a mano. Puntuación normal y nada de `< > { } \ | $ \``. */
-const TEXTO_LIBRE = /^[\p{L}\p{N}\s,.:;()/'"-]+$/u;
+const DIRECCION = /^[\p{L}\p{N}\s#.,:/'()°º-]+$/u;
+/**
+ * Texto que escribe el cliente a mano: puntuación normal, signos de admiración e interrogación
+ * —los de apertura incluidos— y emojis.
+ *
+ * Los emojis van con sus acompañantes (`\p{Emoji_Modifier}`, el ZWJ, el selector de variación y
+ * el cierre de teclado) o los compuestos se partirían por la mitad: una familia, un tono de piel
+ * o un "2️⃣" son varios puntos de código pegados, y validar solo el primero no deja medio emoji —
+ * deja el campo entero rechazado.
+ *
+ * No rompen el ticket: `codificar` translitera a `?` todo lo que no cabe en la página de códigos
+ * de la impresora (regla 22).
+ *
+ * Sigue fuera `< > " \ | $ { } \``, que es lo que ensucia el papel y la pantalla del panel.
+ */
+const TEXTO_LIBRE =
+  /^[\p{L}\p{N}\p{Extended_Pictographic}\p{Emoji_Modifier}\s,.:;()/'!¡?¿#&+*%@_°º\u200d\ufe0f\u20e3-]+$/u;
 const ALFANUMERICO = /^[\p{L}\p{N}]+$/u;
+
+/**
+ * Lo que puede medir un código de cupón.
+ *
+ * Se exporta porque el panel también lo necesita: llegó a dejar crear códigos de 24 mientras el
+ * checkout los rechazaba a los 20, así que un cupón creado desde el panel se podía dictar por
+ * WhatsApp y luego tumbaba el pedido con un 400. Un número en dos sitios es un número que se
+ * separa.
+ */
+export const MAXIMO_CODIGO_CUPON = 20;
+
+/**
+ * Lo que puede medir la nota de un pedido.
+ *
+ * Se exporta por lo mismo: la escriben dos pantallas —el carrito y el paso 3 del checkout—, y las
+ * dos tenían el número copiado a mano con un comentario avisando de que si cambiaba aquí había que
+ * acordarse allá. Acordarse no es un mecanismo.
+ */
+export const MAXIMO_NOTAS = 100;
 
 /**
  * Se normaliza **antes** de validar, no después: así "  Juan   Pérez  " se mide y se guarda como
  * "Juan Pérez", y un campo con solo espacios cuenta como vacío en vez de pasar el `min`.
+ *
+ * **El `normalize("NFC")` no es adorno.** Una tilde se puede escribir de dos maneras que en
+ * pantalla son idénticas: "é" como un solo punto de código, o como "e" más un acento combinante —
+ * que es lo que producen algunos teclados y buena parte del texto que se pega desde otras apps.
+ * Las listas de permitidos van por `\p{L}`, y un acento suelto no es una letra, así que sin esta
+ * línea "José" se rechazaba con "solo puede contener letras" y no había ninguna diferencia visible
+ * que explicara por qué. Componer aquí lo arregla para todos los campos de una vez.
  */
 const normalizar = (v: unknown) =>
-  typeof v === "string" ? v.trim().replace(/\s+/g, " ") : v;
+  typeof v === "string" ? v.normalize("NFC").trim().replace(/\s+/g, " ") : v;
 
 const texto = <T extends z.ZodTypeAny>(schema: T) => z.preprocess(normalizar, schema);
 
@@ -100,8 +146,15 @@ const nombrePersona = (etiqueta: string) =>
 /**
  * Un teléfono del cliente.
  *
- * Los espacios, guiones y paréntesis se quitan **antes** de validar, así que "310 123 4567" y
- * "(310) 123-4567" entran igual que "3101234567".
+ * Los espacios, guiones, paréntesis y el `+` se quitan **antes** de validar, así que
+ * "310 123 4567", "(310) 123-4567" y "+57 310 1234567" entran igual que "3101234567".
+ *
+ * **El indicativo se quita aparte, y no con un `\D` global.** Eso es lo que parecería más simple y
+ * es justo lo que no se puede hacer: `esTelefonoValido` ya aceptaba "+57 300 1234567", pero el `+`
+ * sobrevivía al preprocess y moría en el `regex` de diez dígitos antes de que nadie le preguntara
+ * — un número perfectamente bueno rechazado con "debe tener 10 dígitos". Con un `\D` global se
+ * arreglaría eso y se rompería lo contrario: "abc3101234567" quedaría en "3101234567" y pasaría.
+ * Por eso solo se descarta el "57" cuando lo que queda detrás ya es un celular entero.
  *
  * **`esTelefonoValido` es lo que exige que sea un celular colombiano** —10 dígitos empezando por
  * 3—. Para aceptar cualquier número de 10 dígitos basta con quitar ese `.refine`: el `regex` de
@@ -109,7 +162,12 @@ const nombrePersona = (etiqueta: string) =>
  * del pedido (regla 10), y a un fijo no le llegaría ningún aviso.
  */
 const telefono = z.preprocess(
-  (v) => (typeof v === "string" ? v.replace(/[\s\-().]/g, "") : v),
+  (v) => {
+    if (typeof v !== "string") return v;
+
+    const limpio = v.replace(/[\s\-().+]/g, "");
+    return /^573\d{9}$/.test(limpio) ? limpio.slice(2) : limpio;
+  },
   z
     .string({ error: REQUERIDO })
     .min(1, REQUERIDO)
@@ -294,7 +352,7 @@ export const crearPedidoSchema = z
       z
         .string()
         .min(3, "El cupón debe tener al menos 3 caracteres")
-        .max(20, "Máximo 20 caracteres")
+        .max(MAXIMO_CODIGO_CUPON, `Máximo ${MAXIMO_CODIGO_CUPON} caracteres`)
         .regex(ALFANUMERICO, "El cupón no lleva espacios ni símbolos")
         // `normalizarCodigo` ya pasa a MAYÚSCULAS: lo que viaja y se guarda es el valor
         // normalizado, no lo que se vea en pantalla.
@@ -303,7 +361,7 @@ export const crearPedidoSchema = z
     notas: textoOpcionalCon(
       z
         .string()
-        .max(100, "Máximo 100 caracteres")
+        .max(MAXIMO_NOTAS, `Máximo ${MAXIMO_NOTAS} caracteres`)
         .regex(TEXTO_LIBRE, "Las notas tienen un símbolo que no podemos guardar"),
     ),
     /**

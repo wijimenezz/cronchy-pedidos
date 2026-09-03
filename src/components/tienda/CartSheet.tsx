@@ -3,13 +3,10 @@
 import Link from "next/link";
 import { pesos } from "@/lib/notificaciones/plantillas";
 import { useCarrito } from "@/lib/carrito";
+import { MAXIMO_NOTAS } from "@/lib/validaciones";
 import { Campo, claseControl } from "@/components/checkout/Campo";
 
-/**
- * El mismo tope que `crearPedidoSchema` le pone a `notas`. Se repite el número porque el esquema
- * no lo exporta; si allá cambia, aquí también — el test del esquema es el que fija cuál manda.
- */
-const MAX_NOTAS = 100;
+
 
 function resumenModificadores(item: {
   modificadores: { nombre: string; cantidad: number }[];
@@ -115,11 +112,11 @@ export function CartSheet({ onClose }: { onClose: () => void }) {
                     rows={2}
                     value={notas}
                     onChange={(e) =>
-                      setNotas(e.target.value.slice(0, MAX_NOTAS))
+                      setNotas(e.target.value.slice(0, MAXIMO_NOTAS))
                     }
                     // El tope va también en el atributo: el `slice` cubre el pegado, y esto le
                     // dice al navegador que no acepte más pulsaciones.
-                    maxLength={MAX_NOTAS}
+                    maxLength={MAXIMO_NOTAS}
                     placeholder="Para mi churrito favorito, feliz día"
                     className={claseControl()}
                   />
@@ -129,12 +126,12 @@ export function CartSheet({ onClose }: { onClose: () => void }) {
                     <span
                       aria-live="polite"
                       className={`self-end font-cuerpo text-[12px] ${
-                        notas.length === MAX_NOTAS
+                        notas.length === MAXIMO_NOTAS
                           ? "text-alerta"
                           : "text-cafe-tenue"
                       }`}
                     >
-                      {notas.length}/{MAX_NOTAS}
+                      {notas.length}/{MAXIMO_NOTAS}
                     </span>
                   )}
                 </div>

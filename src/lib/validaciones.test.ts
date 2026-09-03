@@ -404,6 +404,17 @@ describe("nombre del cliente", () => {
     expect(crearPedidoSchema.safeParse(payloadBase({ clienteNombre: nombre })).success).toBe(true);
   });
 
+  // La lista arrancó admitiendo solo letras y espacios, y estos tres son apellidos corrientes que
+  // quedaban fuera. A quien se llama así no se le puede pedir que se escriba mal para poder pedir.
+  it.each(["D'Angelo Pérez", "Ana-María Gómez", "J. Ramírez"])(
+    "acepta %s, que la primera versión rechazaba",
+    (nombre) => {
+      expect(crearPedidoSchema.safeParse(payloadBase({ clienteNombre: nombre })).success).toBe(
+        true,
+      );
+    },
+  );
+
   // Una inicial suelta no le sirve ni a quien prepara ni a quien entrega.
   it.each(["Jo", "A"])("rechaza %s por corto", (nombre) => {
     expect(mensajeDe(payloadBase({ clienteNombre: nombre }), "clienteNombre")).toBe(
@@ -445,6 +456,27 @@ describe("teléfono", () => {
     if (r.success) expect(r.data.clienteTelefono).toBe("3101234567");
   });
 
+  // Chrome Android autocompleta en E.164. Antes el `+` sobrevivía al preprocess y el número moría
+  // en el regex de diez dígitos: un teléfono bueno rechazado con "debe tener 10 dígitos".
+  it.each(["+573101234567", "+57 310 123 4567", "573101234567"])(
+    "acepta %s y le quita el indicativo",
+    (tel) => {
+      const r = crearPedidoSchema.safeParse(payloadBase({ clienteTelefono: tel }));
+
+      expect(r.success).toBe(true);
+      if (r.success) expect(r.data.clienteTelefono).toBe("3101234567");
+    },
+  );
+
+  // El indicativo se quita solo cuando lo de detrás ya es un celular entero. Con un `\D` global
+  // —que es lo que parecería más simple— "abc3101234567" pasaría a ser válido.
+  it("no confunde un 57 que forma parte del número", () => {
+    const r = crearPedidoSchema.safeParse(payloadBase({ clienteTelefono: "3571234567" }));
+
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.clienteTelefono).toBe("3571234567");
+  });
+
   // El caso que abrió el bug: al quitar `*` y `?` quedan 8 dígitos, no 10.
   it.each(["31234*567?", "310123456", "31012345678", "abc3101234567"])(
     "rechaza %s",
@@ -471,6 +503,16 @@ describe("dirección", () => {
     expect(crearPedidoSchema.safeParse(domicilio(dir)).success).toBe(true);
   });
 
+  // El `°` no es letra ni número para Unicode, así que la forma más común de escribir una
+  // dirección en Colombia era la primera en caer.
+  it.each([
+    "Cra 7 N° 12-34",
+    "Km 3 vía Fusa/Silvania",
+    "Cll 5 #3-21 (frente al parque)",
+  ])("acepta %s, que la primera versión rechazaba", (dir) => {
+    expect(crearPedidoSchema.safeParse(domicilio(dir)).success).toBe(true);
+  });
+
   it("rechaza los símbolos que no pinta ninguna dirección", () => {
     expect(mensajeDe(domicilio('Calle 5 * 12 %&"'), "direccion")).toBe(
       "La dirección solo admite letras, números y # - . ,",
@@ -493,6 +535,14 @@ describe("barrio", () => {
     expect(crearPedidoSchema.safeParse(domicilio(b)).success).toBe(true);
   });
 
+  // El cliente corrige a mano lo que sugiere OSM, y así es como lo escribe.
+  it.each(["Ciudad Jardín - Etapa 2", "Villa Sofía No. 2"])(
+    "acepta %s, que la primera versión rechazaba",
+    (b) => {
+      expect(crearPedidoSchema.safeParse(domicilio(b)).success).toBe(true);
+    },
+  );
+
   it("rechaza un barrio de dos letras", () => {
     expect(mensajeDe(domicilio("Ce"), "barrio")).toBe("El barrio debe tener al menos 3 caracteres");
   });
@@ -512,6 +562,42 @@ describe("notas e indicaciones", () => {
         indicaciones: "Casa esquinera (portón café)",
       }),
     );
+
+    expect(r.success).toBe(true);
+  });
+
+  // Lo que la gente escribe de verdad en una nota de pedido. La primera versión de la lista se
+  // dejó fuera los signos de admiración e interrogación, así que "Sin canela porfa!" tumbaba el
+  // pedido — y encima en un paso donde no había campo que corregir.
+  it.each([
+    "Sin canela porfa!",
+    "¿Pueden traer servilletas?",
+    "Apto #302",
+    "Gracias 🙏",
+    "Para mi hija 👧🏽 y su mamá 👩‍👧",
+    "50% menos de azúcar",
+  ])("acepta %s", (nota) => {
+    expect(crearPedidoSchema.safeParse(payloadBase({ notas: nota })).success).toBe(true);
+  });
+
+  // Un acento se puede escribir descompuesto ("e" + acento combinante), que es lo que producen
+  // algunos teclados y el texto pegado desde otras apps. Se ve idéntico en pantalla y `\p{L}` no
+  // lo acepta, así que sin componer a NFC "José" se rechazaba con un error incomprensible.
+  it("acepta un nombre con la tilde descompuesta", () => {
+    const nfd = "José Ramírez".normalize("NFD");
+    expect(nfd).not.toBe("José Ramírez");
+
+    const r = crearPedidoSchema.safeParse(payloadBase({ clienteNombre: nfd }));
+
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.clienteNombre).toBe("José Ramírez");
+  });
+
+  // Los emojis compuestos son varios puntos de código pegados con ZWJ y selectores de variación.
+  // Sin ellos en la lista, una familia o un tono de piel se partiría por la mitad y el campo
+  // entero quedaría rechazado — que es peor que no admitir emojis en absoluto.
+  it("acepta un emoji compuesto sin partirlo", () => {
+    const r = crearPedidoSchema.safeParse(payloadBase({ indicaciones: "Timbre 2️⃣ 👨‍👩‍👧" }));
 
     expect(r.success).toBe(true);
   });
