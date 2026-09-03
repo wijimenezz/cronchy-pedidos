@@ -30,18 +30,26 @@ import {
   useDatosCliente,
   useDatosClienteHidratados,
 } from "@/lib/checkout/datos-cliente";
-import { crearPedidoSchema, REQUERIDO } from "@/lib/validaciones";
+import { crearPedidoSchema, MAXIMO_NOTAS, REQUERIDO } from "@/lib/validaciones";
 import { capitalizarNombre } from "@/lib/checkout/nombre";
 
 /**
- * Lo que se deja teclear en un campo numérico. Impedir el carácter es mejor que aceptarlo y
+ * Lo que se deja teclear en un campo de teléfono. Impedir el carácter es mejor que aceptarlo y
  * regañar después: el cliente no llega a ver un `*` en su teléfono.
  *
  * No sustituye al esquema, que lo vuelve a comprobar en el servidor (regla 1): esto es
  * comodidad, no seguridad.
  */
-function soloDigitos(valor: string, maximo: number): string {
-  return valor.replace(/\D/g, "").slice(0, maximo);
+function telefonoTecleado(valor: string, maximo: number): string {
+  const digitos = valor.replace(/\D/g, "");
+
+  // El autocompletado de Chrome en Android entrega el número en formato internacional
+  // ("+573116435036"). Sin quitarle el indicativo, el corte a diez dejaba "5731164350" —un número
+  // que el cliente nunca escribió— y el campo le respondía que no parece un celular colombiano.
+  // Se quita solo cuando lo de detrás ya es un celular entero, igual que en el esquema.
+  const sinIndicativo = /^573\d{9}$/.test(digitos) ? digitos.slice(2) : digitos;
+
+  return sinIndicativo.slice(0, maximo);
 }
 
 /**
@@ -291,6 +299,10 @@ const CAMPOS_POR_PASO: Record<Paso, string[]> = {
     "pagaCon",
     "comprobanteUrl",
     "notas",
+    // Tiene input (`CampoCupon`) y hasta ahora no estaba en ninguna de las dos tablas: un código
+    // con forma inválida —`?cupon=ABC-123` desde un link compartido— bloqueaba el envío con un
+    // "Revisa los datos marcados" que no marcaba nada ni movía de paso.
+    "cupon",
     "items",
     "programadoPara",
     // El check vive aquí, y estar en la lista es lo que deja a `señalar()` traerlo hasta él.
@@ -320,6 +332,7 @@ const ETIQUETA_CAMPO: Record<string, string> = {
   pagaCon: "Con cuánto pagas",
   comprobanteUrl: "Comprobante de Nequi",
   notas: "Notas",
+  cupon: "Cupón",
   politicaAceptada: "Aceptar el tratamiento de datos",
   // `items` no está aquí a propósito: no es un campo que el cliente pueda llenar. Si falla,
   // el payload lo armamos mal nosotros, y decirle "falta tu carrito" mientras ve sus
@@ -350,6 +363,7 @@ export function CheckoutForm({
   const router = useRouter();
   const items = useCarrito((s) => s.items);
   const notas = useCarrito((s) => s.notas);
+  const setNotas = useCarrito((s) => s.setNotas);
   const vaciar = useCarrito((s) => s.vaciar);
   const tipoPedido = useTipoPedido();
 
@@ -1039,7 +1053,26 @@ export function CheckoutForm({
         return;
       }
 
-      setErrorGeneral("No pudimos enviar tu pedido. Intenta de nuevo.");
+      // El freno de peticiones. Sin esta rama el cliente leía "intenta de nuevo" y reintentaba,
+      // que es justo lo que quema el poco cupo que le queda.
+      if (r.status === 429) {
+        const espera = Number(r.headers.get("Retry-After"));
+        setErrorGeneral(
+          espera > 0
+            ? `Demasiados intentos. Espera ${espera} segundo${espera === 1 ? "" : "s"} y vuelve a probar.`
+            : "Demasiados intentos seguidos. Espera un momento y vuelve a probar.",
+        );
+        return;
+      }
+
+      // El servidor manda el motivo en `error` cuando no hay un `detalle` que traducir —el 422 de
+      // "con $X no alcanza" es el caso—, y hasta ahora se descartaba por un genérico que no le
+      // decía al cliente qué corregir. Es suyo y ya viene escrito para leerse.
+      setErrorGeneral(
+        typeof json?.error === "string" && json.error
+          ? json.error
+          : "No pudimos enviar tu pedido. Intenta de nuevo.",
+      );
     } catch {
       setErrorGeneral(
         "No pudimos enviar tu pedido. Revisa tu conexión e intenta de nuevo.",
@@ -1197,10 +1230,14 @@ export function CheckoutForm({
                   // Solo dígitos y tope de 10: el `*` no se puede ni teclear, que es mejor que
                   // dejarlo escribir y regañarlo después. El esquema lo vuelve a comprobar.
                   onChange={(e) =>
-                    setDatos({ telefono: soloDigitos(e.target.value, 10) })
+                    setDatos({ telefono: telefonoTecleado(e.target.value, 10) })
                   }
                   onBlur={() => alSalirDe("clienteTelefono")}
-                  maxLength={10}
+                  // 10 dígitos caben en 10 caracteres, pero "+57 311 643 5036" son 16: con el
+                  // tope en 10 el navegador recortaba el texto ANTES de que `telefonoTecleado`
+                  // lo viera, así que del autocompletado de Chrome solo llegaba "5731164". El
+                  // recorte de verdad lo hace la función, que cuenta dígitos y no caracteres.
+                  maxLength={20}
                   placeholder="311 234 5678"
                   className={claseControl(errorDe("clienteTelefono"))}
                 />
@@ -1407,11 +1444,11 @@ export function CheckoutForm({
                         value={recibeTelefono}
                         onChange={(e) =>
                           setDatos({
-                            recibeTelefono: soloDigitos(e.target.value, 10),
+                            recibeTelefono: telefonoTecleado(e.target.value, 10),
                           })
                         }
                         onBlur={() => alSalirDe("recibeTelefono")}
-                        maxLength={10}
+                        maxLength={20}
                         placeholder="311 643 5036"
                         className={claseControl(errorDe("recibeTelefono"))}
                       />
@@ -1537,12 +1574,34 @@ export function CheckoutForm({
               ))}
             </ul>
 
-            {notas && (
-              <p className="rounded-sm bg-crema px-3 py-2 font-cuerpo text-[13px] text-cafe-suave">
-                <span className="font-bold text-cafe">Nota: </span>
-                {notas}
-              </p>
-            )}
+            {/* Editable, y no el `<p>` de solo lectura que había aquí.
+
+                Las notas se escriben en el carrito, así que este era el único campo del esquema
+                sin ningún input en el checkout: si fallaban —bastaba un "!" cuando la lista de
+                caracteres era más estrecha—, `señalar` traía al cliente hasta este paso con un
+                "Falta: Notas" y no había nada que tocar. Reintentar daba lo mismo y la única
+                salida era volver a la carta a borrar el signo, sin que nada se lo dijera.
+
+                Que se puedan editar aquí lo cierra de raíz: el día que se añada otra regla a este
+                campo, seguirá habiendo dónde arreglarla. */}
+            <Campo
+              etiqueta="Notas del pedido"
+              error={errorDe("notas")}
+              ayuda="Opcional. Lo lee quien lo prepara."
+            >
+              {(props) => (
+                <textarea
+                  {...props}
+                  rows={2}
+                  value={notas}
+                  onChange={(e) => setNotas(e.target.value.slice(0, MAXIMO_NOTAS))}
+                  onBlur={() => alSalirDe("notas")}
+                  maxLength={MAXIMO_NOTAS}
+                  placeholder="Sin canela, por favor"
+                  className={claseControl(errorDe("notas"))}
+                />
+              )}
+            </Campo>
 
             {/* Encima de los totales y no en un paso aparte: el cupón es dinero, y va donde el
                 cliente está mirando el dinero. */}

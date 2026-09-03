@@ -6,7 +6,7 @@ import { violaConstraint } from "@/db/errores";
 import { cambiarActivoCupon, guardarCupon, soltarAnuncio } from "@/db/queries/cupones";
 import { exigirRol } from "@/lib/autorizacion";
 import { normalizarCodigo } from "@/lib/cupones";
-import { idSchema } from "@/lib/validaciones";
+import { MAXIMO_CODIGO_CUPON, idSchema } from "@/lib/validaciones";
 
 /**
  * Cupones de descuento. **Todo aquí es de admin** (`exigirRol("admin")`): un cupón decide cuánto se
@@ -28,7 +28,7 @@ const cuponSchema = z
       .string()
       .trim()
       .min(3, "Mínimo 3 caracteres")
-      .max(24, "Máximo 24 caracteres")
+      .max(MAXIMO_CODIGO_CUPON, `Máximo ${MAXIMO_CODIGO_CUPON} caracteres`)
       .transform(normalizarCodigo)
       // Sin espacios ni tildes: esto se dicta por WhatsApp y se teclea en un celular. Un cupón que
       // hay que escribir con acento es un cupón que la mitad de la gente no va a poder usar.
