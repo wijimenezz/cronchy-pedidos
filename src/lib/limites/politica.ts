@@ -68,6 +68,14 @@ export const LIMITES = {
 
   /** El domiciliario toca el link una vez; diez es margen para el dedo nervioso. */
   entrega: { maximo: 10, ventanaSegundos: 60 },
+
+  /**
+   * El letrero de abierto/cerrado del personaje. Cae **una llamada por visita a la carta** —y otra
+   * al volver a la pestaña, con tope de un minuto—, así que el cupo va alto por el CGNAT de los
+   * operadores colombianos: muchos clientes salen por la misma IP y un cupo justo dejaría a
+   * vecinos que no se conocen sin saber si la tienda está abierta.
+   */
+  estado: { maximo: 60, ventanaSegundos: 60 },
 } as const satisfies Record<string, Cupo>;
 
 export type NombreLimite = keyof typeof LIMITES;
