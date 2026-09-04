@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { instanteEnBogota } from "@/lib/horario";
-import { calcularEstadoTienda, TEXTOS, type ContextoEstado, type DiaDeHorario } from "./estado";
+import {
+  calcularEstadoTienda,
+  motivoDelCierre,
+  TEXTOS,
+  type ContextoEstado,
+  type DiaDeHorario,
+} from "./estado";
 
 /**
  * Jueves 2026-01-01 y viernes 2026-01-02, los dos de 12:00 a 20:00 salvo que el test diga otra cosa.
@@ -197,4 +203,42 @@ describe("proximaApertura", () => {
     expect(r.detalle).toBe(TEXTOS.sinApertura);
   });
 });
+});
+
+/**
+ * `store_closure` no tiene pantalla en el panel, así que sus filas se escriben a mano y el
+ * `motivo` en blanco es el caso normal, no el raro. Lo que se fija aquí es que el respaldo
+ * dependa de `cerrado`: con "Cerrado" para las dos, la hoja anunciaba
+ * "Hoy: Cerrado · 2:00 pm a 6:00 pm" con el badge del header diciendo Abierto.
+ */
+describe("motivoDelCierre", () => {
+  it("respeta el motivo escrito", () => {
+    expect(
+      motivoDelCierre({ cerrado: true, abre: null, cierra: null, motivo: "Festivo" }),
+    ).toBe("Festivo");
+  });
+
+  it("un día cerrado sin motivo dice Cerrado", () => {
+    expect(motivoDelCierre({ cerrado: true, abre: null, cierra: null, motivo: null })).toBe(
+      TEXTOS.motivoCerrado,
+    );
+  });
+
+  it("un horario especial sin motivo NO puede decir Cerrado", () => {
+    const motivo = motivoDelCierre({
+      cerrado: false,
+      abre: "14:00:00",
+      cierra: "18:00:00",
+      motivo: null,
+    });
+
+    expect(motivo).toBe(TEXTOS.motivoHorarioEspecial);
+    expect(motivo).not.toBe(TEXTOS.motivoCerrado);
+  });
+
+  it("un motivo en blanco cuenta como vacío", () => {
+    expect(
+      motivoDelCierre({ cerrado: false, abre: "14:00:00", cierra: "18:00:00", motivo: "   " }),
+    ).toBe(TEXTOS.motivoHorarioEspecial);
+  });
 });

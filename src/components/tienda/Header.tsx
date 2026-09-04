@@ -46,10 +46,16 @@ export function Header({
         <CartButton className="lg:hidden" />
       </div>
 
-      {/* Rejilla de tres columnas en móvil y no un `flex`, y es lo que mantiene el selector
-          Domicilio/Recoger **exactamente** donde estaba: con la columna del medio en `auto` y las
-          de los lados en `1fr`, el chip queda centrado en la fila cueste lo que cueste el
-          personaje de la izquierda. Con un `flex justify-center` lo habría empujado a la derecha.
+      {/* Rejilla de tres columnas en móvil y no un `flex`, para que el selector Domicilio/Recoger
+          se quede donde estaba: la columna del medio en `auto` y las de los lados en `1fr`. Con un
+          `flex justify-center` el personaje lo habría empujado a la derecha.
+
+          **No es un centrado garantizado, y conviene saberlo antes de fiarse.** `1fr` es
+          `minmax(auto, 1fr)`, así que la primera columna nunca baja de lo que mide el personaje
+          con su letrero: en una pantalla estrecha (320–360 px) crece por encima de la tercera y el
+          chip se corre a la derecha. No desborda —el reparto sigue cabiendo—, pero simétrico solo
+          es mientras sobre sitio.
+
           Desde `lg` vuelve a ser el `flex` de siempre, donde el personaje ya no existe. */}
       <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-2 lg:flex lg:w-auto lg:justify-end">
         {/* Debajo de la hamburguesa, y vivo exactamente mientras ella: los dos son `lg:hidden`. */}

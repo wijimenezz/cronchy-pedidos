@@ -6,7 +6,7 @@ import { exigirCupo } from "@/lib/limites";
 import { opcionesDeEntrega } from "@/lib/pedidos/entrega";
 import {
   calcularEstadoTienda,
-  TEXTOS,
+  motivoDelCierre,
   type DiaDeHorario,
   type RespuestaEstado,
 } from "@/lib/tienda/estado";
@@ -99,6 +99,12 @@ function semanaCompleta(semana: { diaSemana: number; abre: string; cierra: strin
  *
  * Se manda con su motivo aunque venga vacío: la fila existe, y eso ya explica que hoy el horario
  * no sea el de siempre. El texto por defecto vive con el resto del copy, no aquí.
+ *
+ * **El respaldo depende de `cerrado`**, y esa distinción no es cosmética: una fila con
+ * `cerrado = false` es un horario ESPECIAL, o sea una tienda que hoy sí abre. Con el respaldo de
+ * "Cerrado" para las dos, la hoja anunciaba "Hoy: Cerrado · 2:00 pm a 6:00 pm" mientras el badge
+ * decía Abierto. Como `store_closure` todavía se escribe a mano —no tiene pantalla en el panel—,
+ * el `motivo` vacío no es el caso raro.
  */
 function cierreDeHoy(hoy: DiaDeHorario) {
   if (!hoy.cierre) return null;
@@ -108,6 +114,6 @@ function cierreDeHoy(hoy: DiaDeHorario) {
     cerrado: hoy.cierre.cerrado,
     abre: hoy.cierre.abre?.slice(0, 5) ?? null,
     cierra: hoy.cierre.cierra?.slice(0, 5) ?? null,
-    motivo: hoy.cierre.motivo || TEXTOS.diaCerrado,
+    motivo: motivoDelCierre(hoy.cierre),
   };
 }

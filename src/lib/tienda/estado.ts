@@ -69,13 +69,40 @@ export const TEXTOS = {
   tituloAbierta: "¡Estamos abiertos!",
   tituloCerrada: "Nos estamos preparando",
   /** Se cierra a las... */
-  cierraA: (hora: string) => `Cerramos a las ${hora}`,
+  cierraA: (hora: string) => `Servicio a Domicilio hasta las ${hora}`,
   /** Se abre el... */
   abreEn: (cuando: string, hora: string) => `Abrimos ${cuando} a las ${hora}`,
   /** Cuando no abre en toda la semana que se mira. */
   sinApertura: "Vuelve a consultarnos pronto",
+  /** El rótulo de un día sin horario en la tabla de la semana. */
   diaCerrado: "Cerrado",
+  /**
+   * El respaldo del motivo de un `store_closure`, y **son dos porque el motivo puede faltar en
+   * dos situaciones opuestas**.
+   *
+   * `store_closure` no tiene pantalla en el panel, así que sus filas se escriben a mano y el
+   * `motivo` se queda en NULL con facilidad. Con `cerrado = true` el respaldo correcto es
+   * "Cerrado"; con `cerrado = false` —horario especial— es justo el contrario, y reusar
+   * `diaCerrado` hacía que la hoja anunciara **"Hoy: Cerrado · 2:00 pm a 6:00 pm"** con el badge
+   * del header diciendo *Abierto*. Una constante con dos papeles solo acierta en uno.
+   */
+  motivoCerrado: "Cerrado",
+  motivoHorarioEspecial: "Horario especial",
 } as const;
+
+/**
+ * Qué se lee en el aviso de "Hoy: …" de la hoja de horarios.
+ *
+ * Vive aquí y no dentro del route handler por lo mismo que el resto del copy: es texto que ve el
+ * cliente, y ahí abajo no habría forma de fijarlo con un test. Trata el motivo en blanco como
+ * ausente, igual que `calcularEstadoTienda` hace con `mensajeCerrado`.
+ */
+export function motivoDelCierre(cierre: NonNullable<CierreDelDia>): string {
+  return (
+    cierre.motivo?.trim() ||
+    (cierre.cerrado ? TEXTOS.motivoCerrado : TEXTOS.motivoHorarioEspecial)
+  );
+}
 
 /**
  * "hoy", "mañana" o el nombre del día.

@@ -70,10 +70,25 @@ export function EstadoTienda({
   const imagen = (datos && imagenPorEstado?.[datos.estado]) ?? IMAGEN;
 
   return (
-    <Drawer.Root open={abierta} onOpenChange={setAbierta} modal swipeDirection="down">
+    <Drawer.Root
+      open={abierta}
+      // La hoja **no puede abrirse sin datos**, y el candado va aquí y no en el `onClick` porque
+      // el `Trigger` no es la única vía: Base UI también abre desde el teclado. Sin él, tocar el
+      // personaje mientras carga dejaba `abierta` en `true` con nada montado que lo cerrara —ni
+      // velo, ni Escape—, y la hoja saltaba encima de la carta al llegar la respuesta, sin que
+      // nadie la hubiera pedido. Cerrar sí se permite siempre: es lo que devuelve el estado a su
+      // sitio si algo la abrió antes de tiempo.
+      onOpenChange={(valor) => setAbierta(valor ? datos !== null : false)}
+      modal
+      swipeDirection="down"
+    >
       <Drawer.Trigger
         // El foco vuelve solo a este botón al cerrar: lo hace Base UI, no hay que devolverlo a mano.
         aria-haspopup="dialog"
+        // `disabled` y no solo el candado de arriba: un botón que no hace nada tiene que
+        // *parecer* que no hace nada. Mientras no haya respuesta —cargando, sin conexión, 429—
+        // el personaje se sigue viendo, pero no finge ser pulsable.
+        disabled={!datos}
         aria-label={
           datos
             ? `${datos.badge}. ${datos.titulo}. Ver los horarios de la tienda`
