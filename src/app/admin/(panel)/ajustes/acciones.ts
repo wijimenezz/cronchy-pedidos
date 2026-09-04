@@ -3,11 +3,24 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { guardarCorrecciones } from "@/db/queries/barrios";
-import { actualizarDatosLocal, actualizarLlaveNequi, guardarQrPago } from "@/db/queries/store";
+import {
+  eliminarExcepcion,
+  guardarExcepcion,
+  guardarHorarioSemanal,
+} from "@/db/queries/horario";
+import {
+  actualizarAceptaPedidos,
+  actualizarDatosLocal,
+  actualizarLlaveNequi,
+  actualizarMensajeCerrado,
+  guardarQrPago,
+} from "@/db/queries/store";
 import { guardarUbicacionTienda } from "@/db/queries/zonas";
 import { exigirRol } from "@/lib/autorizacion";
+import { DIAS_SEMANA_LARGOS } from "@/lib/fechas";
 import { esUrlDeFotoProducto } from "@/lib/imagenes";
 import { esTelefonoValido } from "@/lib/notificaciones/transporte";
+import { diaDeBogota } from "@/lib/pedidos/dias";
 import { borrarFotoProducto } from "@/lib/storage";
 import { buscarUbicacion } from "@/lib/tienda/geocodificar";
 import { esPuntoValido } from "@/lib/zonas";
@@ -244,6 +257,186 @@ export async function guardarCorreccionesBarrio(entrada: unknown): Promise<Resul
   const guardado = await guardarCorrecciones(sesion.storeId, parsed.data.correcciones);
   if (!guardado) return { ok: false, error: "No pudimos guardar los barrios." };
 
+  revalidatePath("/admin/ajustes");
+
+  return { ok: true };
+}
+
+// ------------------------------------------------------------
+// Horario de atención (regla 6) y el interruptor de pánico
+// ------------------------------------------------------------
+
+/**
+ * Todo lo de aquí abajo escribe lo que decide si se puede pedir, así que va con
+ * `revalidatePath("/checkout")`: es la página que llama a `opcionesDeEntrega`. La carta no entra
+ * porque no pinta el horario en ninguna parte.
+ *
+ * Los esquemas repiten los CHECK de la base a propósito, mismo motivo que `actualizarTiempoEstimado`:
+ * la última palabra la tiene Postgres, pero quien está en el panel merece leer español y no un
+ * `violates check constraint "store_hours_check"`.
+ */
+
+const HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+const horaSchema = z.string().regex(HORA, "Escribe la hora como 12:00");
+
+const horarioSchema = z.object({
+  dias: z
+    .array(
+      z.object({
+        diaSemana: z.number().int().min(0).max(6),
+        abre: horaSchema,
+        cierra: horaSchema,
+      }),
+    )
+    .max(7, "Un día de la semana no se puede mandar dos veces")
+    .superRefine((dias, ctx) => {
+      if (new Set(dias.map((d) => d.diaSemana)).size !== dias.length) {
+        ctx.addIssue({ code: "custom", message: "Un día de la semana viene repetido" });
+        return;
+      }
+
+      for (const dia of dias) {
+        // Comparar "HH:MM" como texto vale porque van con cero delante: "09:30" < "12:00".
+        if (dia.cierra <= dia.abre) {
+          ctx.addIssue({
+            code: "custom",
+            // El CHECK de la base es `cierra > abre`, así que un turno que cruza la medianoche
+            // (20:00 a 02:00) no es representable. Se dice, en vez de un "datos inválidos" que
+            // dejaría al admin probando horas al azar.
+            message: `El ${DIAS_SEMANA_LARGOS[dia.diaSemana].toLowerCase()} cierra antes de abrir. Un horario que pasa de la medianoche no se puede guardar.`,
+          });
+        }
+      }
+    }),
+});
+
+export async function guardarHorario(entrada: unknown): Promise<ResultadoAjuste> {
+  const sesion = await exigirRol("admin");
+
+  const parsed = horarioSchema.safeParse(entrada);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
+  }
+
+  const guardado = await guardarHorarioSemanal(sesion.storeId, parsed.data.dias);
+  if (!guardado) return { ok: false, error: "No pudimos guardar el horario." };
+
+  revalidatePath("/checkout");
+  revalidatePath("/admin/ajustes");
+
+  return { ok: true };
+}
+
+/**
+ * Un día suelto: cerrado, o abierto a otras horas.
+ *
+ * **Con `cerrado = false` las horas son obligatorias**, y no es una manía del formulario: así lo
+ * lee `rangosDelDia`, que las da por buenas con un `!`. Una fila sin horas y sin cerrar sería un
+ * día que no se puede interpretar.
+ */
+const excepcionSchema = z
+  .object({
+    fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Elige una fecha"),
+    cerrado: z.boolean(),
+    abre: horaSchema.nullable(),
+    cierra: horaSchema.nullable(),
+    motivo: z
+      .string()
+      .trim()
+      .max(120, "Máximo 120 caracteres")
+      .nullable()
+      .transform((v) => v || null),
+  })
+  // El día de hoy sale del reloj de Bogotá y no del navegador (regla 6). Aquí sí se puede llamar
+  // a la base de fechas del servidor, al revés que en `crearPedidoSchema`, que es compartido con
+  // el cliente y por eso tiene que ser puro.
+  .refine((v) => v.fecha >= diaDeBogota(), "Esa fecha ya pasó")
+  .refine(
+    (v) => v.cerrado || (v.abre !== null && v.cierra !== null),
+    "Escribe a qué hora abres y a qué hora cierras ese día",
+  )
+  .refine(
+    (v) => v.cerrado || v.abre === null || v.cierra === null || v.cierra > v.abre,
+    "El cierre tiene que ser después de la apertura",
+  );
+
+export async function guardarExcepcionDelDia(entrada: unknown): Promise<ResultadoAjuste> {
+  const sesion = await exigirRol("admin");
+
+  const parsed = excepcionSchema.safeParse(entrada);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
+  }
+
+  const guardado = await guardarExcepcion(sesion.storeId, parsed.data);
+  if (!guardado) return { ok: false, error: "No pudimos guardar el día." };
+
+  revalidatePath("/checkout");
+  revalidatePath("/admin/ajustes");
+
+  return { ok: true };
+}
+
+export async function eliminarExcepcionDelDia(entrada: unknown): Promise<ResultadoAjuste> {
+  const sesion = await exigirRol("admin");
+
+  const parsed = z.object({ id: z.uuid("Día inválido") }).safeParse(entrada);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
+  }
+
+  const borrado = await eliminarExcepcion(sesion.storeId, parsed.data.id);
+  if (!borrado) return { ok: false, error: "Ese día ya no estaba en la lista." };
+
+  revalidatePath("/checkout");
+  revalidatePath("/admin/ajustes");
+
+  return { ok: true };
+}
+
+/**
+ * El interruptor de pánico. Un toque, sin confirmación: es la doctrina de los toggles del panel y
+ * aquí pesa más que en ninguno — se apaga con la freidora dañada, no con calma.
+ */
+export async function cambiarAceptaPedidos(entrada: {
+  aceptaPedidos: boolean;
+}): Promise<ResultadoAjuste> {
+  const sesion = await exigirRol("admin");
+
+  const parsed = z.object({ aceptaPedidos: z.boolean() }).safeParse(entrada);
+  if (!parsed.success) return { ok: false, error: "Dato inválido" };
+
+  const guardado = await actualizarAceptaPedidos(sesion.storeId, parsed.data.aceptaPedidos);
+  if (!guardado) return { ok: false, error: "No pudimos cambiar el estado de la tienda." };
+
+  revalidatePath("/checkout");
+  revalidatePath("/admin/ajustes");
+
+  return { ok: true };
+}
+
+export async function guardarMensajeCerrado(entrada: unknown): Promise<ResultadoAjuste> {
+  const sesion = await exigirRol("admin");
+
+  const parsed = z
+    .object({
+      mensaje: z
+        .string()
+        .trim()
+        .max(160, "Máximo 160 caracteres")
+        .nullable()
+        .transform((v) => v || null),
+    })
+    .safeParse(entrada);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
+  }
+
+  const guardado = await actualizarMensajeCerrado(sesion.storeId, parsed.data.mensaje);
+  if (!guardado) return { ok: false, error: "No pudimos guardar el mensaje." };
+
+  revalidatePath("/checkout");
   revalidatePath("/admin/ajustes");
 
   return { ok: true };

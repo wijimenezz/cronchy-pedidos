@@ -6,6 +6,7 @@ import Image from "next/image";
 import { MessageCircle, Star, X } from "lucide-react";
 import { linkContactoWhatsapp } from "@/lib/notificaciones/transporte";
 import { useEnElNavegador } from "@/components/ui/Modal";
+import { useCerrarConAtras } from "@/lib/tienda/cerrar-con-atras";
 
 type Tienda = {
   nombre: string;
@@ -50,14 +51,19 @@ function Panel({
   linkWhatsapp: string | null;
   onCerrar: () => void;
 }) {
+  // Cerrar es retroceder en el historial, y por eso lo usan los TRES gestos —Escape, el velo y la
+  // X— y no solo el botón atrás del teléfono: uno que cerrara por estado dejaría colgando la
+  // entrada que empujó el menú al abrirse.
+  const cerrar = useCerrarConAtras(onCerrar);
+
   useEffect(() => {
     function alPulsar(evento: KeyboardEvent) {
-      if (evento.key === "Escape") onCerrar();
+      if (evento.key === "Escape") cerrar();
     }
 
     document.addEventListener("keydown", alPulsar);
     return () => document.removeEventListener("keydown", alPulsar);
-  }, [onCerrar]);
+  }, [cerrar]);
 
   // El fondo no se desplaza mientras el menú está abierto. Se guarda el valor previo en vez de
   // asumir `""`, igual que en `Modal`: cualquier otra cosa que algún día toque el body dejaría el
@@ -82,7 +88,7 @@ function Panel({
   // el orden de documento. Portarlo lo arregla de raíz, sin tocar el z-index de nadie.
   return createPortal(
     <>
-      <div onClick={onCerrar} className="fixed inset-0 z-40 bg-cafe/40" aria-hidden />
+      <div onClick={cerrar} className="fixed inset-0 z-40 bg-cafe/40" aria-hidden />
       <aside
         role="dialog"
         aria-modal="true"
@@ -91,7 +97,7 @@ function Panel({
       >
         <button
           type="button"
-          onClick={onCerrar}
+          onClick={cerrar}
           aria-label="Cerrar"
           className="absolute top-3 right-3 flex min-h-11 min-w-11 items-center justify-center text-naranja"
         >

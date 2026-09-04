@@ -1,14 +1,13 @@
-import { Star, ChevronRight } from "lucide-react";
+import { Star } from "lucide-react";
 
-export function SectionTitle({
-  children,
-  verTodosHref,
-}: {
-  children: React.ReactNode;
-  verTodosHref?: string;
-}) {
+/**
+ * Sin "Ver todos", por el mismo motivo que `CategoryBanner`: su único uso era
+ * `verTodosHref="#recomendados"` en la sección "Recomendados para ti", o sea un enlace a la
+ * sección que lo contenía. Tocarlo no hacía nada.
+ */
+export function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between">
+    <div className="flex items-center">
       <h2 className="relative flex items-center gap-2 font-titulo text-xl font-semibold text-cafe">
         <Star className="size-5 shrink-0 fill-naranja text-naranja" />
         <span className="relative pb-1.5">
@@ -30,16 +29,6 @@ export function SectionTitle({
           </svg>
         </span>
       </h2>
-
-      {verTodosHref && (
-        <a
-          href={verTodosHref}
-          className="flex shrink-0 items-center text-sm font-semibold text-naranja hover:underline"
-        >
-          Ver todos
-          <ChevronRight className="size-4" />
-        </a>
-      )}
     </div>
   );
 }

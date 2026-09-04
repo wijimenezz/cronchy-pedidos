@@ -11,7 +11,6 @@ import { ProductCard } from "@/components/tienda/ProductCard";
 import { CartBar } from "@/components/tienda/CartBar";
 import { Footer } from "@/components/tienda/Footer";
 import { RefrescarAlVolver } from "@/components/tienda/RefrescarAlVolver";
-import { SUBTITULO_CATEGORIA } from "@/lib/tienda/categoria-meta";
 
 // El panel ya revalida esta ruta al apagar un producto o una opción, así que el menú se
 // actualiza en el momento. El plazo se conserva como red de seguridad para lo que todavía
@@ -47,7 +46,7 @@ export default async function MenuPage() {
 
         {recomendados.length > 0 && (
           <section id="recomendados" className="scroll-mt-24 py-6">
-            <SectionTitle verTodosHref="#recomendados">Recomendados para ti</SectionTitle>
+            <SectionTitle>Recomendados para ti</SectionTitle>
             <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-5">
               {recomendados.map((producto) => (
                 <ProductCard key={producto.id} producto={producto} />
@@ -61,15 +60,13 @@ export default async function MenuPage() {
             <CategoryBanner
               nombre={categoria.nombre}
               bannerUrl={categoria.bannerUrl}
-              subtitulo={SUBTITULO_CATEGORIA[categoria.slug]}
-              ctaHref={`#${categoria.slug}-grid`}
-              ctaLabel={`Ver todos los ${categoria.nombre.toLowerCase()}`}
+              subtitulo={categoria.subtitulo}
             />
 
-            <div
-              id={`${categoria.slug}-grid`}
-              className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-5"
-            >
+            {/* Sin `id` propia: la única que había —`<slug>-grid`— era el destino del "Ver
+                todos" del hero, que ya no existe. La de la `<section>` sí se queda: de ella
+                dependen `CategoryNav` y el `scroll-mt-24`. */}
+            <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-5">
               {categoria.productos.map((producto) => (
                 <ProductCard key={producto.id} producto={producto} />
               ))}

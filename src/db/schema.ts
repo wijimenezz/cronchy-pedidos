@@ -129,6 +129,11 @@ export const category = pgTable("category", {
 	nombre: text().notNull(),
 	slug: text().notNull(),
 	bannerUrl: text("banner_url"),
+	// La frase que va bajo el nombre en el hero de la categoría ("Crujientes por fuera,
+	// suaves por dentro."). NULL = esta categoría no tiene frase y el hero muestra solo el
+	// nombre, mismo trato que `banner_url`. Vivía escrita a mano en el código y solo para
+	// Churros; ahora la escribe el admin desde /admin/productos.
+	subtitulo: text(),
 	orden: integer().default(0).notNull(),
 	activa: boolean().default(true).notNull(),
 }, (table) => [

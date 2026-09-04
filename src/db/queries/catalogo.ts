@@ -65,6 +65,7 @@ export type CategoriaPanel = {
   nombre: string;
   slug: string;
   bannerUrl: string | null;
+  subtitulo: string | null;
   orden: number;
   activa: boolean;
   productos: ProductoDelPanel[];
@@ -104,6 +105,7 @@ export async function listarCatalogoDelPanel(storeId: string): Promise<Categoria
     nombre: c.nombre,
     slug: c.slug,
     bannerUrl: c.bannerUrl,
+    subtitulo: c.subtitulo,
     orden: c.orden,
     activa: c.activa,
     productos: c.products.map((p) => ({
@@ -527,6 +529,24 @@ export async function cambiarActivaCategoria(
   const filas = await db
     .update(category)
     .set({ activa })
+    .where(and(eq(category.storeId, storeId), eq(category.id, categoryId)))
+    .returning({ id: category.id });
+
+  return filas.length > 0;
+}
+
+/**
+ * La frase del hero. Sin transacción ni valor previo, al revés que el banner: aquí no queda
+ * ningún objeto colgando en Storage que haya que borrar después.
+ */
+export async function guardarSubtituloCategoria(
+  storeId: string,
+  categoryId: string,
+  subtitulo: string | null,
+): Promise<boolean> {
+  const filas = await db
+    .update(category)
+    .set({ subtitulo })
     .where(and(eq(category.storeId, storeId), eq(category.id, categoryId)))
     .returning({ id: category.id });
 
