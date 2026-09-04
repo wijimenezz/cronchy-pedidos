@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { EstadoTienda } from "@/components/tienda/EstadoTienda";
 import { SelectorTipoPedido } from "@/components/tienda/SelectorTipoPedido";
 import { Drawer } from "@/components/tienda/Drawer";
 import { CategoryNav } from "@/components/tienda/CategoryNav";
@@ -45,8 +46,19 @@ export function Header({
         <CartButton className="lg:hidden" />
       </div>
 
-      <div className="flex w-full items-center justify-center gap-2 lg:w-auto lg:justify-end">
+      {/* Rejilla de tres columnas en móvil y no un `flex`, y es lo que mantiene el selector
+          Domicilio/Recoger **exactamente** donde estaba: con la columna del medio en `auto` y las
+          de los lados en `1fr`, el chip queda centrado en la fila cueste lo que cueste el
+          personaje de la izquierda. Con un `flex justify-center` lo habría empujado a la derecha.
+          Desde `lg` vuelve a ser el `flex` de siempre, donde el personaje ya no existe. */}
+      <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-2 lg:flex lg:w-auto lg:justify-end">
+        {/* Debajo de la hamburguesa, y vivo exactamente mientras ella: los dos son `lg:hidden`. */}
+        <div className="justify-self-start lg:hidden">
+          <EstadoTienda />
+        </div>
         <SelectorTipoPedido />
+        {/* La tercera columna existe para equilibrar la primera. Vacía a propósito. */}
+        <div aria-hidden className="lg:hidden" />
         <CartButton className="hidden lg:flex" />
       </div>
     </header>
