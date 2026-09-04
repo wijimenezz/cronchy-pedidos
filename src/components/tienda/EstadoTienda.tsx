@@ -30,9 +30,16 @@ const IMAGEN = "/personajes/cup-churro.png";
  * las usa para reservar el hueco —sin salto al cargar— y para pedirle al optimizador un tamaño
  * acorde. Declarar 40×40 sobre un dibujo vertical le habría dejado 27 px útiles de los 40, o sea
  * un personaje pequeño en una caja con aire a los lados.
+ *
+ * **Son 848÷4 y 1236÷4, y hay que mantener la relación EXACTA.** Estuvieron en 28×40, que es
+ * 27,4 redondeado, y ese 2 % de error hacía que Next avisara en consola ("has either width or
+ * height modified, but not the other"): con `h-10 w-auto` el navegador pintaba 27,4×40 y los
+ * atributos prometían 28×40. Se veía bien —0,6 px— pero el aviso era correcto. Si algún día se
+ * cambia el dibujo, estos dos números salen de sus píxeles reales divididos por su MCD, no de
+ * redondear a la vista.
  */
-const ANCHO = 28;
-const ALTO = 40;
+const ANCHO = 212;
+const ALTO = 309;
 
 export function EstadoTienda({
   imagenPorEstado,
@@ -94,13 +101,18 @@ export function EstadoTienda({
             ? `${datos.badge}. ${datos.titulo}. Ver los horarios de la tienda`
             : "Ver los horarios de la tienda"
         }
-        className="flex items-center gap-1.5 rounded-full p-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-crema"
+        className="flex items-center gap-1.5 rounded-full p-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-cafe"
       >
+        {/* `sizes` es obligatorio aquí, no un adorno. `ANCHO`/`ALTO` son la relación del archivo
+            (212×309), así que sin `sizes` el optimizador se cree que la imagen se pinta a 212 px
+            y sirve w=256 en 1x y w=640 en 2x: 92 KB medidos para un dibujo que ocupa 27×40 en
+            pantalla. Con los 28 px de verdad baja a la variante que corresponde. */}
         <Image
           src={imagen}
           alt=""
           width={ANCHO}
           height={ALTO}
+          sizes="28px"
           className="h-10 w-auto shrink-0 object-contain"
         />
         {/* El letrero solo existe cuando hay respuesta. Reservarle sitio en "cargando" movería el

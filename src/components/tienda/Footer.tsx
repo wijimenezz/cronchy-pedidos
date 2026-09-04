@@ -31,22 +31,29 @@ function IconoTiktok() {
   );
 }
 
+/**
+ * Sin `text-crema/80` ni `/60` en los textos secundarios, y no es un descuido: sobre
+ * `--terracota` el café da 4.83:1 y es el techo de la paleta, así que un `/80` cae a 3.48:1 y
+ * un `/60` a 2.47:1. La jerarquía la llevan `text-lg` / `text-sm` / `text-xs` y el peso, que
+ * ya estaban. Las pastillas tampoco pueden ser naranja: quedarían a 1.12:1 contra el fondo,
+ * o sea sin silueta. Ver el comentario de `--terracota` en globals.css.
+ */
 export function Footer({ tienda }: { tienda: Tienda }) {
   const linkWhatsapp = linkContactoWhatsapp(tienda);
 
   const hayRedes = tienda.instagramUrl || tienda.tiktokUrl;
 
   return (
-    <footer className="flex flex-col items-center gap-3 rounded-t-lg bg-cafe px-5 py-7 text-center text-crema shadow-tarjeta">
+    <footer className="flex flex-col items-center gap-3 rounded-t-lg bg-terracota px-5 py-7 text-center text-cafe shadow-tarjeta">
       <div className="font-titulo text-lg font-semibold">{tienda.nombre}</div>
-      {tienda.direccion && <p className="text-sm text-crema/80">{tienda.direccion}</p>}
+      {tienda.direccion && <p className="text-sm">{tienda.direccion}</p>}
 
       {linkWhatsapp && (
         <a
           href={linkWhatsapp}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex min-h-11 items-center gap-2 font-cuerpo text-sm font-bold text-crema"
+          className="flex min-h-11 items-center gap-2 font-cuerpo text-sm font-bold"
         >
           <MessageCircle className="size-4" />
           Contáctanos
@@ -63,7 +70,7 @@ export function Footer({ tienda }: { tienda: Tienda }) {
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="Síguenos en Instagram"
-                className="flex size-11 items-center justify-center rounded-full bg-naranja text-crema"
+                className="flex size-11 items-center justify-center rounded-full bg-cafe text-crema"
               >
                 <IconoInstagram />
               </a>
@@ -74,7 +81,7 @@ export function Footer({ tienda }: { tienda: Tienda }) {
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="Síguenos en TikTok"
-                className="flex size-11 items-center justify-center rounded-full bg-naranja text-crema"
+                className="flex size-11 items-center justify-center rounded-full bg-cafe text-crema"
               >
                 <IconoTiktok />
               </a>
@@ -88,14 +95,14 @@ export function Footer({ tienda }: { tienda: Tienda }) {
           href={tienda.googleResenasUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-1 flex min-h-11 items-center gap-2 rounded-full bg-naranja px-6 py-3 font-cuerpo text-sm font-bold text-crema"
+          className="mt-1 flex min-h-11 items-center gap-2 rounded-full bg-cafe px-6 py-3 font-cuerpo text-sm font-bold text-crema"
         >
           <Star className="size-4" />
           Danos tu opinión
         </a>
       )}
 
-      <div className="mt-1 text-xs text-crema/60">
+      <div className="mt-1 text-xs">
         © {new Date().getFullYear()} {tienda.nombre}
       </div>
     </footer>

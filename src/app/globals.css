@@ -10,6 +10,7 @@
   --color-naranja: var(--naranja);
   --color-naranja-osc: var(--naranja-osc);
   --color-cafe: var(--cafe);
+  --color-terracota: var(--terracota);
   --color-cafe-suave: var(--cafe-suave);
   --color-cafe-tenue: var(--cafe-tenue);
   --color-exito: var(--exito);
@@ -69,6 +70,14 @@
   --naranja: #f26b1d;
   --naranja-osc: #e2570e;
   --cafe: #50240a;
+  /* Header y footer: las dos losas de la tienda. Fue `--cafe` hasta que se pidió el claro, y
+     el cambio no fue de color: sobre este tono, `--cafe` a fondo pleno da 4.83:1 y es TODO el
+     margen que hay, porque es el color más oscuro de la paleta. Por eso ahí no se usan tonos
+     apagados —`text-cafe/80` ya cae a 3.48:1— y la jerarquía la llevan el tamaño y el peso.
+     La textura que va encima se pinta con su propio crema; su color y su intensidad son dos
+     atributos en public/patrones/ondas_naranjas.svg, no tokens: un SVG estático no lee
+     variables CSS. */
+  --terracota: #e88a61;
   --cafe-suave: #6b4a38;
   --cafe-tenue: #9a8574;
   --exito: #4a7c3f;
