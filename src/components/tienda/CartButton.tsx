@@ -14,11 +14,11 @@ export function CartButton({ className }: { className?: string }) {
       type="button"
       onClick={abrir}
       aria-label="Ver carrito"
-      className={`relative -ml-3 mr-2 flex size-11 shrink-0 items-center justify-center rounded-full text-crema lg:mr-0 ${className ?? ""}`}
+      className={`relative -ml-3 mr-2 flex size-11 shrink-0 items-center justify-center rounded-full text-cafe lg:mr-0 ${className ?? ""}`}
     >
       <ShoppingBag className="size-7" />
       {cantidad > 0 && (
-        <span className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full bg-naranja text-[10px] font-bold text-crema">
+        <span className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full bg-cafe text-[10px] font-bold text-crema">
           {cantidad}
         </span>
       )}

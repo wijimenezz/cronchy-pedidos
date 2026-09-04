@@ -35,7 +35,7 @@ export default function manifest(): MetadataRoute.Manifest {
     display: "standalone",
     background_color: "#faf3e8",
     // El café de la cabecera de la tienda: es lo que pinta la barra de estado del teléfono.
-    theme_color: "#50240a",
+    theme_color: "#dd8761",
     icons: [
       { src: "/icono-192.png", sizes: "192x192", type: "image/png" },
       { src: "/icono-512.png", sizes: "512x512", type: "image/png" },
