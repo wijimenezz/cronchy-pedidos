@@ -39,13 +39,21 @@ function contexto(cambios: Partial<ContextoEstado> = {}): ContextoEstado {
 }
 
 describe("calcularEstadoTienda", () => {
+  /**
+   * `detalle` se afirma por la constante y no escribiendo la frase entera, igual que `badge` y
+   * `titulo`. Lo que este archivo fija son **los argumentos** —qué hora sale, con qué formato, y
+   * si `cuandoEs` eligió "hoy", "mañana" o el nombre del día—, no la prosa. Con la frase literal,
+   * retocar el copy dejaba la suite en rojo sin que nada se hubiera roto: es lo que pasó al pasar
+   * "Cerramos a las…" a "Servicio a Domicilio hasta las…". No lo devuelvas a literales creyendo
+   * que gana precisión; la precisión está en lo que se le pasa a `TEXTOS`.
+   */
   it("dentro de la franja está abierta y dice a qué hora cierra", () => {
     const r = calcularEstadoTienda(contexto(), aLas("15:00"));
 
     expect(r.estado).toBe("abierta");
     expect(r.badge).toBe(TEXTOS.badgeAbierta);
     expect(r.titulo).toBe(TEXTOS.tituloAbierta);
-    expect(r.detalle).toBe("Cerramos a las 8:00 pm");
+    expect(r.detalle).toBe(TEXTOS.cierraA("8:00 pm"));
   });
 
   it("fuera de la franja está cerrada por horario", () => {
@@ -83,14 +91,14 @@ describe("calcularEstadoTienda", () => {
 
       expect(r.estado).toBe("cerrada_horario");
       expect(r.proximaApertura).toEqual({ fecha: "2026-01-01", minutos: 17 * 60 });
-      expect(r.detalle).toBe("Abrimos hoy a las 5:00 pm");
+      expect(r.detalle).toBe(TEXTOS.abreEn("hoy", "5:00 pm"));
     });
 
     it("dentro de la segunda franja está abierta y cierra con la de ella", () => {
       const r = calcularEstadoTienda(contexto({ dias: [partido, MANANA] }), aLas("18:00"));
 
       expect(r.estado).toBe("abierta");
-      expect(r.detalle).toBe("Cerramos a las 9:00 pm");
+      expect(r.detalle).toBe(TEXTOS.cierraA("9:00 pm"));
     });
   });
 
@@ -111,7 +119,7 @@ describe("cierre excepcional", () => {
     const r = calcularEstadoTienda(contexto({ dias: [cerrado, MANANA] }), aLas("15:00"));
 
     expect(r.estado).toBe("cerrada_horario");
-    expect(r.detalle).toBe("Abrimos mañana a las 12:00 pm");
+    expect(r.detalle).toBe(TEXTOS.abreEn("mañana", "12:00 pm"));
   });
 
   it("el horario especial REEMPLAZA al de la semana, no se suma", () => {
@@ -124,7 +132,7 @@ describe("cierre excepcional", () => {
     // 13:00 cae dentro del horario semanal (12:00–20:00) y fuera del especial: manda el especial.
     expect(calcularEstadoTienda(ctx, aLas("13:00")).estado).toBe("cerrada_horario");
     expect(calcularEstadoTienda(ctx, aLas("15:00")).estado).toBe("abierta");
-    expect(calcularEstadoTienda(ctx, aLas("15:00")).detalle).toBe("Cerramos a las 6:00 pm");
+    expect(calcularEstadoTienda(ctx, aLas("15:00")).detalle).toBe(TEXTOS.cierraA("6:00 pm"));
   });
 });
 
@@ -149,7 +157,7 @@ describe("interruptor de pánico", () => {
     expect(r.titulo).toBe(TEXTOS.tituloCerrada);
     // Mañana y no hoy: la apertura de hoy (12:00) ya pasó a esta hora. Lo único honesto que se
     // puede decir sin un mensaje del dueño es cuándo toca abrir según el horario.
-    expect(r.detalle).toBe("Abrimos mañana a las 12:00 pm");
+    expect(r.detalle).toBe(TEXTOS.abreEn("mañana", "12:00 pm"));
   });
 
   it("un mensaje en blanco cuenta como vacío", () => {
@@ -167,14 +175,14 @@ describe("proximaApertura", () => {
     const r = calcularEstadoTienda(contexto(), aLas("21:00"));
 
     expect(r.proximaApertura).toEqual({ fecha: "2026-01-02", minutos: 12 * 60 });
-    expect(r.detalle).toBe("Abrimos mañana a las 12:00 pm");
+    expect(r.detalle).toBe(TEXTOS.abreEn("mañana", "12:00 pm"));
   });
 
   it("es la de hoy cuando todavía no ha abierto", () => {
     const r = calcularEstadoTienda(contexto(), aLas("09:00"));
 
     expect(r.proximaApertura).toEqual({ fecha: "2026-01-01", minutos: 12 * 60 });
-    expect(r.detalle).toBe("Abrimos hoy a las 12:00 pm");
+    expect(r.detalle).toBe(TEXTOS.abreEn("hoy", "12:00 pm"));
   });
 
   it("nombra el día cuando cae más allá de mañana", () => {
@@ -190,7 +198,9 @@ describe("proximaApertura", () => {
       aLas("15:00"),
     );
 
-    expect(r.detalle).toBe("Abrimos el sábado a las 12:00 pm");
+    // El artículo va dentro del argumento porque es lo que devuelve `cuandoEs` para un día que no
+    // es ni hoy ni mañana, y es justo lo que este test fija.
+    expect(r.detalle).toBe(TEXTOS.abreEn("el sábado", "12:00 pm"));
   });
 
   it("es null y lo dice cuando no abre en toda la semana", () => {

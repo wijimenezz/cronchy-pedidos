@@ -53,8 +53,8 @@ export function CategoryNav({
               href={`#${categoria.slug}`}
               className={`border-b-2 pb-1 text-base font-semibold transition-colors ${
                 esActiva
-                  ? "border-cafe text-cafe"
-                  : "border-transparent text-cafe hover:border-cafe/40"
+                  ? "border-crema text-crema"
+                  : "border-transparent text-crema hover:border-crema/40"
               }`}
             >
               {categoria.nombre}

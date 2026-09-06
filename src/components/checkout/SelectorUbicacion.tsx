@@ -83,7 +83,10 @@ export function SelectorUbicacion({
 
     navigator.geolocation.getCurrentPosition(
       (posicion) => {
-        const punto = { lat: posicion.coords.latitude, lng: posicion.coords.longitude };
+        const punto = {
+          lat: posicion.coords.latitude,
+          lng: posicion.coords.longitude,
+        };
         setGps(punto);
         setBuscando(false);
         mover(punto);
@@ -109,7 +112,7 @@ export function SelectorUbicacion({
         type="button"
         onClick={usarMiUbicacion}
         disabled={buscando}
-        className="flex min-h-11 items-center justify-center gap-2 rounded-sm border border-crema-oscura bg-tarjeta px-4 font-cuerpo text-sm font-bold text-cafe transition-colors hover:bg-crema focus:outline-none focus:ring-2 focus:ring-naranja disabled:opacity-60"
+        className="flex min-h-11 items-center justify-center gap-2 rounded-sm border border-crema-oscura bg-terracota-suave px-4 font-cuerpo text-sm font-bold text-cafe transition-colors hover:bg-crema focus:outline-none focus:ring-2 focus:ring-naranja disabled:opacity-60"
       >
         <MapPin className="size-4" />
         {buscando ? "Ubicándote…" : "Usar mi ubicación actual"}
@@ -126,13 +129,17 @@ export function SelectorUbicacion({
       <MapaUbicacion centro={centroTienda} pin={pin} onMover={mover} />
 
       <p className="font-cuerpo text-[13px] text-cafe-tenue">
-        Arrastra el pin o toca el mapa hasta dejarlo en tu puerta. De ahí sale el costo del
-        domicilio.
+        Arrastra el pin o toca el mapa hasta dejarlo en tu puerta. De ahí sale
+        el costo del domicilio.
       </p>
 
       {lejosDelGps && (
-        <p role="status" className="rounded-sm bg-alerta/12 px-3 py-2 font-cuerpo text-[13px] text-alerta">
-          El pin quedó lejos de donde estás. Verifica que esté en tu dirección exacta.
+        <p
+          role="status"
+          className="rounded-sm bg-alerta/12 px-3 py-2 font-cuerpo text-[13px] text-alerta"
+        >
+          El pin quedó lejos de donde estás. Verifica que esté en tu dirección
+          exacta.
         </p>
       )}
 
@@ -182,11 +189,17 @@ function AvisoFallo({
           // carga de página, así que un reintento volvería a fallar y el cliente concluiría
           // que activarlo no sirvió. Recargar aquí no cuesta nada — el paso, el carrito y los
           // datos viven en localStorage.
-          onClick={accion === "recargar" ? () => window.location.reload() : onReintentar}
+          onClick={
+            accion === "recargar"
+              ? () => window.location.reload()
+              : onReintentar
+          }
           className="mt-1 flex min-h-11 items-center justify-center gap-2 self-start rounded-sm border border-crema-oscura bg-tarjeta px-4 font-bold text-cafe transition-colors hover:bg-crema focus:outline-none focus:ring-2 focus:ring-naranja"
         >
           <RefreshCw className="size-4" />
-          {accion === "recargar" ? "Ya lo activé, recargar" : "Intentar de nuevo"}
+          {accion === "recargar"
+            ? "Ya lo activé, recargar"
+            : "Intentar de nuevo"}
         </button>
       )}
 
@@ -214,7 +227,10 @@ function ResumenCobertura({ cobertura }: { cobertura: Cobertura }) {
 
   if (cobertura.estado === "cubierto") {
     return (
-      <p role="status" className="rounded-sm bg-exito/12 px-3 py-2 font-cuerpo text-[13px] text-cafe">
+      <p
+        role="status"
+        className="rounded-sm bg-exito/12 px-3 py-2 font-cuerpo text-[13px] text-cafe"
+      >
         Domicilio a <strong>{cobertura.zona}</strong>:{" "}
         <strong>{pesos(cobertura.precio)}</strong>
       </p>
@@ -223,7 +239,10 @@ function ResumenCobertura({ cobertura }: { cobertura: Cobertura }) {
 
   if (cobertura.estado === "error") {
     return (
-      <p role="alert" className="font-cuerpo text-[13px] font-semibold text-error">
+      <p
+        role="alert"
+        className="font-cuerpo text-[13px] font-semibold text-error"
+      >
         No pudimos calcular el domicilio. Mueve el pin para reintentar.
       </p>
     );
@@ -232,7 +251,10 @@ function ResumenCobertura({ cobertura }: { cobertura: Cobertura }) {
   // Fuera de cobertura: el aviso va aquí y el botón de WhatsApp lo pone el formulario, que
   // es quien tiene el carrito para armar el mensaje.
   return (
-    <p role="alert" className="rounded-sm bg-alerta/15 px-3 py-2 font-cuerpo text-[13px] font-semibold text-cafe">
+    <p
+      role="alert"
+      className="rounded-sm bg-alerta/15 px-3 py-2 font-cuerpo text-[13px] font-semibold text-cafe"
+    >
       Todavía no llegamos hasta ahí. Escríbenos y te cotizamos el domicilio.
     </p>
   );

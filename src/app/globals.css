@@ -11,6 +11,7 @@
   --color-naranja-osc: var(--naranja-osc);
   --color-cafe: var(--cafe);
   --color-terracota: var(--terracota);
+  --color-terracota-suave: var(--terracota-suave);
   --color-cafe-suave: var(--cafe-suave);
   --color-cafe-tenue: var(--cafe-tenue);
   --color-exito: var(--exito);
@@ -77,7 +78,8 @@
      La textura que va encima se pinta con su propio crema; su color y su intensidad son dos
      atributos en public/patrones/ondas_naranjas.svg, no tokens: un SVG estático no lee
      variables CSS. */
-  --terracota: #e88a61;
+  --terracota: #bf5526;
+  --terracota-suave: #f49a74;
   --cafe-suave: #6b4a38;
   --cafe-tenue: #9a8574;
   --exito: #4a7c3f;
