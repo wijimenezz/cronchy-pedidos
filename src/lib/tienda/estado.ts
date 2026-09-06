@@ -68,7 +68,14 @@ export const TEXTOS = {
   badgeCerrada: "Cerrado",
   tituloAbierta: "¡Estamos abiertos!",
   tituloCerrada: "Nos estamos preparando",
-  /** Se cierra a las... */
+  /**
+   * La línea de abajo con la tienda abierta.
+   *
+   * **Nombra el domicilio a propósito**, aunque la hora salga de `store_hours` —el horario de la
+   * tienda, que también atiende recoger—: es el servicio por el que pregunta quien mira la carta
+   * desde el teléfono. Dijo "Cerramos a las …" hasta `e9d691b` y el cambio se coló sin
+   * documentarse, así que queda escrito para que nadie lo "corrija" de vuelta.
+   */
   cierraA: (hora: string) => `Servicio a Domicilio hasta las ${hora}`,
   /** Se abre el... */
   abreEn: (cuando: string, hora: string) => `Abrimos ${cuando} a las ${hora}`,
