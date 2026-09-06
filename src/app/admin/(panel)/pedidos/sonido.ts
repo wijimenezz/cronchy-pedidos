@@ -139,17 +139,40 @@ export function sonidoListo(): boolean {
 /**
  * Suena el aviso.
  *
- * **Reanima el contexto antes de rendirse, y ese era el bug**: Chrome suspende el `AudioContext`
- * de una pestaña que lleva rato en segundo plano, y antes esta función simplemente salía en
- * silencio. Como el único `resume()` estaba detrás de un gesto, la alarma se quedaba muda hasta
- * que el empleado volvía y tocaba la ventana — o sea, hasta después de enterarse, que es cuando
- * ya no servía de nada.
+ * **Sale por un `<audio>` y no por Web Audio, y eso es lo que aparta la música.** Android reparte
+ * el altavoz por *foco de audio*, y quien lo pide es un elemento de medios; Web Audio se limita a
+ * mezclarse con lo que ya suene, así que la alarma competía con la música del mostrador en vez de
+ * imponerse. La web no tiene forma de pedir el foco *transitorio con ducking* que usaría una app
+ * nativa —no existe esa API—, pero reproducir un medio lo toma mientras dura, que a efectos del
+ * aviso es lo mismo.
+ *
+ * Web Audio queda de respaldo para cuando ese `play()` no arranca: sin gesto previo, sin
+ * `OfflineAudioContext` para renderizar el WAV, o en un navegador que se plante. Suena mezclado en
+ * vez de imponerse, que es peor que antes de nada pero mucho mejor que el silencio.
+ */
+export async function sonarAviso(): Promise<void> {
+  // El nivel se lee en cada aviso y no se cachea: así tocar el control del panel se oye en el
+  // pitido siguiente sin tener que avisar a nadie de que cambió.
+  const nivel = leerNivel();
+
+  if (await sonarPorMedios(nivel)) return;
+  await sonarPorWebAudio(nivel);
+}
+
+/**
+ * El camino de respaldo: el mismo ciclo, por Web Audio.
+ *
+ * **Reanima el contexto antes de rendirse, y ese era un bug de los caros**: Chrome suspende el
+ * `AudioContext` de una pestaña que lleva rato en segundo plano, y antes esta función simplemente
+ * salía en silencio. Como el único `resume()` estaba detrás de un gesto, la alarma se quedaba muda
+ * hasta que el empleado volvía y tocaba la ventana — o sea, hasta después de enterarse, que es
+ * cuando ya no servía de nada.
  *
  * Reanudar por código es legal aquí porque **ya hubo un gesto**: el botón de armar los avisos. Si
  * nunca lo hubo, `resume()` falla, se traga el error y no suena — que es el comportamiento
  * correcto, porque entonces nadie ha pedido que suene.
  */
-export async function sonarAviso(): Promise<void> {
+async function sonarPorWebAudio(nivel: Nivel): Promise<void> {
   const ctx = obtenerContexto();
   if (!ctx) return;
 
@@ -159,9 +182,86 @@ export async function sonarAviso(): Promise<void> {
   // cambia el estado, así que seguiría creyendo que no puede ser "running".
   if (!sonidoListo()) return;
 
-  // El nivel se lee en cada aviso y no se cachea: así tocar el control del panel se oye en el
-  // pitido siguiente sin tener que avisar a nadie de que cambió.
-  programarAlarma(ctx, ctx.destination, PICO * ganancia(leerNivel()), ctx.currentTime);
+  programarAlarma(ctx, ctx.destination, PICO * ganancia(nivel), ctx.currentTime);
+}
+
+// ------------------------------------------------------------
+// El aviso por un elemento de medios, que es el que toma el foco
+// ------------------------------------------------------------
+
+/**
+ * Un ciclo basta para el aviso en vivo. Los seis del archivo existen porque el tono de Android
+ * suena una vez y hay que cruzar el local; aquí el que insiste es el temporizador de 30 s del
+ * tablero, y encadenar 5,5 s de alarma cada media vuelta sería insoportable.
+ */
+const CICLOS_EN_VIVO = 1;
+
+/**
+ * El WAV ya renderizado, **uno por nivel**.
+ *
+ * Se cachea porque `sonarAviso` se llama cada 30 s mientras haya algo sin aceptar y renderizar en
+ * cada vuelta sería gratuito solo en un escritorio. La clave es el nivel porque **el volumen va
+ * horneado en las muestras**, no en `audio.volume`: ese atributo lo ignoran varios navegadores
+ * móviles, y ahí el control del panel habría dejado de hacer nada sin que nadie lo notara. Al ser
+ * lineal sobre la amplitud igual que el `GainNode`, las cifras medidas en la tabla de arriba
+ * siguen valiendo tal cual.
+ */
+const pistas = new Map<Nivel, HTMLAudioElement>();
+
+/**
+ * Prepara —y deja cacheada— la pista de un nivel.
+ *
+ * El `import()` es dinámico **para no cerrar un ciclo de módulos**: `tono.ts` importa de aquí
+ * (`programarAlarma`, `PICO`, `DURACION_ALARMA`), así que un import estático en sentido contrario
+ * dejaría los dos esperándose. De paso, el renderizador solo se descarga cuando de verdad hay que
+ * sonar.
+ */
+async function prepararPista(nivel: Nivel): Promise<HTMLAudioElement | null> {
+  const cacheada = pistas.get(nivel);
+  if (cacheada) return cacheada;
+
+  if (typeof window === "undefined" || typeof OfflineAudioContext === "undefined") return null;
+
+  try {
+    const { renderizarCiclos } = await import("./tono");
+    const wav = await renderizarCiclos(CICLOS_EN_VIVO, PICO * ganancia(nivel));
+    const audio = new Audio(URL.createObjectURL(new Blob([wav], { type: "audio/wav" })));
+
+    // El blob vive lo que la pestaña, a propósito: son tres pistas de ~56 KB como mucho y el
+    // `revokeObjectURL` dejaría el `<audio>` apuntando a nada en el segundo aviso.
+    pistas.set(nivel, audio);
+    return audio;
+  } catch {
+    // Un navegador sin `OfflineAudioContext` utilizable, o un render que se cae: se sale por Web
+    // Audio, que suena igual aunque no aparte la música.
+    return null;
+  }
+}
+
+/**
+ * Suena por el `<audio>`. Devuelve si lo consiguió, para que quien llama decida si cae al respaldo.
+ *
+ * `currentTime = 0` antes de cada `play()` porque el elemento se reutiliza: sin eso, el segundo
+ * aviso encontraría la pista terminada y no sonaría nada.
+ */
+async function sonarPorMedios(nivel: Nivel): Promise<boolean> {
+  const audio = await prepararPista(nivel);
+  if (!audio) return false;
+
+  try {
+    audio.currentTime = 0;
+    await audio.play();
+    return true;
+  } catch {
+    // Sin gesto previo el navegador lo rechaza. No es un error que reportar: es el caso de quien
+    // todavía no ha tocado la campana.
+    return false;
+  }
+}
+
+/** Precalienta el render en un momento tranquilo, para que el primer aviso del día no lo pague. */
+export function prepararAlarma(): void {
+  void prepararPista(leerNivel());
 }
 
 // ------------------------------------------------------------
@@ -219,10 +319,14 @@ function wavMudo(): string {
 /**
  * Decirle a Android que esto es un reproductor.
  *
- * Con la sesión declarada el sistema muestra un aviso permanente de medios y trata la app como
- * tal, que es justo lo que hace que no la congele al minuto de irse a AppSheet. **Ese aviso no es
- * un efecto secundario molesto: es la prueba visible de que la alarma está armada**, y en una
- * tablet enchufada al mostrador la batería no es un criterio.
+ * Con la sesión declarada el sistema muestra un aviso de medios y trata la app como tal, que es
+ * justo lo que hace que no la congele al minuto de irse a AppSheet. En una tablet enchufada al
+ * mostrador la batería no es un criterio.
+ *
+ * **Ese aviso ya no es la señal de que la alarma está armada**, aunque aquí llegó a decirse que
+ * sí: ahora solo aparece con el panel en segundo plano, así que con el tablero delante no hay
+ * ninguno y la campana sigue encendida igual. Quien dice si los avisos están armados es la
+ * campana del panel, que además es donde se apagan.
  */
 function declararSesion(activa: boolean): void {
   if (typeof navigator === "undefined" || !navigator.mediaSession) return;
@@ -251,7 +355,23 @@ function declararSesion(activa: boolean): void {
 }
 
 /**
- * Un tono continuo e inaudible mientras los avisos están armados.
+ * ¿Hay que sostener el foco de audio ahora mismo?
+ *
+ * **Estar armado no basta, y ese era el bug.** Sostener el fondo le pide a Android el foco de
+ * audio, y Android se lo quita a quien lo tuviera: con la campana encendida, la música que sonaba
+ * en el mostrador pasaba a segundo plano y no volvía hasta apagarla. Se sostiene **solo con el
+ * panel oculto**, que es lo único que este mecanismo vino a resolver — una página al frente no la
+ * congela nadie ni se le suspende el contexto, así que ahí no compraba nada y costaba la música.
+ *
+ * Puro y exportado aparte por el mismo reparto que `nivelGuardado` frente a `leerNivel`: Vitest
+ * corre en `environment: "node"` y ahí no hay `document` cuya visibilidad consultar.
+ */
+export function debeSostenerFondo(armado: boolean, visible: boolean): boolean {
+  return armado && !visible;
+}
+
+/**
+ * Un tono continuo e inaudible mientras el panel está oculto con los avisos armados.
  *
  * Chrome frena los temporizadores de una pestaña oculta a ~1 por minuto y a los cinco minutos
  * aprieta más, así que el polling de 15 s deja de correr a su ritmo justo cuando el empleado está
@@ -259,13 +379,19 @@ function declararSesion(activa: boolean): void {
  * que podría reproducirlo. Esto la mantiene en esa categoría, y de paso impide que el contexto
  * vuelva a suspenderse.
  *
+ * **Las tres piezas se encienden y se apagan juntas**, incluido el oscilador. Aquí llegó a estar
+ * escrito que un `OscillatorNode` no toma el foco y solo lo hace un elemento de medios; puede que
+ * sea cierto, pero era una creencia y no una medición, y con el panel al frente ninguna de las
+ * tres hace falta. Apagarlas todas es lo que hace que la respuesta a "¿por qué se calló la
+ * música?" no dependa de adivinar cuál de ellas fue.
+ *
  * **Es best-effort, y conviene saberlo antes de confiar en ello**: las heurísticas de audibilidad
  * de Chrome no son un contrato y pueden cambiar sin aviso. Si algún día dejan de eximir a esta
  * pestaña, el aviso sigue llegando —`sonarAviso` reanima y la notificación del sistema no depende
  * del audio—, solo que con el retraso del throttling. Por eso esto es una mejora del ritmo, no el
  * arreglo.
  */
-export function iniciarMantenerDespierto(): void {
+export function sostenerEnSegundoPlano(): void {
   const ctx = obtenerContexto();
   if (!ctx || testigo) return;
 
@@ -292,7 +418,7 @@ export function iniciarMantenerDespierto(): void {
   declararSesion(true);
 }
 
-export function detenerMantenerDespierto(): void {
+export function soltarSegundoPlano(): void {
   declararSesion(false);
 
   if (mudo) {
@@ -314,9 +440,13 @@ export function detenerMantenerDespierto(): void {
  * Antes el botón cambiaba el icono y guardaba la preferencia, pero `sonarAviso` no consultaba
  * nada y el pitido seguía. Ahora además se corta el testigo, para que una pestaña con los avisos
  * apagados deje de pedirle al navegador que la trate como si estuviera sonando.
+ *
+ * Sigue soltándolo todo aunque el sostén ya solo se tome con el panel oculto: quien apaga la
+ * campana puede estar haciéndolo justo al volver de otra app, y dejar el testigo vivo ahí sería
+ * el mismo bug con menos testigos.
  */
 export function silenciar(): void {
-  detenerMantenerDespierto();
+  soltarSegundoPlano();
 }
 
 // ------------------------------------------------------------

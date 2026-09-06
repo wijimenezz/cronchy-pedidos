@@ -26,7 +26,7 @@ limitación de este proyecto, es de la plataforma.
 ## 1. Poner la alarma del panel como tono de notificación
 
 1. En el panel, con los avisos armados (la campana encendida), tocar **«Tono para Android»**. Baja
-   `cronchy-pedido-nuevo.wav` — son 5,5 s de la misma alarma de 3100 Hz que suena en pantalla.
+   `cronchy-pedido-nuevo.wav` — son 5,2 s de la misma alarma de 3100 Hz que suena en pantalla.
 2. Moverlo con el explorador de archivos a la carpeta **`Notifications`** del almacenamiento
    interno. Si no existe, se crea con ese nombre exacto.
 3. Ajustes › **Aplicaciones** › **Pedidos** › **Notificaciones** › el canal que aparezca.
@@ -74,9 +74,21 @@ quieta, que es exactamente el momento en que entra un pedido.
 - **El volumen del aviso lo manda el canal multimedia / de notificaciones de Android.** Los tres
   niveles del panel solo afectan al pitido que genera la página. Ninguna web puede subir el
   volumen del sistema.
-- **Aparece un aviso permanente de "reproduciendo"** mientras los avisos están armados. Es a
-  propósito: es lo que impide que Android congele la página, y de paso es la señal visible de que
-  la alarma está encendida. Desaparece al apagar la campana.
+- **Aparece un aviso de "reproduciendo" cuando sales del panel a otra app.** Es a propósito: es lo
+  que impide que Android congele la página. Desaparece al volver al panel, y también al apagar la
+  campana.
+
+  **No es la señal de que la alarma está encendida**, aunque aquí llegó a decirse que sí: con el
+  tablero delante no aparece ninguno y los avisos siguen armados igual. Quien lo dice es la campana
+  del panel.
+
+- **Con el panel delante, la música de otra app sigue sonando normal.** Antes armar la campana la
+  dejaba en segundo plano hasta apagarla, porque el panel pedía el foco de audio desde que se
+  armaba. Ahora solo lo pide al ocultarse — así que al irte a AppSheet con música puesta, esa
+  música sí se aparta o se pausa. Es el precio de que el panel siga vigilando desde el fondo.
+
+- **Al entrar un pedido, la alarma aparta la música.** Suena por un elemento de medios justo para
+  eso: Android le da el foco al aviso, como haría con la notificación de cualquier app.
 
 ## Si aun así se pierde un pedido
 

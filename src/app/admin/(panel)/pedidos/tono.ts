@@ -89,19 +89,33 @@ export function codificarWav(muestras: Float32Array, muestreo = MUESTREO): Array
 }
 
 /**
+ * Renderiza N ciclos a un pico dado.
+ *
+ * Sirve a los dos usos y por eso está parametrizado: el archivo para Android son seis ciclos al
+ * pico de diseño, y el aviso que suena en el panel es **uno solo** al nivel que tenga elegido
+ * (`sonarAviso`). Los dos siguen saliendo de `programarAlarma`, que es lo que garantiza que el
+ * empleado reconozca en la tablet el mismo sonido que puso en los ajustes del teléfono.
+ */
+export async function renderizarCiclos(ciclos: number, pico: number): Promise<ArrayBuffer> {
+  const paso = DURACION_ALARMA + PAUSA_CICLO;
+  // El último ciclo no necesita su pausa: en el archivo la recortaría Android igual, y en el aviso
+  // en vivo son 280 ms de silencio que retrasan el siguiente `play()` sin que nadie los oiga.
+  const duracion = ciclos * paso - PAUSA_CICLO;
+
+  const ctx = new OfflineAudioContext(CANALES, Math.ceil(duracion * MUESTREO), MUESTREO);
+  for (let i = 0; i < ciclos; i++) programarAlarma(ctx, ctx.destination, pico, i * paso);
+
+  const renderizado = await ctx.startRendering();
+  return codificarWav(renderizado.getChannelData(0), MUESTREO);
+}
+
+/**
  * Renderiza el archivo entero. Siempre al **pico de diseño**, sin pasar por el nivel del panel:
  * el volumen de un tono de notificación lo pone Android, y exportarlo en "Bajo" solo serviría
  * para que quien lo baje crea que el archivo salió mal.
  */
-export async function renderizarAlarma(): Promise<ArrayBuffer> {
-  const paso = DURACION_ALARMA + PAUSA_CICLO;
-  const duracion = CICLOS * paso;
-
-  const ctx = new OfflineAudioContext(CANALES, Math.ceil(duracion * MUESTREO), MUESTREO);
-  for (let i = 0; i < CICLOS; i++) programarAlarma(ctx, ctx.destination, PICO, i * paso);
-
-  const renderizado = await ctx.startRendering();
-  return codificarWav(renderizado.getChannelData(0), MUESTREO);
+export function renderizarAlarma(): Promise<ArrayBuffer> {
+  return renderizarCiclos(CICLOS, PICO);
 }
 
 /**
