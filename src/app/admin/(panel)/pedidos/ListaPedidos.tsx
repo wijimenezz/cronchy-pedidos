@@ -9,20 +9,22 @@ import { COLUMNAS_TABLERO, columnaDeTablero } from "@/lib/pedidos/estados";
 import { TarjetaPedido } from "./TarjetaPedido";
 import { idsNuevos } from "./alerta";
 import {
+  debeSostenerFondo,
   desbloquearSonido,
-  detenerMantenerDespierto,
   ETIQUETA_NIVEL,
   guardarNivel,
   guardarPreferencia,
-  iniciarMantenerDespierto,
   leerNivel,
   type Nivel,
   NIVELES,
   prefiereSonido,
+  prepararAlarma,
   reanudarAlPrimerToque,
   silenciar,
+  soltarSegundoPlano,
   sonarAviso,
   sonidoListo,
+  sostenerEnSegundoPlano,
 } from "./sonido";
 import {
   avisarPedidosNuevos,
@@ -308,13 +310,13 @@ export function ListaPedidos({
 
       if (sonidoListo()) {
         setSonido(true);
-        iniciarMantenerDespierto();
+        prepararAlarma();
         return;
       }
 
       quitarEscucha = reanudarAlPrimerToque(() => {
         setSonido(true);
-        iniciarMantenerDespierto();
+        prepararAlarma();
       });
     });
 
@@ -325,30 +327,52 @@ export function ListaPedidos({
   }, []);
 
   /**
-   * Volver a la app después de un rato en otra: Android suspende la PWA en segundo plano y con
-   * ella el `AudioContext` y el tono testigo, así que al volver hay que levantarlos.
+   * El foco de audio se toma al irse y se suelta al volver, y **ese reparto es el arreglo**.
    *
-   * `sonarAviso` ya reanima el contexto por su cuenta antes de rendirse, pero eso ocurre **cuando
-   * ya entró el pedido**; esto lo deja listo antes, que es lo que hace que el aviso no llegue
-   * tarde. El testigo hay que relanzarlo igual: si el contexto se suspendió, su oscilador murió.
+   * Sostener el fondo le pide a Android el foco de audio, y Android se lo quita a quien lo
+   * tuviera. Mientras se sostenía desde que se armaba la campana, encender los avisos dejaba en
+   * segundo plano la música que sonara en el mostrador hasta que alguien los apagaba. Con el
+   * tablero delante ese sostén no compra nada —una página visible no la congela nadie— así que
+   * ahora solo se toma con el panel oculto, que es el único caso que vino a resolver.
+   *
+   * Al volver, además, hay que levantar el `AudioContext`: Android suspende la PWA en segundo
+   * plano y con ella el contexto. `sonarAviso` reanima por su cuenta antes de rendirse, pero eso
+   * ocurre **cuando ya entró el pedido**; hacerlo aquí lo deja listo antes.
+   *
+   * **Solo `visibilitychange`, y `blur` está descartado a propósito.** Parece la red de seguridad
+   * obvia para la carrera con la congelación de Android, y en escritorio es un falso positivo:
+   * salta al hacer clic en otra ventana sin que la pestaña se oculte, así que tomaría el foco
+   * —cortando la música— y ningún `visibilitychange` vendría luego a soltarlo. `visibilitychange`
+   * dice exactamente lo que `debeSostenerFondo` pregunta, y el navegador lo entrega antes de
+   * congelar; los demás eventos significan otra cosa.
    *
    * No toca el polling, que por la regla 19 nunca se pausa: es lo que detecta el pedido.
    */
   useEffect(() => {
-    if (!prefiereSonido()) return;
+    // El armado se lee en CADA evento y no se captura al montar: este efecto no lleva deps para
+    // no reenganchar listeners a cada vuelta del polling, así que con la guarda arriba se habría
+    // quedado con la foto del primer render — y apagar la campana e irse a otra app habría vuelto
+    // a robarle el foco a la música, que es justo el bug que esto arregla. `prefiereSonido()` lo
+    // dice al día porque `alternarSonido` guarda la preferencia antes que nada.
+    const sincronizarFondo = () => {
+      if (debeSostenerFondo(prefiereSonido(), document.visibilityState === "visible")) {
+        sostenerEnSegundoPlano();
+        return;
+      }
 
-    const alVolver = () => {
-      if (document.visibilityState !== "visible" || sonidoListo()) return;
+      soltarSegundoPlano();
+
+      if (!prefiereSonido() || document.visibilityState !== "visible" || sonidoListo()) return;
 
       void desbloquearSonido().then(() => {
         if (!sonidoListo()) return;
         setSonido(true);
-        iniciarMantenerDespierto();
+        prepararAlarma();
       });
     };
 
-    document.addEventListener("visibilitychange", alVolver);
-    return () => document.removeEventListener("visibilitychange", alVolver);
+    document.addEventListener("visibilitychange", sincronizarFondo);
+    return () => document.removeEventListener("visibilitychange", sincronizarFondo);
   }, []);
 
   /**
@@ -369,7 +393,7 @@ export function ListaPedidos({
 
   // Al desmontar —salir del tablero, irse a un día pasado— se corta el tono testigo. Sin esto
   // la pestaña seguiría pidiéndole al navegador que la trate como si estuviera sonando.
-  useEffect(() => detenerMantenerDespierto, []);
+  useEffect(() => soltarSegundoPlano, []);
 
   const problema = problemaDeAvisos(notificaSistema, estadoPush);
 
@@ -410,8 +434,13 @@ export function ListaPedidos({
     // Este clic **es** el gesto que hace falta, y sirve para los tres canales: desbloquea el
     // audio, y es el único momento en que el navegador deja pedir el permiso de notificaciones.
     // Suena una vez para que quien lo active oiga qué va a oír cuando entre un pedido.
+    //
+    // **Armar ya no toma el foco de audio**: si aquí se sostuviera el fondo, encender la campana
+    // volvería a dejar en segundo plano la música del mostrador. Lo que se hace es preparar la
+    // pista para que el primer aviso no pague el render, y el sostén espera a que el panel se
+    // oculte.
     void desbloquearSonido().then(() => {
-      iniciarMantenerDespierto();
+      prepararAlarma();
       void sonarAviso();
     });
 

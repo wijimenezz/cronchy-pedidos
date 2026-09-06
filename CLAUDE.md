@@ -891,8 +891,8 @@ saber:
   puede hacerlo por código porque el botón ya aportó el gesto que exige el navegador. Sin ese
   primer gesto no hay nada que reanudar, que es correcto: nadie ha pedido que suene.
 - **La exención del freno exige estar reproduciendo audio de verdad**, no poder reproducirlo. Por
-  eso `iniciarMantenerDespierto()` deja un oscilador inaudible sonando mientras los avisos están
-  armados. Es **best-effort**: las heurísticas de Chrome no son un contrato. Si dejan de eximir a
+  eso `sostenerEnSegundoPlano()` deja un oscilador inaudible sonando **mientras el panel está
+  oculto**. Es **best-effort**: las heurísticas de Chrome no son un contrato. Si dejan de eximir a
   la pestaña, el aviso sigue llegando con el retraso del throttling (~1 tic por minuto), no se
   pierde.
 - **La notificación del sistema es el canal que se ve desde otra aplicación.** El `(N)` del título
@@ -1002,11 +1002,33 @@ anterior:
   mostrar la notificación, y el tablero refresca al recibirlo. Es el único evento que llega con los
   temporizadores congelados, porque lo entrega Android. Solo **refresca**: quien decide si algo es
   nuevo y suena sigue siendo `idsNuevos`, para no tener dos fuentes de esa verdad.
-- **La sesión de medios.** El testigo inaudible de Web Audio no basta en Android —lo que impide
-  congelar el proceso es tener el **foco de audio**, y ese lo toma un elemento de medios, no un
-  `OscillatorNode`—, así que `iniciarMantenerDespierto` reproduce además un WAV mudo en bucle y
-  declara `navigator.mediaSession`. El precio es un aviso permanente de "reproduciendo" en Android,
-  que además es la señal visible de que la alarma está armada.
+- **La sesión de medios, y SOLO con el panel oculto.** El testigo inaudible de Web Audio no basta
+  en Android —lo que impide congelar el proceso es tener el **foco de audio**, y ese lo toma un
+  elemento de medios, no un `OscillatorNode`—, así que `sostenerEnSegundoPlano` reproduce además un
+  WAV mudo en bucle y declara `navigator.mediaSession`.
+
+  **Cuándo se toma es la mitad de la regla.** Se tomaba desde que se armaba la campana, y eso tiene
+  un precio que no se vio venir: Android reparte el altavoz por foco, así que el panel se lo quitaba
+  a quien lo tuviera y **la música que sonara en el mostrador pasaba a segundo plano hasta apagar
+  los avisos**. Con el tablero delante ese sostén no compra nada —una página visible no la congela
+  nadie ni se le suspende el contexto—, así que ahora lo decide `debeSostenerFondo(armado, visible)`,
+  puro y testeado, y solo se sostiene oculto. Quien lo dispara es `visibilitychange` **y nadie
+  más**: `blur` parece la red de seguridad obvia para la carrera con la congelación de Android, y en
+  escritorio salta al hacer clic en otra ventana sin que la pestaña se oculte —tomaría el foco,
+  cortando la música, y ningún `visibilitychange` vendría después a soltarlo—. No lo añadas.
+
+  Dos corolarios que se caen con esto: el aviso de "reproduciendo" **ya no es la señal de que la
+  alarma está armada** —con el panel delante no hay ninguno—, esa es la campana; y el armado se lee
+  en cada evento con `prefiereSonido()` y no se captura al montar el efecto, o apagar la campana e
+  irse a otra app volvería a robar el foco.
+- **El aviso sale por un `<audio>`, no por Web Audio, y por eso aparta la música.** Web Audio se
+  mezcla con lo que ya suene; el foco lo pide un elemento de medios. La web **no tiene API de foco
+  de audio** —no se puede pedir el transitorio con ducking de una app nativa—, pero reproducir un
+  medio lo toma mientras dura, que para un aviso es lo mismo. El WAV lo renderiza `renderizarCiclos`
+  desde `programarAlarma`, o sea **las mismas líneas que el archivo de Android**: un ciclo, con el
+  nivel horneado en las muestras y no en `audio.volume`, que varios navegadores móviles ignoran. Se
+  cachea uno por nivel. Web Audio queda de respaldo si ese `play()` no arranca: suena mezclado, que
+  es peor que imponerse y mucho mejor que el silencio.
 
 **El volumen del aviso no sale de la ganancia, y por eso está escrito.** El pitido original —dos
 notas triangulares a 880 y 1320 Hz con la ganancia en `0.35`— no se oía en la tablet del mostrador,
