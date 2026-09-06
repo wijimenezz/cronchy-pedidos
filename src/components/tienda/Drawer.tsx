@@ -28,9 +28,9 @@ export function Drawer({ tienda }: { tienda: Tienda }) {
         aria-label="Menú"
         className="flex shrink-0 flex-col gap-1 p-2"
       >
-        <span className="block h-0.5 w-5 rounded-full bg-cafe" />
-        <span className="block h-0.5 w-5 rounded-full bg-cafe" />
-        <span className="block h-0.5 w-5 rounded-full bg-cafe" />
+        <span className="block h-0.5 w-5 rounded-full bg-crema" />
+        <span className="block h-0.5 w-5 rounded-full bg-crema" />
+        <span className="block h-0.5 w-5 rounded-full bg-crema" />
       </button>
 
       {abierto && <Panel tienda={tienda} linkWhatsapp={linkWhatsapp} onCerrar={() => setAbierto(false)} />}
