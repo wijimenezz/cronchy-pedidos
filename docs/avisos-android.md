@@ -6,6 +6,11 @@ en WhatsApp o en Canva**, y aunque el panel esté cerrado del todo.
 Los pasos 1 y 2 son los que de verdad lo garantizan, y **no son código**: los hace sonar Android.
 Hay que hacerlos una vez por tablet.
 
+**El paso 1 es obligatorio, no una mejora.** Con el panel en segundo plano la página se congela y
+su pitido no suena: lo único que queda es la notificación del sistema, y sin ese tono suena con el
+genérico de Android. La alternativa era que el panel se agarrara el foco de audio para no
+congelarse, y se descartó porque le bajaba el volumen a la música del local todo el turno.
+
 ---
 
 ## Por qué hace falta configurar algo
@@ -62,7 +67,7 @@ quieta, que es exactamente el momento en que entra un pedido.
 | Situación | Qué suena |
 | --- | --- |
 | Panel al frente | La alarma de la página (3100 Hz), y la notificación |
-| Panel abierto, tú en AppSheet | La notificación con la alarma como tono. Si Android no ha congelado la página, además suena la de la página |
+| Panel abierto, tú en AppSheet | **Solo** la notificación, con la alarma como tono. La página está congelada y su pitido no suena — por eso el paso 1 no es opcional |
 | Panel cerrado del todo | La notificación con la alarma como tono |
 | Tablet en No molestar | Igual, si marcaste las excepciones |
 | Sin internet en la tablet | Nada. No hay canal que sobreviva a eso |
@@ -74,21 +79,21 @@ quieta, que es exactamente el momento en que entra un pedido.
 - **El volumen del aviso lo manda el canal multimedia / de notificaciones de Android.** Los tres
   niveles del panel solo afectan al pitido que genera la página. Ninguna web puede subir el
   volumen del sistema.
-- **Aparece un aviso de "reproduciendo" cuando sales del panel a otra app.** Es a propósito: es lo
-  que impide que Android congele la página. Desaparece al volver al panel, y también al apagar la
-  campana.
+- **La música no se baja nunca por tener los avisos encendidos.** Ni con el panel delante ni al
+  salir a AppSheet, Canva o el navegador: puedes dejar la campana encendida todo el turno y poner
+  música como cualquier otro día.
 
-  **No es la señal de que la alarma está encendida**, aunque aquí llegó a decirse que sí: con el
-  tablero delante no aparece ninguno y los avisos siguen armados igual. Quien lo dice es la campana
-  del panel.
+  Hubo dos versiones en las que sí se bajaba, porque el panel le pedía el foco de audio a Android
+  para que no congelara la página. **Ya no lo pide**, y por eso tampoco aparece el aviso de
+  "reproduciendo" que salía antes en la barra de notificaciones. Quien dice si la alarma está
+  armada es la campana del panel.
 
-- **Con el panel delante, la música de otra app sigue sonando normal.** Antes armar la campana la
-  dejaba en segundo plano hasta apagarla, porque el panel pedía el foco de audio desde que se
-  armaba. Ahora solo lo pide al ocultarse — así que al irte a AppSheet con música puesta, esa
-  música sí se aparta o se pausa. Es el precio de que el panel siga vigilando desde el fondo.
+  Lo que cuesta: con el panel de fondo la página se congela y su pitido no suena. Es justo lo que
+  cubre el paso 1 — sin ese tono en el canal, en segundo plano oirás el pitido genérico de Android.
 
-- **Al entrar un pedido, la alarma aparta la música.** Suena por un elemento de medios justo para
-  eso: Android le da el foco al aviso, como haría con la notificación de cualquier app.
+- **Al entrar un pedido, el aviso sí aparta la música un momento.** Con el panel delante lo hace la
+  alarma de la página; con el panel de fondo, la notificación de Android. En los dos casos es lo
+  normal del sistema: la música baja mientras suena el aviso y vuelve sola.
 
 ## Si aun así se pierde un pedido
 
