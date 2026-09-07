@@ -29,6 +29,27 @@ import "./globals.css";
  *
  * Las dos son SIL Open Font License, que permite auto-hospedar y exige distribuir la licencia:
  * está en `./fonts/OFL-*.txt`.
+ *
+ * **El aviso de "preloaded but not used" en la consola de dev es un falso positivo, y está medido.**
+ * Chrome lo dice de las dos `.woff2` unos segundos después del `load`, y suele significar una de
+ * tres cosas: que al `<link>` le falte `crossorigin` —lo que obliga a una segunda descarga en modo
+ * CORS—, que el preload y el `@font-face` apunten a URLs distintas, o que la fuente no se use. Aquí
+ * no es ninguna:
+ *
+ * - En el HTML de producción el `<link>` sale una sola vez por fuente y completo:
+ *   `rel="preload" as="font" crossorigin="" type="font/woff2"`.
+ * - El `@font-face` apunta **al mismo archivo** que se preloada, y en `static/media/` solo hay una
+ *   copia de cada una.
+ * - Medido con `performance.getEntriesByType("resource")` en dev, cada `.woff2` se pide **una vez**
+ *   y su `initiatorType` es `link`: la petición del preload es la única, y el `@font-face` la
+ *   reutiliza. No hay bytes de más.
+ * - `document.fonts` las da como `loaded` y el texto se pinta con ellas, no con el fallback de
+ *   Arial.
+ *
+ * Lo que pasa es que en dev el CSS lo inyecta Turbopack por JavaScript **después** del `load`, así
+ * que la familia se aplica fuera de la ventana que Chrome vigila. **No lo "arregles"** con
+ * `preload: false` ni `display: "optional"`: callarían el aviso empeorando la carga real, que es
+ * justo lo que el preload está haciendo bien.
  */
 const baloo = localFont({
   src: "./fonts/baloo2-latin.woff2",
