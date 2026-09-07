@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { Check, ChevronDown, Minus, Plus, X } from "lucide-react";
 import { CarruselFotos } from "@/components/tienda/CarruselFotos";
+import { useFondoQuieto } from "@/components/tienda/useFondoQuieto";
 import { pesos } from "@/lib/notificaciones/plantillas";
 import { useCarrito } from "@/lib/carrito";
 import { useTipoPedido } from "@/lib/tienda/tipo-pedido";
@@ -611,10 +612,13 @@ function FilaUpsell({
 }
 
 /**
- * La caja de la foto en el layout móvil, y **el espaciador que la reserva**. Los dos usan esta
- * constante porque tienen que medir exactamente lo mismo: si se separan, el panel blanco tapa
- * parte de la foto o deja un hueco de fondo entre las dos. Antes eran dos `h-72` iguales por
- * casualidad, que es un acoplamiento que no se ve al editar uno solo.
+ * La caja de la foto en el layout móvil.
+ *
+ * **Ya no hay espaciador que mantener a juego.** Durante un tiempo esta constante la usaban dos
+ * elementos —la foto, en absoluto, y un `div` vacío que le reservaba el hueco dentro del panel que
+ * scrolleaba encima—, y tenían que medir exactamente lo mismo o aparecía un solape o una franja de
+ * fondo. Al meter la foto dentro del scroller (ver la rama móvil, abajo) se quedó en el flujo y
+ * reserva su propio sitio, así que el acoplamiento desapareció con la superposición.
  *
  * **Es cuadrada para que una foto cuadrada se vea COMPLETA.** Era `h-72` —288 px sobre un ancho
  * de 390—, o sea apaisada, y con `object-cover` eso recortaba el 26% de una foto cuadrada por
@@ -626,7 +630,7 @@ function FilaUpsell({
  * 390). Está para el caso apaisado, donde una caja cuadrada se comería el modal entero; al
  * activarse la foto vuelve a recortar, que es la degradación correcta.
  */
-const CAJA_FOTO_MOVIL = "aspect-square max-h-[60vh]";
+const CAJA_FOTO_MOVIL = "aspect-square max-h-[60dvh]";
 
 export function ProductoFicha({
   productId,
@@ -639,6 +643,9 @@ export function ProductoFicha({
   // de la tarjeta de un producto. Todo lo que cierra —la X, el velo y el "Añadir"— pasa por este
   // `cerrar` y no por `onClose`, o el escalón que empuja la ficha se quedaría colgando.
   const cerrar = useCerrarConAtras(onClose);
+  // La carta se queda quieta detrás del velo. Este componente solo existe con la ficha abierta,
+  // así que el `true` es constante: al desmontar, el hook devuelve el scroll donde estaba.
+  useFondoQuieto(true);
   const [producto, setProducto] = useState<ProductoParaFicha | null>(null);
   const [error, setError] = useState(false);
   const [cantidad, setCantidad] = useState(1);
@@ -1089,19 +1096,27 @@ export function ProductoFicha({
         className="fixed inset-0 z-40 bg-cafe/40"
         aria-hidden
       />
-      <div className="fixed inset-x-0 bottom-0 z-50 mx-auto flex h-[92vh] w-full max-w-[520px] flex-col overflow-hidden rounded-t-lg bg-tarjeta shadow-modal lg:inset-0 lg:m-auto lg:h-[85vh] lg:max-h-[760px] lg:max-w-4xl lg:flex-row lg:rounded-lg">
-        {/* Mobile: la foto vive fija en este contenedor (que nunca hace scroll);
-            el panel de info es una capa aparte encima, con su propio scroll —
-            por eso su contenido sube y tapa la foto al hacer scroll down. */}
+      <div className="fixed inset-x-0 bottom-0 z-50 mx-auto flex h-[92dvh] w-full max-w-[520px] flex-col overflow-hidden rounded-t-lg bg-tarjeta shadow-modal lg:inset-0 lg:m-auto lg:h-[85vh] lg:max-h-[760px] lg:max-w-4xl lg:flex-row lg:rounded-lg">
+        {/* Mobile: UNA sola columna que scrollea, con la foto pegada arriba.
+
+            **La foto va DENTRO del scroller, y eso es lo que arregla el gesto.** Antes eran dos
+            capas superpuestas —la foto en absoluto y encima el panel con su propio scroll—, y dos
+            capas encima de la misma zona obligan a elegir cuál recibe el toque. Se eligió la foto
+            con un `pointer-events-none` en el scroller, y el precio fue que **deslizar en vertical
+            sobre la foto no subía la información**: el gesto se iba por los ancestros hasta el
+            `body`, así que lo que se movía era la carta detrás del velo. Un cliente lo reportó
+            como que no podía ver las salsas.
+
+            Anidando no hay que elegir. El carrusel mueve las fotos con scroll nativo
+            (`overflow-x-auto` con snap), así que el navegador reparte los ejes solo: horizontal al
+            carrusel, vertical al scroller de aquí. Es el comportamiento que ya tiene cualquier
+            galería dentro de una página.
+
+            **No vuelvas a sacar la foto a una capa aparte.** El efecto de que el panel suba
+            tapándola no lo daba la superposición: lo da el `sticky top-0`, que además deja la foto
+            en el flujo y por tanto hace innecesario el espaciador que había que mantener del mismo
+            alto que ella. */}
         <div className="relative flex-1 overflow-hidden lg:hidden">
-          {/* Sin flechas: aquí se pasa la foto con el dedo, y dos botones flotando sobre la foto
-              taparían justo lo que se está mirando —más ahora que la caja es cuadrada y el
-              producto cae en el centro—. En escritorio sí van, porque el ratón no desliza. */}
-          <CarruselFotos
-            fotos={producto.fotos}
-            nombre={producto.nombre}
-            className={`absolute inset-x-0 top-0 ${CAJA_FOTO_MOVIL}`}
-          />
           <button
             type="button"
             onClick={cerrar}
@@ -1111,37 +1126,24 @@ export function ProductoFicha({
             <X className="size-4" />
           </button>
 
-          {/* **El `pointer-events-none` de aquí es lo que hace que el carrusel funcione en el
-              teléfono, y va en ESTE contenedor y no en el espaciador de abajo.**
+          {/* `overscroll-contain` para que llegar al final del panel no siga empujando la carta de
+              fondo. El bloqueo del body lo cubre igual; esto lo corta un paso antes. */}
+          <div className="h-full overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {/* Sin flechas: aquí se pasa la foto con el dedo, y dos botones flotando sobre la foto
+                taparían justo lo que se está mirando —más ahora que la caja es cuadrada y el
+                producto cae en el centro—. En escritorio sí van, porque el ratón no desliza.
 
-              Esta capa se pinta ENCIMA de la foto (es hermana posterior y va en absoluto), así
-              que la parte que le corresponde a la foto es transparente pero capturaba el gesto:
-              al deslizar sobre ella, el dedo lo recibía este contenedor —que solo hace scroll
-              vertical— y las fotos 2 y 3 eran inalcanzables. Los puntos tampoco se podían tocar.
-
-              **Ponerlo en el espaciador no bastaba, y ese fue el arreglo que se dio por bueno
-              sin serlo**: `pointer-events: none` en un hijo no hace transparente al padre. El
-              hit-test saltaba el espaciador y acto seguido encontraba a este `inset-0`, que tiene
-              su propia caja cubriendo el contenedor entero, y le entregaba el gesto igual. El
-              síntoma era idéntico al original, así que parecía que la propiedad no servía.
-
-              El scroll de la información sigue vivo porque el gesto se hit-testea sobre el panel
-              blanco —que sí es tocable— y el navegador busca hacia arriba el ancestro con scroll:
-              tener `pointer-events: none` impide ser el OBJETIVO de un gesto, no desplazarse.
-
-              El precio es que arrastrar en vertical SOBRE LA FOTO ya no sube la información;
-              hay que arrastrar sobre la información. Es como se comporta cualquier galería, y
-              es lo que cuesta que la foto responda al dedo. */}
-          {/* La barra de scroll se oculta, y no es estética: el espaciador de abajo saca su alto
-              de SU ancho (`aspect-square`), así que una barra clásica de 15 px lo dejaba 15 px
-              más corto que la foto y el panel blanco se le solapaba. Con `h-72` fijo daba igual
-              el ancho; ahora no. En táctil la barra ya flota y no reserva sitio, así que esto
-              solo cambia algo en escritorio angosto — que es justo donde se veía el solape. */}
-          <div className="pointer-events-none absolute inset-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {/* Reserva el hueco de la foto. Misma constante que el carrusel a propósito: ver
-                `CAJA_FOTO_MOVIL`. */}
-            <div className={CAJA_FOTO_MOVIL} aria-hidden />
-            <div className="pointer-events-auto relative rounded-t-lg bg-tarjeta px-5 py-4">
+                `sticky` y no `relative`: es lo que mantiene la foto arriba mientras el panel sube
+                por encima. Vale igual como caja de referencia para los puntos del carrusel, porque
+                `sticky` también es un elemento posicionado. */}
+            <CarruselFotos
+              fotos={producto.fotos}
+              nombre={producto.nombre}
+              className={`sticky top-0 ${CAJA_FOTO_MOVIL}`}
+            />
+            {/* Tapa la foto al subir por ser un hermano posicionado POSTERIOR: sin `relative` los
+                dos se pintarían en el orden equivocado y la foto quedaría encima del texto. */}
+            <div className="relative rounded-t-lg bg-tarjeta px-5 py-4">
               {infoContenido}
             </div>
           </div>

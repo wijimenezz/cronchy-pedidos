@@ -29,11 +29,12 @@ export function CarruselFotos({
   /**
    * Posición y tamaño de la caja de fotos: lo pone cada layout, que son muy distintos.
    *
-   * **Tiene que incluir `relative` o `absolute`**, porque los puntos y las flechas van
-   * posicionados contra esta caja. No se pone un `relative` fijo aquí dentro a propósito: la
-   * rama móvil necesita `absolute`, y las dos clases juntas no se anulan por orden en el
-   * atributo sino por el orden del CSS que genera Tailwind —donde `relative` va después—, así
-   * que el `absolute` del layout perdería sin que nada lo avisara.
+   * **Tiene que traer una posición** —`relative`, `absolute` o `sticky`—, porque los puntos y las
+   * flechas van posicionados contra esta caja. Hoy la rama móvil usa `sticky` (la foto se queda
+   * arriba mientras el panel sube) y la de escritorio `relative`. No se pone un `relative` fijo
+   * aquí dentro a propósito: las clases juntas no se anulan por el orden del atributo sino por el
+   * del CSS que genera Tailwind —donde `relative` va después—, así que la posición del layout
+   * perdería sin que nada lo avisara.
    */
   className?: string;
   /** Flechas de anterior/siguiente. Solo escritorio: en táctil ya se desliza con el dedo. */
@@ -117,14 +118,13 @@ export function CarruselFotos({
         </>
       )}
 
-      {/* **Estos puntos dependen de que la ficha NO les robe el gesto**, y aquí llegó a estar
-          escrito que en el teléfono eran solo un indicador porque el panel de información —un
-          hermano posterior en absoluto— capturaba el toque con su espaciador transparente. Era
-          cierto, y era peor de lo que decía: esa misma capa se comía también el deslizar, así que
-          el carrusel no funcionaba de ninguna de las dos formas y solo se veía la portada. Se
-          arregla con `pointer-events-none` en el **contenedor de scroll** de la ficha —no en el
-          espaciador, que fue el primer intento y no bastaba— y `pointer-events-auto` de vuelta en
-          el panel blanco. El porqué está entero allá.
+      {/* **Estos puntos dependen de que la ficha NO les robe el gesto**, y eso hoy sale gratis
+          porque en el teléfono el carrusel vive DENTRO del contenedor que scrollea, no debajo de
+          él. Hubo dos capas superpuestas y entonces sí hacía falta pelearlo: el panel de
+          información capturaba el toque y el carrusel no funcionaba ni deslizando ni tocando los
+          puntos, y se resolvió con un `pointer-events-none` que a su vez impedía subir la
+          información arrastrando sobre la foto. Ya no hay nada de eso; el porqué del anidamiento
+          está en la rama móvil de `ProductoFicha`.
 
           Lo que sigue valiendo de aquella nota es la advertencia: **no los subas con `z-20`**
           como el botón de cerrar. Los haría tocables por su cuenta, sí, pero también los dejaría
