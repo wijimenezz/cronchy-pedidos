@@ -265,189 +265,34 @@ export function prepararAlarma(): void {
 }
 
 // ------------------------------------------------------------
-// Mantener la pestaña despierta
+// Lo que este módulo NO hace, y por qué
 // ------------------------------------------------------------
 
-/** Inaudible, pero no cero: lo que cuenta como "reproduciendo" es que salga señal. */
-const VOLUMEN_TESTIGO = 0.0001;
-
-let testigo: OscillatorNode | null = null;
-let mudo: HTMLAudioElement | null = null;
-
 /**
- * Un WAV de un segundo de silencio, para reproducir en bucle por un `<audio>`.
+ * **El panel NUNCA sostiene el foco de audio**, salvo el instante en que suena el aviso.
  *
- * **Web Audio sola no basta en Android**: lo que impide que el sistema congele el proceso no es la
- * heurística de "esta pestaña suena" de Chrome sino tener el **foco de audio**, y ese lo toma un
- * elemento de medios, no un `OscillatorNode`. Por eso hay dos testigos y no uno.
+ * Aquí vivió un mecanismo para que Android no congelara la página con el panel en segundo plano: un
+ * oscilador inaudible, un WAV mudo en bucle por un `<audio>` y una `navigator.mediaSession`. Lo que
+ * impide congelar el proceso es tener el foco de audio, y ese lo toma un elemento de medios — pero
+ * **tomarlo se lo quita a quien lo tuviera**, así que la música del mostrador se quedaba a medio
+ * volumen todo el tiempo que los avisos estuvieran armados. Primero se acotó a "solo con el panel
+ * oculto", y en uso real seguía sin compensar: salir a AppSheet bajaba la música y no volvía hasta
+ * regresar al panel.
  *
- * Se genera aquí en vez de meter un binario en `public/`, igual que el pitido: son 44 bytes de
- * cabecera y ceros. Y es silencio de verdad —no el 0.0001 del oscilador— porque esto va al
- * altavoz por otra vía y un zumbido audible en el mostrador sería inaceptable.
+ * **No compensa porque lo que sostenía estaba duplicado.** Con el panel oculto lo que avisa es la
+ * notificación de Android, que llega por Web Push aunque la página esté congelada o el navegador
+ * cerrado; el pitido de la página era una segunda vía para el mismo aviso, y se pagaba con el
+ * altavoz del local.
+ *
+ * **La consecuencia hay que asumirla, no olvidarla: con el panel en segundo plano el pitido de esta
+ * página no suena.** Por eso el paso 1 de `docs/avisos-android.md` —poner `cronchy-pedido-nuevo.wav`
+ * como sonido del canal de notificaciones— dejó de ser recomendable y es **obligatorio** por tablet.
+ * Sin él, en segundo plano suena el tono genérico de Android, que en una cocina no se oye.
+ *
+ * **No lo vuelvas a añadir.** No hay variante que salve las dos cosas: `wakeLock` solo mantiene la
+ * pantalla encendida y el Periodic Background Sync lo agenda el navegador cada horas, no cada 15 s.
+ * Cualquier cosa que mantenga viva la página reproduciendo audio le baja el volumen a la música.
  */
-function wavMudo(): string {
-  const muestreo = 8000;
-  const muestras = muestreo; // un segundo, y el bucle hace el resto
-  const buffer = new ArrayBuffer(44 + muestras * 2);
-  const vista = new DataView(buffer);
-
-  const texto = (offset: number, valor: string) => {
-    for (let i = 0; i < valor.length; i++) vista.setUint8(offset + i, valor.charCodeAt(i));
-  };
-
-  texto(0, "RIFF");
-  vista.setUint32(4, 36 + muestras * 2, true);
-  texto(8, "WAVE");
-  texto(12, "fmt ");
-  vista.setUint32(16, 16, true);
-  vista.setUint16(20, 1, true);
-  vista.setUint16(22, 1, true);
-  vista.setUint32(24, muestreo, true);
-  vista.setUint32(28, muestreo * 2, true);
-  vista.setUint16(32, 2, true);
-  vista.setUint16(34, 16, true);
-  texto(36, "data");
-  vista.setUint32(40, muestras * 2, true);
-  // Las muestras se quedan en cero: eso ES el silencio.
-
-  let binario = "";
-  const bytes = new Uint8Array(buffer);
-  for (let i = 0; i < bytes.length; i++) binario += String.fromCharCode(bytes[i]);
-  return `data:audio/wav;base64,${btoa(binario)}`;
-}
-
-/**
- * Decirle a Android que esto es un reproductor.
- *
- * Con la sesión declarada el sistema muestra un aviso de medios y trata la app como tal, que es
- * justo lo que hace que no la congele al minuto de irse a AppSheet. En una tablet enchufada al
- * mostrador la batería no es un criterio.
- *
- * **Ese aviso ya no es la señal de que la alarma está armada**, aunque aquí llegó a decirse que
- * sí: ahora solo aparece con el panel en segundo plano, así que con el tablero delante no hay
- * ninguno y la campana sigue encendida igual. Quien dice si los avisos están armados es la
- * campana del panel, que además es donde se apagan.
- */
-function declararSesion(activa: boolean): void {
-  if (typeof navigator === "undefined" || !navigator.mediaSession) return;
-
-  if (!activa) {
-    navigator.mediaSession.playbackState = "none";
-    return;
-  }
-
-  navigator.mediaSession.metadata = new MediaMetadata({
-    title: "Escuchando pedidos",
-    artist: "Cronchy · Panel",
-  });
-  navigator.mediaSession.playbackState = "playing";
-
-  // Sin esto, el botón de pausa del aviso del sistema —o el de unos audífonos— dejaría la página
-  // sin foco de audio y sin que nadie se entere. Se ignoran a propósito: aquí no hay nada que
-  // pausar, y quien apaga los avisos lo hace con la campana del panel.
-  for (const accion of ["pause", "stop"] as const) {
-    try {
-      navigator.mediaSession.setActionHandler(accion, () => {});
-    } catch {
-      // Un navegador que no conoce la acción no puede tumbar el armado.
-    }
-  }
-}
-
-/**
- * ¿Hay que sostener el foco de audio ahora mismo?
- *
- * **Estar armado no basta, y ese era el bug.** Sostener el fondo le pide a Android el foco de
- * audio, y Android se lo quita a quien lo tuviera: con la campana encendida, la música que sonaba
- * en el mostrador pasaba a segundo plano y no volvía hasta apagarla. Se sostiene **solo con el
- * panel oculto**, que es lo único que este mecanismo vino a resolver — una página al frente no la
- * congela nadie ni se le suspende el contexto, así que ahí no compraba nada y costaba la música.
- *
- * Puro y exportado aparte por el mismo reparto que `nivelGuardado` frente a `leerNivel`: Vitest
- * corre en `environment: "node"` y ahí no hay `document` cuya visibilidad consultar.
- */
-export function debeSostenerFondo(armado: boolean, visible: boolean): boolean {
-  return armado && !visible;
-}
-
-/**
- * Un tono continuo e inaudible mientras el panel está oculto con los avisos armados.
- *
- * Chrome frena los temporizadores de una pestaña oculta a ~1 por minuto y a los cinco minutos
- * aprieta más, así que el polling de 15 s deja de correr a su ritmo justo cuando el empleado está
- * en otra cosa. La excepción es una pestaña que está **reproduciendo audio de verdad** — no una
- * que podría reproducirlo. Esto la mantiene en esa categoría, y de paso impide que el contexto
- * vuelva a suspenderse.
- *
- * **Las tres piezas se encienden y se apagan juntas**, incluido el oscilador. Aquí llegó a estar
- * escrito que un `OscillatorNode` no toma el foco y solo lo hace un elemento de medios; puede que
- * sea cierto, pero era una creencia y no una medición, y con el panel al frente ninguna de las
- * tres hace falta. Apagarlas todas es lo que hace que la respuesta a "¿por qué se calló la
- * música?" no dependa de adivinar cuál de ellas fue.
- *
- * **Es best-effort, y conviene saberlo antes de confiar en ello**: las heurísticas de audibilidad
- * de Chrome no son un contrato y pueden cambiar sin aviso. Si algún día dejan de eximir a esta
- * pestaña, el aviso sigue llegando —`sonarAviso` reanima y la notificación del sistema no depende
- * del audio—, solo que con el retraso del throttling. Por eso esto es una mejora del ritmo, no el
- * arreglo.
- */
-export function sostenerEnSegundoPlano(): void {
-  const ctx = obtenerContexto();
-  if (!ctx || testigo) return;
-
-  const oscilador = ctx.createOscillator();
-  const volumen = ctx.createGain();
-
-  // 20 Hz queda por debajo de lo que un oído distingue, y el volumen lo hace inaudible igual.
-  oscilador.frequency.value = 20;
-  volumen.gain.value = VOLUMEN_TESTIGO;
-
-  oscilador.connect(volumen).connect(ctx.destination);
-  oscilador.start();
-
-  testigo = oscilador;
-
-  // El segundo testigo, el que de verdad cuenta en Android: ver `wavMudo` y `declararSesion`.
-  mudo ??= new Audio(wavMudo());
-  mudo.loop = true;
-  void mudo.play().catch(() => {
-    // Sin gesto previo no arranca, y no pasa nada: quien llama a esto es el botón de la campana,
-    // así que para cuando llega aquí el gesto ya existió. Si falla, se pierde la sesión de medios
-    // y queda el tono de notificación de Android, que es la garantía de todas formas.
-  });
-  declararSesion(true);
-}
-
-export function soltarSegundoPlano(): void {
-  declararSesion(false);
-
-  if (mudo) {
-    mudo.pause();
-    mudo.src = "";
-    mudo = null;
-  }
-
-  if (!testigo) return;
-
-  testigo.stop();
-  testigo.disconnect();
-  testigo = null;
-}
-
-/**
- * Apagar los avisos de verdad.
- *
- * Antes el botón cambiaba el icono y guardaba la preferencia, pero `sonarAviso` no consultaba
- * nada y el pitido seguía. Ahora además se corta el testigo, para que una pestaña con los avisos
- * apagados deje de pedirle al navegador que la trate como si estuviera sonando.
- *
- * Sigue soltándolo todo aunque el sostén ya solo se tome con el panel oculto: quien apaga la
- * campana puede estar haciéndolo justo al volver de otra app, y dejar el testigo vivo ahí sería
- * el mismo bug con menos testigos.
- */
-export function silenciar(): void {
-  soltarSegundoPlano();
-}
 
 // ------------------------------------------------------------
 // La preferencia, entre recargas

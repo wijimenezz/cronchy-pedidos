@@ -890,11 +890,12 @@ saber:
   sonara *nada*, no de que sonara tarde. `sonarAviso()` intenta `resume()` antes de rendirse, y
   puede hacerlo por código porque el botón ya aportó el gesto que exige el navegador. Sin ese
   primer gesto no hay nada que reanudar, que es correcto: nadie ha pedido que suene.
-- **La exención del freno exige estar reproduciendo audio de verdad**, no poder reproducirlo. Por
-  eso `sostenerEnSegundoPlano()` deja un oscilador inaudible sonando **mientras el panel está
-  oculto**. Es **best-effort**: las heurísticas de Chrome no son un contrato. Si dejan de eximir a
-  la pestaña, el aviso sigue llegando con el retraso del throttling (~1 tic por minuto), no se
-  pierde.
+- **Con el panel de fondo, el pitido de la página NO suena, y hay que asumirlo.** La exención del
+  freno de Chrome exige estar reproduciendo audio de verdad, y eso es tomar el foco — o sea
+  quitárselo a lo que estuviera sonando. Aquí hubo un testigo inaudible para conseguirlo; ver abajo
+  por qué se quitó. Sin él, Android congela la página, el polling no corre y no hay nada que sonar:
+  **quien avisa entonces es la notificación del sistema**, y por eso el paso 1 de
+  `docs/avisos-android.md` no es una recomendación sino un requisito por tablet.
 - **La notificación del sistema es el canal que se ve desde otra aplicación.** El `(N)` del título
   hay que verlo en la barra de pestañas y el pitido se pierde entre el ruido de la cocina. Lleva
   `requireInteraction` —una notificación que se desvanece a los cinco segundos es una que nadie
@@ -1002,25 +1003,31 @@ anterior:
   mostrar la notificación, y el tablero refresca al recibirlo. Es el único evento que llega con los
   temporizadores congelados, porque lo entrega Android. Solo **refresca**: quien decide si algo es
   nuevo y suena sigue siendo `idsNuevos`, para no tener dos fuentes de esa verdad.
-- **La sesión de medios, y SOLO con el panel oculto.** El testigo inaudible de Web Audio no basta
-  en Android —lo que impide congelar el proceso es tener el **foco de audio**, y ese lo toma un
-  elemento de medios, no un `OscillatorNode`—, así que `sostenerEnSegundoPlano` reproduce además un
-  WAV mudo en bucle y declara `navigator.mediaSession`.
+- **EL PANEL NO SOSTIENE EL FOCO DE AUDIO, Y NO HAY QUE DEVOLVÉRSELO.** Hubo un mecanismo para que
+  Android no congelara la página en segundo plano —un oscilador inaudible, un WAV mudo en bucle por
+  un `<audio>` y `navigator.mediaSession`—, porque lo que impide congelar el proceso es tener el
+  **foco de audio** y ese lo toma un elemento de medios, no un `OscillatorNode`.
 
-  **Cuándo se toma es la mitad de la regla.** Se tomaba desde que se armaba la campana, y eso tiene
-  un precio que no se vio venir: Android reparte el altavoz por foco, así que el panel se lo quitaba
-  a quien lo tuviera y **la música que sonara en el mostrador pasaba a segundo plano hasta apagar
-  los avisos**. Con el tablero delante ese sostén no compra nada —una página visible no la congela
-  nadie ni se le suspende el contexto—, así que ahora lo decide `debeSostenerFondo(armado, visible)`,
-  puro y testeado, y solo se sostiene oculto. Quien lo dispara es `visibilitychange` **y nadie
-  más**: `blur` parece la red de seguridad obvia para la carrera con la congelación de Android, y en
-  escritorio salta al hacer clic en otra ventana sin que la pestaña se oculte —tomaría el foco,
-  cortando la música, y ningún `visibilitychange` vendría después a soltarlo—. No lo añadas.
+  **Se quitó entero, en dos tiempos y por la misma razón: Android reparte el altavoz por foco, así
+  que tomarlo se lo quita a quien lo tuviera.** Primero se tomaba desde que se armaba la campana, y
+  la música del mostrador se quedaba a media asta hasta apagar los avisos; se acotó a "solo con el
+  panel oculto" —una página visible no la congela nadie— y en uso real seguía sin compensar: salir a
+  AppSheet le bajaba el volumen a la música y no volvía hasta regresar al panel.
 
-  Dos corolarios que se caen con esto: el aviso de "reproduciendo" **ya no es la señal de que la
-  alarma está armada** —con el panel delante no hay ninguno—, esa es la campana; y el armado se lee
-  en cada evento con `prefiereSonido()` y no se captura al montar el efecto, o apagar la campana e
-  irse a otra app volvería a robar el foco.
+  **No compensa porque lo que sostenía estaba duplicado.** Con el panel de fondo quien avisa es la
+  notificación de Android, que llega por Web Push aunque la página esté congelada o el navegador
+  cerrado; el pitido de la página era una segunda vía para el mismo aviso y se pagaba con el altavoz
+  del local. El propio `sw.js` ya lo decía de sí mismo: su `postMessage` «es una mejora y no una
+  garantía. La garantía es el tono de notificación de Android».
+
+  **No lo reintentes, y no hay variante que salve las dos cosas.** `wakeLock` solo mantiene la
+  pantalla encendida y el Periodic Background Sync lo agenda el navegador cada horas, no cada 15 s.
+  Cualquier cosa que mantenga viva la página reproduciendo audio le baja el volumen a la música. Si
+  algún día el pitido de fondo se vuelve imprescindible, lo que hay que cambiar es la plataforma
+  —una app nativa puede pedir foco transitorio con ducking—, no volver a poner un testigo.
+
+  Corolario: **ya no hay aviso de "reproduciendo" en Android en ningún momento**, así que la señal
+  de que la alarma está armada es la campana del panel y solo ella.
 - **El aviso sale por un `<audio>`, no por Web Audio, y por eso aparta la música.** Web Audio se
   mezcla con lo que ya suene; el foco lo pide un elemento de medios. La web **no tiene API de foco
   de audio** —no se puede pedir el transitorio con ducking de una app nativa—, pero reproducir un
