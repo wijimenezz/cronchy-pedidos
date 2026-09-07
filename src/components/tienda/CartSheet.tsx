@@ -6,6 +6,7 @@ import { useCarrito } from "@/lib/carrito";
 import { useCerrarConAtras } from "@/lib/tienda/cerrar-con-atras";
 import { MAXIMO_NOTAS } from "@/lib/validaciones";
 import { Campo, claseControl } from "@/components/checkout/Campo";
+import { useFondoQuieto } from "@/components/tienda/useFondoQuieto";
 
 
 
@@ -22,6 +23,9 @@ export function CartSheet({ onClose }: { onClose: () => void }) {
   // El velo y la X cierran retrocediendo en el historial, para que el botón atrás del teléfono
   // cierre la hoja en vez de sacar de la app.
   const cerrar = useCerrarConAtras(onClose);
+  // Igual que la ficha: llegar al final de la lista dejaba de mover la hoja y empezaba a mover la
+  // carta detrás del velo.
+  useFondoQuieto(true);
   const items = useCarrito((s) => s.items);
   const incrementar = useCarrito((s) => s.incrementar);
   const decrementar = useCarrito((s) => s.decrementar);
@@ -39,7 +43,7 @@ export function CartSheet({ onClose }: { onClose: () => void }) {
         className="fixed inset-0 z-40 bg-cafe/40"
         aria-hidden
       />
-      <div className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[75vh] w-full max-w-[520px] flex-col rounded-t-lg bg-tarjeta shadow-modal">
+      <div className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[75dvh] w-full max-w-[520px] flex-col rounded-t-lg bg-tarjeta shadow-modal">
         <div className="flex items-center justify-between border-b border-crema-oscura px-5 py-4">
           <h2 className="font-titulo text-xl font-semibold text-cafe">
             Tu pedido
