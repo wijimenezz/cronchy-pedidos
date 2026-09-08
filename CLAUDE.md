@@ -1463,3 +1463,24 @@ quien dice que no no se queda a ciegas: le queda el seguimiento en `/pedido/[tok
 - No intentar imprimir desde el navegador con `window.print()` esperando que no salga el
   diálogo: no existe forma de evitarlo. Para eso está el handler de Windows.
 - No convertir el proyecto en multi-tenant todavía.
+
+---
+
+## Hacia dónde va esto
+
+Hay un diseño aprobado y **todavía sin implementar** para pedir desde la mesa con chips NFC y para un
+POS propio que reemplace AppSheet, con las dos cosas y los pedidos online en la misma contabilidad:
+`docs/superpowers/specs/2026-09-07-mesa-nfc-y-pos-design.md`.
+
+**Nada de lo que ese documento describe existe en el código**, así que todo lo de arriba sigue siendo
+la verdad sobre lo que hay. Se lee antes de tocar tres cosas, porque ahí están las decisiones que las
+condicionan y el porqué:
+
+- **`tipo_pedido`**, que ganará un tercer valor (`mesa`) con su propia regla de pago — y el CHECK de
+  `order` que hoy lo rechazaría.
+- **La regla 1**, que se acotará al navegador del cliente para que el POS pueda cobrar sin internet.
+  Mientras no exista el POS, la regla vigente es la de arriba, tal cual.
+- **La estructura**, que pasará a monorepo (`apps/` + `packages/`) con una sola base de datos.
+
+Cada fase actualiza aquí lo que haya vuelto cierto. Si este archivo y ese documento discrepan, manda
+este: el spec dice lo que se quiere, CLAUDE.md lo que hay.
