@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { Check, ChevronDown, Minus, Plus, X } from "lucide-react";
 import { CarruselFotos } from "@/components/tienda/CarruselFotos";
-import { useFondoQuieto } from "@/components/tienda/useFondoQuieto";
+import { useFondoQuieto } from "@/lib/fondo-quieto";
 import { pesos } from "@/lib/notificaciones/plantillas";
 import { useCarrito } from "@/lib/carrito";
 import { useTipoPedido } from "@/lib/tienda/tipo-pedido";
