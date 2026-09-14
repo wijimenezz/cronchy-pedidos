@@ -7,6 +7,7 @@ import { MessageCircle, Star, X } from "lucide-react";
 import { linkContactoWhatsapp } from "@/lib/notificaciones/transporte";
 import { useEnElNavegador } from "@/components/ui/Modal";
 import { useCerrarConAtras } from "@/lib/tienda/cerrar-con-atras";
+import { useFondoQuieto } from "@/lib/fondo-quieto";
 
 type Tienda = {
   nombre: string;
@@ -65,16 +66,12 @@ function Panel({
     return () => document.removeEventListener("keydown", alPulsar);
   }, [cerrar]);
 
-  // El fondo no se desplaza mientras el menú está abierto. Se guarda el valor previo en vez de
-  // asumir `""`, igual que en `Modal`: cualquier otra cosa que algún día toque el body dejaría el
-  // scroll bloqueado para siempre al cerrar.
-  useEffect(() => {
-    const previo = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previo;
-    };
-  }, []);
+  // El fondo no se desplaza mientras el menú está abierto.
+  //
+  // Antes esto guardaba el `overflow` previo y lo reponía, "por si algo más tocaba el body". Ese
+  // era justo el mecanismo que dejaba el scroll bloqueado para siempre: la capa de arriba guardaba
+  // lo que había puesto la de abajo y se lo devolvía al cerrarse. Ahora se cuentan capas.
+  useFondoQuieto(true);
 
   const enElNavegador = useEnElNavegador();
 

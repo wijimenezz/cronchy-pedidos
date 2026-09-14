@@ -1502,6 +1502,30 @@ quien dice que no no se queda a ciegas: le queda el seguimiento en `/pedido/[tok
 - **Leaflet solo en el cliente:** los componentes de mapa se cargan con
   `dynamic(..., { ssr: false })` — Leaflet toca `window` y revienta en SSR.
 - Mobile-first, siempre. El escritorio es el caso raro aquí.
+- **Los modales dejan quieto el fondo CONTANDO CAPAS, nunca guardando estilos.**
+  `src/lib/fondo-quieto.ts` es el único sitio que toca `document.body.style`, y por él pasan los
+  cuatro modales hechos a mano: `ProductoFicha`, `CartSheet`, `Drawer` y `ui/Modal`.
+
+  Sacar el body del flujo con `position: fixed` hace falta porque **`overflow: hidden` no basta**:
+  iOS Safari lo ignora para el gesto táctil y la carta se sigue arrastrando detrás del velo. Y al
+  fijarlo hay que guardar el `scrollY` y devolverlo, o el cliente vuelve a una carta rebobinada.
+
+  **Lo que NO se puede hacer es que cada capa guarde los estilos que encontró y se los reponga.**
+  Estaba escrito en tres sitios, y los comentarios de `Drawer` y `Modal` hasta decían que era para
+  protegerse de "dos modales anidados" — era exactamente al revés: la capa de arriba guardaba el
+  `fixed` de la de abajo **como si fuera el estado limpio** y se lo devolvía al cerrarse. A partir
+  de ahí la página quedaba muerta: sin scroll, con el contenido cortado y la foto del local a la
+  vista donde el body ya no llegaba. Y no se arreglaba navegando —esos estilos viven en el DOM y
+  sobreviven al router— solo recargando.
+
+  Pasó de verdad, y el disparador era `CartBar`: escondía la hoja del carrito con un `return null`
+  cuando el carrito quedaba vacío, **sin llamar a `cerrar()`**, así que `abierta` se quedaba en
+  `true` y al añadir otro producto la hoja se montaba sola encima de la ficha. Dos capas. Por eso
+  ahora el carrito vacío esconde **la barra y no la hoja** — que además es lo que deja ver el "Tu
+  carrito está vacío" que `CartSheet` ya tenía escrito y era inalcanzable.
+
+  Regla práctica: **un modal no se desmonta escondiéndolo; se cierra.** Si algo lo quita del árbol
+  sin pasar por su `onClose`, su estado de "abierto" queda mintiendo.
 - Validación con Zod en el borde de cada route handler, antes de tocar la base.
 - Los estados del pedido se registran en `order_status_event`, no solo actualizando
   `order.estado`.

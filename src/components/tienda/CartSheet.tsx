@@ -6,7 +6,7 @@ import { useCarrito } from "@/lib/carrito";
 import { useCerrarConAtras } from "@/lib/tienda/cerrar-con-atras";
 import { MAXIMO_NOTAS } from "@/lib/validaciones";
 import { Campo, claseControl } from "@/components/checkout/Campo";
-import { useFondoQuieto } from "@/components/tienda/useFondoQuieto";
+import { useFondoQuieto } from "@/lib/fondo-quieto";
 
 
 

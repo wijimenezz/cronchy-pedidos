@@ -2,6 +2,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
+import { useFondoQuieto } from "@/lib/fondo-quieto";
 
 /** Nadie emite: lo único que cambia entre el servidor y el navegador es *dónde* estamos, y eso
  *  pasa una sola vez. Vive fuera del componente porque `useSyncExternalStore` exige que la
@@ -71,15 +72,11 @@ export function Modal({
   // con un documento largo —la política de datos son veinte pantallas en un teléfono— el dedo
   // arrastra la página de atrás en cuanto el contenido llega a su tope, y se pierde el sitio.
   //
-  // Se guarda el valor previo en vez de asumir `""`: dos modales anidados, o cualquiera que algún
-  // día toque el body, dejarían el scroll bloqueado para siempre al cerrar el de arriba.
-  useEffect(() => {
-    const previo = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previo;
-    };
-  }, []);
+  // Aquí decía que guardar el valor previo protegía de "dos modales anidados". Era al revés: cada
+  // capa guardaba lo que había puesto la de abajo y se lo reponía al cerrarse, que es como el
+  // bloqueo se volvía permanente. `useFondoQuieto` cuenta capas, y además saca el body del flujo
+  // con `position: fixed` — `overflow: hidden` a secas lo ignora el gesto táctil en iOS.
+  useFondoQuieto(true);
 
   // El diálogo se cuelga de `<body>`, no de donde se abre, y eso no es cosmética: el "Ver más"
   // de la política de datos vive **dentro del `<p>`** de la casilla del checkout, y un `<div>`
