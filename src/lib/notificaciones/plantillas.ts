@@ -115,7 +115,7 @@ export type Tienda = {
  *
  * Va como parámetro del único mensaje que lo usa y **no dentro de `Tienda`**: ese tipo lo
  * construyen sitios que no tienen nada que ver con esto —el checkout arma uno a mano para el
- * mensaje de fuera de cobertura—, y obligarlos a cargar un dato que no van a escribir solo
+ * mensaje de cotización manual—, y obligarlos a cargar un dato que no van a escribir solo
  * consigue que alguien ponga un número inventado para que compile.
  */
 export type EstimadoEntrega = { min: number; max: number };
@@ -972,29 +972,55 @@ function urlEntrega(tienda: Tienda, token: string): string {
 }
 
 // ------------------------------------------------------------
-// Mensaje 6 — el cliente quedó fuera de cobertura
+// Mensaje 6 — el checkout no pudo ponerle precio al domicilio
 // ------------------------------------------------------------
 
 /**
- * Lo que el cliente le escribe a la tienda cuando su pin no cae en ninguna zona (regla 14).
+ * Por qué el checkout no tiene un precio de domicilio que cobrar.
+ *
+ * Son los dos callejones sin salida del checkout, y quién los reconoce es
+ * `motivoDeCotizacionManual`, en `lib/checkout/domicilio.ts`.
+ */
+export type MotivoCotizacion = "fuera_de_cobertura" | "sin_cotizacion";
+
+/**
+ * Lo que el cliente le escribe a la tienda para que le cotice el domicilio a mano (regla 14).
  *
  * El pedido NO existe todavía: no hay número ni token, y por eso este mensaje no se parece a
  * los otros. Va el carrito para que la tienda sepa de cuánto hablamos, y el link de Maps
  * para que pueda decidir si le sirve el viaje. Si acepta, ese pedido se gestiona por chat.
  *
+ * **Se llamaba `fueraDeCobertura`, y el nombre se le quedó corto.** Ahora sirve a dos motivos: que
+ * el pin no caiga en ninguna zona, y que la cotización no haya respondido — este último dejaba al
+ * cliente con un botón de reintentar y ninguna otra puerta. Conservar el nombre viejo sería dejar
+ * escrito que este mensaje solo habla de cobertura, que es justo el tipo de nombre que invita a
+ * usar el criterio equivocado (el mismo motivo por el que `estaAbierta()` dejó de existir).
+ *
+ * **Lo único que cambia entre los dos es la primera línea**, y tiene que cambiar: decirle a la
+ * tienda "quedé fuera de cobertura" cuando lo que pasó es que no hubo respuesta la mandaría a
+ * revisar sus zonas en vez de a cotizar.
+ *
  * Se manda corto a propósito: viaja dentro de una URL `wa.me`, que se rompe si crece.
  */
-export function fueraDeCobertura(
+export function cotizacionManual(
   carrito: { items: ItemSnapshot[]; subtotal: number },
   ubicacion: { lat: number; lng: number },
   tienda: Tienda,
+  motivo: MotivoCotizacion,
 ): string {
   const lineas = carrito.items.map(
     (item) => `• ${item.cantidad}x ${item.nombre}`,
   );
 
+  const apertura: Record<MotivoCotizacion, string> = {
+    fuera_de_cobertura: `¡Hola! Quiero pedir en *${tienda.nombre}* pero mi dirección quedó fuera de cobertura.`,
+    // No se culpa a la conexión del cliente: desde aquí no se sabe de qué lado falló, y lo que la
+    // tienda necesita saber es que el pedido está armado y solo falta ponerle precio al domicilio.
+    sin_cotizacion: `¡Hola! Quiero pedir en *${tienda.nombre}* pero la app no pudo calcularme el domicilio.`,
+  };
+
   return [
-    `¡Hola! Quiero pedir en *${tienda.nombre}* pero mi dirección quedó fuera de cobertura.`,
+    apertura[motivo],
     "",
     ...lineas,
     "",

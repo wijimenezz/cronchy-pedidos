@@ -94,6 +94,10 @@ export async function POST(request: Request) {
     // `null` cuando el código no existe, y eso NO es "sin cupón": el cliente escribió algo y hay
     // que decírselo. Distinguir los dos casos es lo que hace que se rechace en vez de ignorarlo.
     cupon: input.cupon ? cupon : undefined,
+    // La ÚNICA cifra de dinero que llega del navegador, y no se cobra: se contrasta. Es lo que
+    // impide que entre un pedido cuyo total el cliente nunca vio — el caso de los pagos por Nequi
+    // sin el domicilio incluido. Ver `CalculoPedidoInput.costoDomicilioMostrado`.
+    costoDomicilioMostrado: input.costoDomicilioMostrado,
   });
 
   if (!resultado.ok) {

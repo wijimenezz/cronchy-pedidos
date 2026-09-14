@@ -269,6 +269,19 @@ export const crearPedidoSchema = z
       })
       .optional(),
     /**
+     * El costo del domicilio que el checkout tenía **en pantalla** al confirmar.
+     *
+     * Es la única cifra de dinero que viaja desde el navegador, y **no se cobra**: `calcularPedido`
+     * resuelve la zona igual que siempre (regla 1) y usa esto solo para comprobar que el cliente y
+     * el servidor estaban mirando el mismo número. Si no cuadran, el pedido se rechaza en vez de
+     * crearse con un total que el cliente nunca vio — el caso que lo trajo fue una tanda de pedidos
+     * pagados por Nequi sin el domicilio incluido.
+     *
+     * Opcional porque un bundle viejo en caché no lo manda; el porqué completo está en
+     * `CalculoPedidoInput.costoDomicilioMostrado`.
+     */
+    costoDomicilioMostrado: z.number().int().nonnegative().optional(),
+    /**
      * Opcional **en el objeto**, obligatoria en domicilio: eso lo decide el `superRefine` del
      * final, porque en `recoger` esta dirección no existe. Si se vuelve requerida aquí, recoger
      * deja de poder pedirse.
