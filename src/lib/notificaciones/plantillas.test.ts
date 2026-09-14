@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { instanteEnBogota } from "@/lib/horario";
 import {
   cambioEstado,
+  cotizacionManual,
   cuandoCorto,
   horaCorta,
   llevaAviso,
@@ -747,5 +748,57 @@ describe("pedidoNuevoTelegram", () => {
     expect(pedidoNuevoTelegram(NUEVO, TIENDA).urlPanel).toBe(
       "https://cronchy.co/admin/pedidos/142",
     );
+  });
+});
+
+/**
+ * El mensaje con el que el cliente le pide a la tienda que le cotice el domicilio a mano.
+ *
+ * No tenía ni un test, y ahora sirve a dos motivos, que es justo cuando empieza a importar que la
+ * primera línea diga la verdad: mandarle "quedé fuera de cobertura" a la tienda cuando lo que pasó
+ * fue que la cotización no respondió la manda a revisar sus zonas en vez de a cotizar.
+ */
+describe("cotizacionManual", () => {
+  const CARRITO = {
+    items: [
+      { nombre: "Cronchy Mega", cantidad: 2, subtotal: 30000, modificadores: [] },
+      { nombre: "Agua 300ml", cantidad: 1, subtotal: 1500, modificadores: [] },
+    ],
+    subtotal: 31500,
+  };
+  const PIN = { lat: 4.3355, lng: -74.3645 };
+  const TIENDA = { nombre: "Cronchy", baseUrl: "https://cronchy.test" };
+
+  it("dice lo que pasó de verdad en cada caso", () => {
+    const fuera = cotizacionManual(CARRITO, PIN, TIENDA, "fuera_de_cobertura");
+    const sinCotizar = cotizacionManual(CARRITO, PIN, TIENDA, "sin_cotizacion");
+
+    expect(fuera).toContain("quedó fuera de cobertura");
+    expect(sinCotizar).toContain("no pudo calcularme el domicilio");
+    // Y ninguno dice lo del otro: es el error que hacía falso reusar el mensaje tal cual.
+    expect(sinCotizar).not.toContain("fuera de cobertura");
+    expect(fuera).not.toContain("no pudo calcularme");
+  });
+
+  it("los dos piden lo mismo, que es cotizar", () => {
+    for (const motivo of ["fuera_de_cobertura", "sin_cotizacion"] as const) {
+      expect(cotizacionManual(CARRITO, PIN, TIENDA, motivo)).toContain(
+        "¿Me pueden cotizar el domicilio?",
+      );
+    }
+  });
+
+  // Sin esto la tienda no puede decidir si le sirve el viaje ni cuánto cobrar.
+  it("lleva el carrito, el subtotal y el pin en un link que se puede abrir", () => {
+    const texto = cotizacionManual(CARRITO, PIN, TIENDA, "sin_cotizacion");
+
+    expect(texto).toContain("2x Cronchy Mega");
+    expect(texto).toContain("1x Agua 300ml");
+    expect(texto).toContain("$31.500");
+    expect(texto).toContain("https://maps.google.com/maps?q=4.3355,-74.3645");
+  });
+
+  it("nombra a la tienda, que es a quien le está escribiendo", () => {
+    expect(cotizacionManual(CARRITO, PIN, TIENDA, "sin_cotizacion")).toContain("*Cronchy*");
   });
 });

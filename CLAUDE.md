@@ -514,6 +514,81 @@ link de Google Maps con el pin — para que la tienda cotice el domicilio. Si el
 acepta, ese pedido se gestiona por chat (v1). Pedidos manuales desde el panel con
 costo digitado: v1.1, el snapshot ya lo soporta.
 
+**«No sé cuánto cuesta el domicilio» NO es «$0», y confundirlos costó plata de verdad.** El
+checkout resolvía el costo con `cobertura.estado === "cubierto" ? precio : 0`, y `Cobertura` tiene
+**cinco** estados: cuatro caían en ese cero. Así que una cotización que fallaba, o que todavía iba
+en vuelo, se pintaba como un domicilio gratis — en el resumen, en el total, en el botón y, lo caro,
+en el **«Transfiere este valor» de Nequi**. Varios clientes transfirieron solo el valor de los
+productos mientras el panel registraba el total completo, porque el servidor sí resuelve la zona al
+confirmar (regla 1). El desfase solo se veía desde el panel, con la transferencia ya hecha.
+
+Quien traduce ahora es `lib/checkout/domicilio.ts`, puro y probado como `precios.ts`, y **el costo
+es `number | null`**: el nullable *es* el modelo, igual que en `programado_para` (regla 16) y
+`politica_aceptada_en` (regla 21). El único cero legítimo es `recoger`.
+
+Cuatro cosas que no se cambian:
+
+- **El aviso vive donde está el dinero.** El texto «No pudimos calcular el domicilio» ya existía…
+  dentro del mapa del **paso 2**, que no se renderiza cuando el cliente está en el 3. O sea que en
+  la única pantalla donde hay un total, un importe a transferir y un botón de confirmar, no se
+  decía absolutamente nada. Un aviso que no está en la pantalla del problema no existe.
+- **El candado es `fallosUI.punto`, y no un `disabled` más.** Cubre los cuatro estados sin
+  resolver, no solo `fuera`. Con eso se frenan a la vez `avanzar()` —porque `CAMPOS_POR_PASO[2]`
+  ya incluye `"punto"`— y `enviar()`, y `señalar()` **devuelve al cliente al paso 2**, que es donde
+  están el mapa y el reintento. No hace falta maquinaria nueva: la que había ya sabía hacerlo.
+- **Bloquear solo sale barato porque la cotización reintenta.** Era un disparo único, sin timeout
+  y sin `AbortController`: un fallo la dejaba muerta para siempre y `"consultando"` podía ser
+  eterno —el estado más silencioso, porque no pinta error—. Ahora hay tope de 8 s, tres intentos
+  con espera creciente, se respeta el `Retry-After` de un 429, y **se recotiza al volver a la
+  pestaña** (`visibilitychange` + `focus` + `online`, mismo idiom que `RefrescarAlVolver`).
+- **Ese regreso a la pestaña es el arreglo del caso de iPhone.** No hay una línea de código de iOS
+  en todo esto: lo que pasa es que el flujo de Nequi obliga a salir del navegador, y Safari descarta
+  la pestaña de fondo y la recarga al volver, o suspende el proceso y deja el `fetch` colgado. Se
+  regresaba a una pantalla cuyo único intento de cotización ya había pasado. Amplifican lo mismo el
+  iCloud Private Relay y el CGNAT de los operadores, que meten a varios clientes en la misma IP del
+  límite de `cotizar`.
+- **Y bloquear obliga a dejar una salida.** Si los reintentos no levantan, el cliente se queda sin
+  poder pedir, así que se le ofrece **escribirle a la tienda** para que le cotice el domicilio a
+  mano y el pedido siga por chat — la misma salida de fuera de cobertura, que ya existía. Lo que no
+  existía era ofrecerla donde hacía falta: estaba atada a `fuera` y **solo al paso 2**, de modo que
+  una cotización fallida no daba nada en ningún sitio, y un `fuera` que llegara estando en el
+  resumen tampoco. Ahora `motivoDeCotizacionManual` decide —en el módulo puro, con test, porque lo
+  que se olvidó fue justo uno de los dos sitios donde se pinta— y `salidaCotizacion` se arma una
+  vez y se usa en los dos pasos. El botón vive en `CheckoutForm` y no en `ResumenCobertura` porque
+  **es quien tiene el carrito** para armar el mensaje.
+- **`calculando` y `sin_ubicacion` NO ofrecen esa salida**, aunque tampoco tengan total. Todavía
+  pueden resolverse solas, y mandar a WhatsApp a quien iba a poder pedir en dos segundos es perder
+  el pedido a cambio de nada.
+- **Y NO se le ofrece cambiar a «Recoger», que es lo que parece la salida obvia.** El tipo de
+  pedido se elige en el paso 1 y en ningún otro (ver Convenciones), y el caso que esa regla protege
+  cae justo aquí: si el cliente ya transfirió por Nequi y **después** falla una recotización,
+  pasarlo a recoger le deja un pedido más barato con el dinero del domicilio ya enviado. La salida
+  es el WhatsApp, donde un humano ve las dos cosas.
+
+`cotizacionManual` (antes `fueraDeCobertura`) arma ese mensaje para los dos motivos. Se renombró
+porque un nombre que dice «fuera de cobertura» armando también el de «no pudimos calcular» es el
+tipo de nombre que invita a usar el criterio equivocado — lo mismo que le pasó a `estaAbierta()`.
+**Lo único que cambia entre los dos es la primera línea**, y tiene que cambiar: decirle a la tienda
+que el cliente quedó fuera de cobertura cuando lo que falló fue la consulta la manda a revisar sus
+zonas en vez de a cotizar.
+
+**Y el cierre está en el servidor**: `crearPedidoSchema` acepta `costoDomicilioMostrado` y
+`calcularPedido` rechaza con `domicilio_desactualizado` si no cuadra con la zona que resolvió. **No
+rompe la regla 1** — el precio lo sigue fijando `resolverZona`; ese número es una *afirmación* del
+navegador que se contrasta, nunca un precio que se acepte. Es la doctrina de `cupon_invalido`:
+cobrarle el precio lleno a quien vio otro total es peor que rechazarle el pedido, porque puede
+haberlo transferido ya.
+
+Dos detalles de ese campo que no se deducen del código:
+
+- **Es opcional a propósito.** Un bundle viejo en caché durante un deploy no lo manda, y rechazarle
+  el pedido por eso sería cambiar un bug por otro.
+- **Se compara el DOMICILIO y no el total entero.** El subtotal del cliente sale de
+  `precioUnitarioEstimado`, que vive en el carrito de `localStorage` y envejece en cuanto el panel
+  cambia un precio: comprobar el total rechazaría esos carritos **en bucle y sin salida**, porque
+  nada refresca esos importes. El domicilio sale de una llamada viva a `/api/zonas/cotizar`, así
+  que es la única cifra que se puede afirmar sin falsos positivos.
+
 ### 15. El panel traduce, no expone el modelo
 
 La UI de administración habla el idioma del negocio, no el del esquema. Quien edita un

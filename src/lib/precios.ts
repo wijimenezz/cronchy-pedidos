@@ -53,12 +53,45 @@ export type CalculoPedidoInput = {
   descuento?: number; // default 0, entero >= 0
   /** El día de Bogotá contra el que se mide el vencimiento. Por defecto, hoy. */
   hoy?: string;
+  /**
+   * EL COSTO DEL DOMICILIO QUE EL CHECKOUT LE ENSEÑÓ AL CLIENTE, para comprobarlo — nunca para
+   * cobrarlo.
+   *
+   * No rompe la regla 1: el precio lo sigue fijando `resolverZona` unas líneas más abajo, y esto
+   * es una **afirmación** del navegador («esto es lo que tenía en pantalla») que se contrasta con
+   * la verdad. Si no cuadra, el pedido no entra.
+   *
+   * Existe por un cobro mal enseñado: varios clientes de iPhone pagaron por Nequi solo el valor de
+   * los productos porque la cotización del checkout había fallado y el domicilio se pintaba en $0
+   * (ver `lib/checkout/domicilio.ts`). El servidor grababa el total correcto, así que nadie se
+   * enteraba hasta que el pedido llegaba al panel con una transferencia corta.
+   *
+   * Es **la misma doctrina que `cupon_invalido`**: cobrarle el precio lleno a quien vio otro total
+   * es peor que rechazarle el pedido, porque puede haberlo transferido ya.
+   *
+   * **Opcional a propósito.** Un cliente con el bundle viejo en caché durante un deploy no manda
+   * este campo, y rechazarle el pedido por eso sería cambiar un bug por otro. Cuando llega, se
+   * exige.
+   *
+   * Se compara el DOMICILIO y no el total entero, y esa frontera importa: el subtotal que ve el
+   * cliente sale de `precioUnitarioEstimado`, que vive en el carrito de `localStorage` y envejece
+   * en cuanto el panel cambia un precio. Comprobar el total rechazaría esos carritos en bucle y
+   * sin salida, porque nada refresca esos importes. El domicilio, en cambio, sale de una llamada
+   * viva a `/api/zonas/cotizar`, así que es la única cifra que se puede afirmar sin falsos
+   * positivos.
+   */
+  costoDomicilioMostrado?: number;
 };
 
 export type ErrorPedido =
   | (ErrorPrecio & { itemIndex: number })
   | { tipo: "punto_requerido" }
   | { tipo: "fuera_de_cobertura" }
+  /**
+   * El cliente confirmó viendo un domicilio distinto del que vale. `costoDomicilio` es el bueno,
+   * para que el checkout pueda decir la cifra en vez de un «algo cambió».
+   */
+  | { tipo: "domicilio_desactualizado"; costoDomicilio: number }
   | { tipo: "cupon_invalido"; motivo: MotivoRechazo }
   | { tipo: "descuento_invalido" };
 
@@ -170,6 +203,15 @@ export async function calcularPedido(
 
     costoDomicilio = zona.precio;
     zonaNombre = zona.nombre;
+
+    // El contraste, ya con la zona resuelta. Va aquí dentro y no al final porque solo tiene
+    // sentido en domicilio: en recoger el campo no viaja y no hay nada que comparar.
+    if (
+      input.costoDomicilioMostrado !== undefined &&
+      input.costoDomicilioMostrado !== costoDomicilio
+    ) {
+      return { ok: false, error: { tipo: "domicilio_desactualizado", costoDomicilio } };
+    }
   }
 
   /**

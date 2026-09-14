@@ -15,6 +15,7 @@ import {
   Loader2,
   MapPin,
   Phone,
+  RefreshCw,
   ShoppingBag,
   Store,
 } from "lucide-react";
@@ -64,7 +65,7 @@ function saneado(valor: string): string {
     .replace(/\s+/g, " ")
     .trim();
 }
-import { fueraDeCobertura, pesos } from "@/lib/notificaciones/plantillas";
+import { cotizacionManual, pesos, type MotivoCotizacion } from "@/lib/notificaciones/plantillas";
 import { decidirBarrio, type MotivoConsulta } from "@/lib/barrio";
 import { mensajeDeRechazo, type MotivoRechazo } from "@/lib/cupones";
 import { metodosDePago } from "@/lib/pedidos/pago";
@@ -76,10 +77,17 @@ import { PoliticaDatos } from "@/components/checkout/PoliticaDatos";
 import { SelectorFecha } from "@/components/checkout/SelectorFecha";
 import { VERSION_POLITICA } from "@/lib/legal/politica-datos";
 import { SubidaComprobante } from "@/components/checkout/SubidaComprobante";
+import { SelectorUbicacion } from "@/components/checkout/SelectorUbicacion";
 import {
-  SelectorUbicacion,
+  avisoDeDomicilio,
+  costoDeDomicilio,
+  domicilioDe,
+  mismoPunto,
+  motivoDeCotizacionManual,
+  sePuedeReintentar,
+  totalEsFirme,
   type Cobertura,
-} from "@/components/checkout/SelectorUbicacion";
+} from "@/lib/checkout/domicilio";
 import {
   SelectorCuando,
   cuandoInicial,
@@ -163,16 +171,68 @@ function BotonesTipoPedido({ actual }: { actual: TipoPedido | null }) {
  * cuesta, y el barrio es un texto para el domiciliario que ni siquiera depende de que
  * estemos cubriendo ese punto.
  */
-async function consultarCobertura(
-  punto: Punto,
-): Promise<{ cobertura: Cobertura; barrio: string | null }> {
+/**
+ * Cuánto espera una cotización antes de rendirse.
+ *
+ * Sin tope, `"consultando"` puede ser eterno — y ese es el estado MÁS silencioso de todos, porque
+ * no pinta ningún error. En iOS pasa de verdad: WebKit suspende el proceso al irse a la app del
+ * banco y una promesa en vuelo puede no resolverse nunca al volver.
+ */
+const TIMEOUT_COTIZACION_MS = 8_000;
+
+/** Las esperas entre intentos. Tres disparos en total, que es lo que cabe sin hacer esperar. */
+const REINTENTOS_MS = [1_500, 4_000];
+
+/** Tope de la espera que pida un 429: más allá de esto no se hace esperar, se falla y se ofrece. */
+const ESPERA_MAXIMA_MS = 10_000;
+
+/**
+ * Tope entre recotizaciones al volver a la pestaña. Sin él, alternar ventanas dispararía una por
+ * cada alt-tab — mismo motivo que el `CADA_MS` de `RefrescarAlVolver`.
+ */
+const TOPE_RECOTIZACION_MS = 5_000;
+
+function esperar(ms: number): Promise<void> {
+  return new Promise((listo) => setTimeout(listo, ms));
+}
+
+/**
+ * Un disparo contra el endpoint. `reintentable` distingue lo que puede curarse solo —red caída,
+ * timeout, 429, un 5xx— de lo que no: un 400 con el mismo pin va a volver a ser un 400.
+ */
+async function cotizarUnaVez(punto: Punto): Promise<
+  | { ok: true; cobertura: Cobertura; barrio: string | null }
+  | { ok: false; reintentable: boolean; esperarMs: number }
+> {
+  // `AbortController` a mano y no `AbortSignal.timeout`, que no existe en los iOS viejos — que
+  // son justo los teléfonos donde esto se rompe.
+  const corte = new AbortController();
+  const reloj = setTimeout(() => corte.abort(), TIMEOUT_COTIZACION_MS);
+
   try {
     const respuesta = await fetch("/api/zonas/cotizar", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(punto),
+      signal: corte.signal,
     });
-    if (!respuesta.ok) return { cobertura: { estado: "error" }, barrio: null };
+
+    if (!respuesta.ok) {
+      // El freno de peticiones dice cuándo volver, y hacerle caso es lo que evita que un 429 se
+      // convierta en un domicilio en $0. Cae con IPs compartidas —iCloud Private Relay, el CGNAT
+      // de los operadores— donde varios clientes gastan el mismo cupo sin conocerse.
+      const retryAfter = Number(respuesta.headers.get("Retry-After")) * 1000;
+      const esperarMs =
+        respuesta.status === 429 && retryAfter > 0
+          ? Math.min(retryAfter, ESPERA_MAXIMA_MS)
+          : 0;
+
+      return {
+        ok: false,
+        reintentable: respuesta.status === 429 || respuesta.status >= 500,
+        esperarMs,
+      };
+    }
 
     const datos = (await respuesta.json()) as {
       cubierto: boolean;
@@ -182,13 +242,52 @@ async function consultarCobertura(
     };
 
     return {
+      ok: true,
       cobertura: datos.cubierto
         ? { estado: "cubierto", zona: datos.zona!, precio: datos.precio! }
         : { estado: "fuera" },
       barrio: datos.barrio ?? null,
     };
   } catch {
-    return { cobertura: { estado: "error" }, barrio: null };
+    // Red caída, pestaña suspendida a mitad del viaje, o el timeout de arriba. Todo eso se cura
+    // solo si se vuelve a preguntar.
+    return { ok: false, reintentable: true, esperarMs: 0 };
+  } finally {
+    clearTimeout(reloj);
+  }
+}
+
+/**
+ * Qué dice el servidor del pin: si hay cobertura y, de paso, qué barrio hay ahí.
+ *
+ * No toca estado a propósito: sus usos lo tratan distinto —el mapa avisa que está calculando, el
+ * remontaje no— y todos tienen que descartar la respuesta si ya llegó otra más nueva.
+ *
+ * El barrio sale aparte de `Cobertura` y no dentro: la cobertura es si llegamos y cuánto
+ * cuesta, y el barrio es un texto para el domiciliario que ni siquiera depende de que
+ * estemos cubriendo ese punto.
+ *
+ * **Reintenta, y eso es media corrección del bug.** Antes era un disparo único: un solo fetch
+ * fallido dejaba el domicilio sin resolver para siempre, y el checkout lo pintaba como $0. Con
+ * tres intentos y espera creciente, un bache de datos móviles o un 429 se curan antes de que el
+ * cliente llegue a notarlos.
+ */
+async function consultarCobertura(
+  punto: Punto,
+): Promise<{ cobertura: Cobertura; barrio: string | null }> {
+  for (let intento = 0; ; intento++) {
+    const resultado = await cotizarUnaVez(punto);
+    if (resultado.ok) {
+      return { cobertura: resultado.cobertura, barrio: resultado.barrio };
+    }
+
+    const quedanIntentos = intento < REINTENTOS_MS.length;
+    if (!resultado.reintentable || !quedanIntentos) {
+      return { cobertura: { estado: "error" }, barrio: null };
+    }
+
+    // La espera que pida el servidor gana sobre la nuestra: reintentar antes solo gasta cupo.
+    await esperar(Math.max(REINTENTOS_MS[intento], resultado.esperarMs));
   }
 }
 
@@ -429,9 +528,37 @@ export function CheckoutForm({
   const [cuando, setCuando] = useState<Cuando>(() =>
     cuandoInicial(entrega.pronto, entrega.dias),
   );
-  // Qué dijo el servidor del pin actual. Es lo que pinta el costo en vivo y lo que bloquea
-  // el envío si el cliente quedó fuera de cobertura (regla 14).
-  const [cobertura, setCobertura] = useState<Cobertura>({ estado: "sin_pin" });
+  /**
+   * Qué dijo el servidor, **junto al pin al que corresponde**.
+   *
+   * Guardar el par es lo que permite derivar el "consultando" en vez de asignarlo dentro del
+   * efecto: si la respuesta que hay no es de este pin, es que la consulta está en vuelo. Mismo
+   * mecanismo que `respuestaCupon` unas líneas más abajo, y por el mismo motivo — un `setState`
+   * sincrónico en el cuerpo de un efecto provoca renders en cascada, y aquí tampoco hacía falta
+   * porque el estado ya estaba implícito en los datos.
+   *
+   * No va al carrito persistido: es la respuesta a una consulta, y guardarla sería prometer un
+   * precio que el servidor puede recalcular distinto al confirmar (regla 1).
+   */
+  const [respuestaCobertura, setRespuestaCobertura] = useState<{
+    punto: Punto;
+    cobertura: Cobertura;
+  } | null>(null);
+
+  /**
+   * La cobertura de AHORA, derivada: sin pin no hay nada que cotizar, y con un pin para el que
+   * todavía no hay respuesta la consulta está en vuelo.
+   *
+   * Derivarlo en vez de guardarlo es lo que quita el `setState` del cuerpo del efecto de montaje
+   * —el mismo cambio que ya se hizo con el cupón— y de paso arregla un caso que el estado suelto
+   * no cubría: mover el pin dejaba en pantalla el precio del pin anterior hasta que llegara la
+   * respuesta nueva, porque nadie había puesto el "consultando" todavía.
+   */
+  const cobertura: Cobertura = !punto
+    ? { estado: "sin_pin" }
+    : mismoPunto(respuestaCobertura?.punto ?? null, punto)
+      ? respuestaCobertura!.cobertura
+      : { estado: "consultando" };
   /**
    * Qué dijo el servidor del cupón, **junto al código al que corresponde**.
    *
@@ -453,6 +580,14 @@ export function CheckoutForm({
   // aquí, con el estado, porque hay dos formas de pedir una cotización —mover el pin y volver
   // a montar el formulario— y un guardia que solo conoce una de las dos no guarda nada.
   const ultimaCotizacion = useRef(0);
+  /**
+   * La cobertura de ahora mismo, para leerla desde escuchadores de eventos.
+   *
+   * El efecto que recotiza al volver a la pestaña se registra una vez y no puede depender de
+   * `cobertura` sin volver a suscribirse en cada cambio; leerla de su clausura daría el valor de
+   * hace tres estados, que es justo el que haría recotizar cuando no toca —o no hacerlo cuando sí.
+   */
+  const coberturaActual = useRef<Cobertura>({ estado: "sin_pin" });
   // Lo mismo para el cupón: cambiar el carrito y escribir un código son dos disparadores, y la
   // respuesta a la consulta vieja puede llegar después de la nueva.
   const ultimaComprobacion = useRef(0);
@@ -495,22 +630,62 @@ export function CheckoutForm({
     [setDatos],
   );
 
-  // Mover el pin es una acción del cliente, así que se le contesta de inmediato con el
-  // "calculando…" antes de salir a la red.
-  const cotizar = useCallback(
-    (punto: Punto) => {
+  // Espeja el estado en el ref, mismo idiom que `alMover` en `MapaUbicacion`. Sin dependencias:
+  // corre en cada render, que es exactamente cuando el valor pudo cambiar.
+  useEffect(() => {
+    coberturaActual.current = cobertura;
+  });
+
+  /**
+   * Pregunta por un punto y guarda lo que conteste. **Única puerta a la cotización**: la usan el
+   * mapa, el remontaje, el reintento y el regreso a la pestaña, y todas tienen que compartir el
+   * mismo turno para poder descartar una respuesta vieja.
+   *
+   * Siempre pinta el "calculando…" antes de salir a la red, también en el remontaje. Aquí decía
+   * que en ese caso no hacía falta porque "nadie tocó nada" — y con el candado nuevo eso es justo
+   * al revés: mientras la consulta va en vuelo el total no se puede enseñar, así que hay que
+   * decir por qué en vez de dejar la pantalla afirmando que falta poner el pin.
+   */
+  const cotizarPunto = useCallback(
+    (punto: Punto, motivo: MotivoConsulta) => {
       const turno = ++ultimaCotizacion.current;
-      setCobertura({ estado: "consultando" });
 
       void consultarCobertura(punto).then(({ cobertura, barrio }) => {
         if (turno !== ultimaCotizacion.current) return;
-        setCobertura(cobertura);
-        // Mover el pin es cambiar de dirección: el barrio sigue al pin.
-        aplicarBarrio(barrio, "pin-movido");
+        setRespuestaCobertura({ punto, cobertura });
+        aplicarBarrio(barrio, motivo);
       });
     },
     [aplicarBarrio],
   );
+
+  // Mover el pin es cambiar de dirección: el barrio sigue al pin.
+  const cotizar = useCallback(
+    (punto: Punto) => cotizarPunto(punto, "pin-movido"),
+    [cotizarPunto],
+  );
+
+  /**
+   * Volver a preguntar por el MISMO pin, sin moverlo.
+   *
+   * Es lo que le faltaba al checkout: hasta ahora el único reintento era arrastrar el pin en el
+   * mapa del paso 2, o sea pedirle al cliente que estropeara su dirección —y desde una pantalla
+   * que ni siquiera está viendo si va por el paso 3—.
+   *
+   * El punto se lee del store y no del render por lo mismo que en `aplicarBarrio`: esto se llama
+   * desde escuchadores de eventos cuya clausura puede ser vieja. Y el motivo es "montaje" porque
+   * la dirección no cambió: si el cliente corrigió el barrio a mano, se respeta.
+   */
+  const reintentarCotizacion = useCallback(() => {
+    const punto = useDatosCliente.getState().punto;
+    if (!punto) return;
+
+    // Soltar la respuesta vieja es lo que hace que la pantalla vuelva a decir "calculando" por
+    // derivación: sin esto, reintentar sobre el mismo pin seguiría pintando el error de antes
+    // hasta que llegara la respuesta, y el cliente pulsaría creyendo que no pasó nada.
+    setRespuestaCobertura(null);
+    cotizarPunto(punto, "montaje");
+  }, [cotizarPunto]);
 
   // Llegar al checkout es la señal más fuerte de que la elección de domicilio/recoger sigue
   // siendo la buena. Sin esto podría caducar a mitad del pago, que es justo la interrupción
@@ -553,27 +728,64 @@ export function CheckoutForm({
   // cliente termine de leer la pantalla.
   useEffect(() => {
     if (!hidratado) return;
-    if (
-      tipoPedido !== "domicilio" ||
-      !datos.punto ||
-      cobertura.estado !== "sin_pin"
-    )
-      return;
+    if (tipoPedido !== "domicilio" || !datos.punto) return;
+    // "¿Ya tengo respuesta para ESTE pin?" en vez del viejo `cobertura.estado !== "sin_pin"`.
+    // Aquel daba por hecho que cualquier estado distinto de "sin pin" era una respuesta buena,
+    // así que tras una cotización fallida ningún cambio de tipo volvía a preguntar.
+    if (mismoPunto(respuestaCobertura?.punto ?? null, datos.punto)) return;
 
-    const turno = ++ultimaCotizacion.current;
-    void consultarCobertura(datos.punto).then(({ cobertura, barrio }) => {
-      if (turno !== ultimaCotizacion.current) return;
-      setCobertura(cobertura);
-      // El pin guardado es la misma dirección de siempre, así que esto solo llena el hueco:
-      // si hay un barrio escrito —el del pedido pasado, o una corrección— se respeta.
-      aplicarBarrio(barrio, "montaje");
-    });
+    // El pin guardado es la misma dirección de siempre, así que el barrio solo llena el hueco:
+    // si hay uno escrito —el del pedido pasado, o una corrección— se respeta.
+    cotizarPunto(datos.punto, "montaje");
     // Al hidratar, que es cuando aparece el pin guardado, y al cambiar de tipo: pasar de
     // recoger a domicilio en el paso 1 dejaba la cobertura en `sin_pin` y el envío en $0
     // hasta que alguien tocara el pin. Reejecutarlo es seguro porque las tres guardas de
     // arriba ya deciden si hay algo que cotizar, y `cobertura` no está en las deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hidratado, tipoPedido]);
+
+  /**
+   * RECOTIZAR AL VOLVER A LA PESTAÑA, y ese es el arreglo del caso que se reportó.
+   *
+   * El flujo de Nequi obliga a salir del navegador: el cliente se va a la app del banco a
+   * transferir y vuelve. En iPhone, Safari descarta la pestaña de fondo y la recarga al regresar,
+   * o suspende el proceso y deja el `fetch` en vuelo colgado. En los dos casos se vuelve a una
+   * pantalla cuyo único intento de cotización ya pasó — y antes eso significaba un domicilio en
+   * $0 para siempre, sin un solo aviso, justo encima del número que el cliente iba a transferir.
+   *
+   * Mismo idiom que `components/tienda/RefrescarAlVolver`: los dos eventos, porque ninguno cubre
+   * todo, con tope entre disparos. Y **solo cuando el costo no está resuelto**: si ya se sabe
+   * cuánto vale, volver a preguntar no compra nada y gasta cupo del límite.
+   */
+  useEffect(() => {
+    if (!hidratado || tipoPedido !== "domicilio") return;
+
+    let ultimo = Date.now();
+
+    function alVolver() {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - ultimo < TOPE_RECOTIZACION_MS) return;
+      // Se mira el ref y no el valor del render: este escuchador se registra una vez y su
+      // clausura envejecería con la cobertura de hace tres estados.
+      if (totalEsFirme(domicilioDe("domicilio", coberturaActual.current))) return;
+      if (coberturaActual.current.estado === "consultando") return;
+
+      ultimo = Date.now();
+      reintentarCotizacion();
+    }
+
+    // `online` además de los dos de siempre: recuperar la conexión es la otra señal de que un
+    // fallo de red puede haber dejado de serlo, y es la que salta en el ascensor.
+    document.addEventListener("visibilitychange", alVolver);
+    window.addEventListener("focus", alVolver);
+    window.addEventListener("online", alVolver);
+
+    return () => {
+      document.removeEventListener("visibilitychange", alVolver);
+      window.removeEventListener("focus", alVolver);
+      window.removeEventListener("online", alVolver);
+    };
+  }, [hidratado, tipoPedido, reintentarCotizacion]);
 
   const [errores, setErrores] = useState<Errores>({});
   // Un campo "tocado" ya se validó al menos una vez (al salir de él o al intentar
@@ -591,11 +803,28 @@ export function CheckoutForm({
     0,
   );
   const esDomicilio = tipoPedido === "domicilio";
-  // Lo que se muestra mientras el cliente arrastra el pin. El precio que se cobra lo
-  // recalcula el servidor al confirmar (regla 1); esto es solo información.
-  const costoDomicilio =
-    esDomicilio && cobertura.estado === "cubierto" ? cobertura.precio : 0;
-  const sinCobertura = esDomicilio && cobertura.estado === "fuera";
+  /**
+   * QUÉ SE SABE DEL DOMICILIO, y cuándo no se sabe nada.
+   *
+   * Aquí estaba el bug que trajo todo esto:
+   *
+   * ```ts
+   * const costoDomicilio =
+   *   esDomicilio && cobertura.estado === "cubierto" ? cobertura.precio : 0;
+   * ```
+   *
+   * `Cobertura` tiene cinco estados y cuatro caían en el `0`, así que «todavía no sé cuánto
+   * cuesta» se pintaba como «cuesta cero» — en el resumen, en el total, en el botón y en el
+   * «Transfiere este valor» de Nequi. Varios clientes transfirieron solo el valor de los
+   * productos mientras el panel registraba el total completo, porque el servidor sí resuelve la
+   * zona al confirmar (regla 1).
+   *
+   * Quien traduce ahora es `lib/checkout/domicilio.ts`, puro y probado, y **`costoDomicilio` es
+   * `number | null`**: el `null` es lo que obliga a que cada pantalla del dinero decida qué hacer
+   * en vez de heredar un cero silencioso.
+   */
+  const domicilio = domicilioDe(tipoPedido, cobertura);
+  const costoDomicilio = costoDeDomicilio(domicilio);
   /**
    * El estado del cupón, derivado: sin código no hay cupón, y con un código para el que todavía no
    * hay respuesta la consulta está en vuelo.
@@ -613,21 +842,25 @@ export function CheckoutForm({
   const descuento =
     estadoCupon.estado === "aplicado" ? estadoCupon.descuento : 0;
   /**
-   * Lo que el cliente va a pagar. **Se usa en las cuatro partes donde antes iba
-   * `total + costoDomicilio`**: el resumen, el valor a transferir por Nequi, el botón de confirmar
-   * y la devuelta del efectivo.
+   * Lo que el cliente va a pagar, **o `null` cuando todavía no se puede decir**.
    *
-   * Existe como una sola constante justo por eso: repetir la resta en cuatro sitios es cómo se
-   * termina enseñándole al cliente el total con descuento en el botón y pidiéndole que transfiera
-   * el precio lleno. El servidor recalcula todo al confirmar (regla 1), así que un desajuste aquí
-   * no cobra de más — hace algo peor, que es que el cliente transfiera de más.
+   * Se usa en las cuatro partes donde antes iba `total + costoDomicilio`: el resumen, el valor a
+   * transferir por Nequi, el botón de confirmar y la devuelta del efectivo. Existe como una sola
+   * constante justo por eso: repetir la suma en cuatro sitios es cómo se termina enseñando un
+   * número en el botón y pidiendo que transfieran otro.
+   *
+   * **Y por eso es nullable y no un número optimista.** Mientras el domicilio no esté resuelto no
+   * hay ningún total honesto que enseñar: el que salía antes —sin domicilio— es el que algunos
+   * clientes transfirieron. Con `null`, TypeScript obliga a que las cuatro pantallas digan qué
+   * pasa en lugar de pintar una cifra corta.
    */
-  const totalAPagar = Math.max(0, total + costoDomicilio - descuento);
+  const totalAPagar =
+    costoDomicilio === null ? null : Math.max(0, total + costoDomicilio - descuento);
   // Solo se muestra cuando de verdad hay algo que devolver. Si escribió menos que el total,
   // no se le corrige con un número negativo: el servidor cobra lo que cobra y el panel le
   // enseña al domiciliario lo que el cliente dijo.
   const devuelta =
-    metodoPago === "efectivo" && Number(pagaCon) > totalAPagar
+    metodoPago === "efectivo" && totalAPagar !== null && Number(pagaCon) > totalAPagar
       ? Number(pagaCon) - totalAPagar
       : null;
   // Si el negocio no cargó su llave, ofrecerlo sería mandar al cliente a un callejón sin
@@ -758,6 +991,18 @@ export function CheckoutForm({
       // Viaja el pin, no la zona ni el precio: el servidor resuelve la cobertura de nuevo
       // al recibirlo (regla 1).
       punto: esDomicilio && punto ? punto : undefined,
+      /**
+       * Lo que el cliente TIENE EN PANTALLA como costo del domicilio. No es un precio que se
+       * cobre —el servidor resuelve la zona igual que siempre— sino una afirmación que se
+       * contrasta: si no cuadra, el pedido se rechaza en vez de entrar con un total que el
+       * cliente nunca vio. Es el cierre de la misma grieta que tapa el candado de `fallosUI`,
+       * por si algún día se abre otra.
+       *
+       * Solo en domicilio y solo cuando se sabe: en recoger no hay nada que comparar, y un
+       * `undefined` es exactamente lo que significa "no lo declaro".
+       */
+      costoDomicilioMostrado:
+        esDomicilio && costoDomicilio !== null ? costoDomicilio : undefined,
       direccion: esDomicilio ? direccion : undefined,
       // Referencia para el domiciliario, igual que la dirección: en "recoger" no significa nada.
       barrio: esDomicilio ? barrio : undefined,
@@ -817,12 +1062,34 @@ export function CheckoutForm({
   // El esquema no puede compararlo: no conoce el total, que lo calcula el servidor desde la base
   // (regla 1). Aquí sí está a la vista, así que el aviso sale en el momento — y el servidor lo
   // vuelve a comprobar contra SU total, que es el que manda.
-  if (metodoPago === "efectivo" && pagaCon && Number(pagaCon) < totalAPagar) {
+  // Sin total todavía no hay contra qué comparar, y el candado del domicilio ya frena el envío.
+  if (
+    metodoPago === "efectivo" &&
+    pagaCon &&
+    totalAPagar !== null &&
+    Number(pagaCon) < totalAPagar
+  ) {
     fallosUI.pagaCon = `Con ${pesos(Number(pagaCon))} no alcanza: el pedido son ${pesos(totalAPagar)}.`;
   }
   if (esDomicilio) {
-    if (sinCobertura) {
-      fallosUI.punto = "Todavía no llegamos hasta ahí.";
+    /**
+     * EL CANDADO: sin un domicilio resuelto no se avanza ni se confirma.
+     *
+     * Antes aquí solo estaba el caso `fuera`, así que una cotización que falló —o que seguía en
+     * vuelo— dejaba pasar el pedido con el domicilio pintado en $0. Con el estado completo se
+     * cierran las dos puertas de una vez, sin añadir maquinaria:
+     *
+     * - `avanzar()` se frena porque `CAMPOS_POR_PASO[2]` ya incluye `"punto"`;
+     * - `enviar()` se frena porque recoge las claves de `fallosUI`;
+     * - y `señalar(["punto"])` **devuelve al cliente al paso 2**, que es donde están el mapa y el
+     *   botón de reintentar.
+     *
+     * El texto sale de `avisoDeDomicilio`, el mismo que pinta el mapa: un problema no se puede
+     * explicar de dos maneras según en qué paso te pille.
+     */
+    const aviso = avisoDeDomicilio(domicilio);
+    if (aviso) {
+      fallosUI.punto = aviso;
     }
     if (recibeOtro && !recibeNombre.trim()) {
       fallosUI.recibeNombre = REQUERIDO;
@@ -911,7 +1178,12 @@ export function CheckoutForm({
 
   /** Traduce un ErrorPedido del servidor a algo que el cliente pueda accionar. */
   function mensajeDe422(
-    detalle: { tipo: string; itemIndex?: number; motivo?: MotivoRechazo },
+    detalle: {
+      tipo: string;
+      itemIndex?: number;
+      motivo?: MotivoRechazo;
+      costoDomicilio?: number;
+    },
     aplicaA: string[] = [],
   ): string {
     const { lineIdPorIndice } = carritoAItems(items);
@@ -937,9 +1209,31 @@ export function CheckoutForm({
       // El admin apagó la zona o le cambió el contorno entre que el cliente vio el precio
       // y confirmó. Manda el servidor (regla 1): se le devuelve al mapa.
       case "fuera_de_cobertura":
-        setCobertura({ estado: "fuera" });
+        if (punto) setRespuestaCobertura({ punto, cobertura: { estado: "fuera" } });
         setPaso(2);
         return "Ya no llegamos hasta esa dirección. Mueve el pin o escríbenos.";
+      /**
+       * El cliente confirmó viendo un domicilio distinto del que vale. El servidor manda el bueno,
+       * así que se adopta ahí mismo: el segundo intento sale con el total correcto y el cliente
+       * ve la cifra antes de pagar, que es todo el punto de rechazar en vez de cobrar callando.
+       *
+       * No se guarda la zona porque el servidor no la manda y tampoco hace falta: lo que decide
+       * el dinero es el precio, y el nombre lo vuelve a traer la próxima cotización.
+       */
+      case "domicilio_desactualizado":
+        if (detalle.costoDomicilio !== undefined && punto) {
+          setRespuestaCobertura({
+            punto,
+            cobertura: {
+              estado: "cubierto",
+              zona: cobertura.estado === "cubierto" ? cobertura.zona : "tu zona",
+              precio: detalle.costoDomicilio,
+            },
+          });
+          return `El domicilio cambió: son ${pesos(detalle.costoDomicilio)}. Revisa el total y vuelve a confirmar.`;
+        }
+        reintentarCotizacion();
+        return "El costo del domicilio cambió. Revisa el total y vuelve a confirmar.";
       case "punto_requerido":
         setErrores((e) => ({
           ...e,
@@ -1112,10 +1406,10 @@ export function CheckoutForm({
    * número ni token— así que va el carrito y el link al pin, que es lo que la tienda
    * necesita para decidir.
    */
-  function linkFueraDeCobertura(): string | null {
+  function linkCotizacionManual(motivo: MotivoCotizacion): string | null {
     if (!punto || !tienda.telefono) return null;
 
-    const texto = fueraDeCobertura(
+    const texto = cotizacionManual(
       {
         items: items.map((i) => ({
           nombre: i.nombre,
@@ -1127,6 +1421,7 @@ export function CheckoutForm({
       },
       punto,
       { nombre: tienda.nombre, baseUrl: "" },
+      motivo,
     );
 
     // `wa.me` con el número del negocio: lo abre el cliente y el destinatario es la tienda.
@@ -1140,6 +1435,36 @@ export function CheckoutForm({
    * recibe. En recoger no existe ese paso —son el 1 y el 3—, así que ahí se queda antes del
    * resumen, que es lo más cerca que hay de lo mismo.
    */
+  /**
+   * LA SALIDA cuando el domicilio no tiene precio: escribirle a la tienda para que lo cotice a
+   * mano y siga el pedido por chat (regla 14).
+   *
+   * **Se arma una vez y se pinta en los dos pasos**, y eso es el arreglo. Antes vivía suelto en el
+   * paso 2 y solo para `fuera`, así que dejaba dos huecos: una cotización que fallaba no ofrecía
+   * nada en ningún sitio, y un `fuera` que llegara estando en el resumen tampoco tenía a dónde
+   * mandar al cliente. En qué estados hay salida lo decide `motivoDeCotizacionManual`, que es puro
+   * y está probado; aquí solo se pinta.
+   *
+   * Se queda en este componente y no baja a `ResumenCobertura`, donde vive el resto del aviso,
+   * porque **es quien tiene el carrito** para armar el mensaje.
+   *
+   * `null` sin teléfono de la tienda o sin pin: entonces queda el reintento, que es lo que había.
+   */
+  const motivoCotizacion = motivoDeCotizacionManual(domicilio);
+  const hrefCotizacion = motivoCotizacion
+    ? linkCotizacionManual(motivoCotizacion)
+    : null;
+  const salidaCotizacion = hrefCotizacion ? (
+    <a
+      href={hrefCotizacion}
+      target="_blank"
+      rel="noopener"
+      className="flex min-h-11 w-full items-center justify-center gap-2 self-stretch rounded-full bg-naranja px-4 font-cuerpo text-sm font-bold text-crema transition-colors hover:bg-naranja-osc"
+    >
+      Escríbenos y te cotizamos
+    </a>
+  ) : null;
+
   const bloqueCuando = (
     <section className="flex flex-col gap-2 rounded-md bg-tarjeta p-4 shadow-tarjeta">
       <SelectorCuando
@@ -1305,19 +1630,11 @@ export function CheckoutForm({
                 alSalirDe("punto");
               }}
               cobertura={cobertura}
+              onReintentar={reintentarCotizacion}
               onCotizar={cotizar}
             />
 
-            {sinCobertura && linkFueraDeCobertura() && (
-              <a
-                href={linkFueraDeCobertura()!}
-                target="_blank"
-                rel="noopener"
-                className="flex min-h-11 items-center justify-center gap-2 rounded-full bg-naranja px-4 font-cuerpo text-sm font-bold text-crema transition-colors hover:bg-naranja-osc"
-              >
-                Escríbenos y te cotizamos
-              </a>
-            )}
+            {salidaCotizacion}
 
             <Campo
               etiqueta="Dirección"
@@ -1626,7 +1943,11 @@ export function CheckoutForm({
               {esDomicilio && (
                 <div className="flex justify-between">
                   <dt>Costo de envío</dt>
-                  <dd>{pesos(costoDomicilio)}</dd>
+                  {/* Nunca "$0" cuando lo que pasa es que no se sabe: ese cero es el que algunos
+                      clientes acabaron transfiriendo. */}
+                  <dd className={costoDomicilio === null ? "text-cafe-tenue" : undefined}>
+                    {costoDomicilio === null ? "Por calcular" : pesos(costoDomicilio)}
+                  </dd>
                 </div>
               )}
               {/* Con el código al lado: en una lista de importes, un "Descuento" a secas no dice
@@ -1639,9 +1960,36 @@ export function CheckoutForm({
               )}
               <div className="flex justify-between text-base font-bold text-cafe">
                 <dt>Total a pagar</dt>
-                <dd>{pesos(totalAPagar)}</dd>
+                <dd>{totalAPagar === null ? "—" : pesos(totalAPagar)}</dd>
               </div>
             </dl>
+
+            {/* El aviso va DENTRO del bloque de los totales y no en el mapa del paso anterior.
+                Ese era el otro medio bug: el texto "No pudimos calcular el domicilio" existía,
+                pero vivía en el paso 2, que no se renderiza cuando el cliente está aquí — o sea
+                justo en la pantalla donde está el dinero no se decía nada. */}
+            {avisoDeDomicilio(domicilio) && (
+              <div
+                role="alert"
+                className="flex flex-col items-start gap-2 rounded-sm bg-alerta/15 px-3 py-2 font-cuerpo text-[13px] font-semibold text-cafe"
+              >
+                <p>{avisoDeDomicilio(domicilio)}</p>
+                {sePuedeReintentar(domicilio) && (
+                  <button
+                    type="button"
+                    onClick={reintentarCotizacion}
+                    className="flex min-h-11 items-center gap-2 rounded-sm border border-crema-oscura bg-tarjeta px-4 font-bold text-cafe transition-colors hover:bg-crema focus:outline-none focus:ring-2 focus:ring-naranja"
+                  >
+                    <RefreshCw className="size-4" />
+                    Reintentar
+                  </button>
+                )}
+                {/* Los dos botones conviven, y el WhatsApp no se esconde hasta que el cliente
+                    haya fallado un reintento: quien lleva medio minuto mirando un botón de
+                    confirmar apagado no tiene por qué adivinar que hay una segunda puerta. */}
+                {salidaCotizacion}
+              </div>
+            )}
           </section>
 
           <section className="flex flex-col gap-3 rounded-md bg-tarjeta p-4 shadow-tarjeta">
@@ -1731,11 +2079,20 @@ export function CheckoutForm({
 
             {metodoPago === "nequi" && (
               <div className="flex flex-col gap-4 rounded-sm bg-crema p-3">
-                <DatoCopiable
-                  etiqueta="Transfiere este valor"
-                  valor={pesos(totalAPagar)}
-                  aCopiar={String(totalAPagar)}
-                />
+                {/* El sitio más caro de todos: es el número que el cliente copia y transfiere.
+                    Sin total no se pinta ninguna cifra — ni siquiera una tachada—, porque
+                    cualquier cosa que parezca un importe aquí se transfiere. */}
+                {totalAPagar === null ? (
+                  <p className="font-cuerpo text-[13px] font-semibold text-cafe-suave">
+                    Te decimos cuánto transferir en cuanto calculemos el domicilio.
+                  </p>
+                ) : (
+                  <DatoCopiable
+                    etiqueta="Transfiere este valor"
+                    valor={pesos(totalAPagar)}
+                    aCopiar={String(totalAPagar)}
+                  />
+                )}
                 {tienda.nequiQrUrl && <QrDePago url={tienda.nequiQrUrl} />}
 
                 {tienda.nequiLlave && (
@@ -1853,7 +2210,10 @@ export function CheckoutForm({
       {esUltimo ? (
         <button
           type="submit"
-          disabled={enviando || !aceptaPolitica}
+          // Sin total no hay pulsación legítima: el aviso de arriba dice por qué y ofrece el
+          // reintento. "Continuar" sí se deja vivo, porque ahí `señalar()` lleva al cliente hasta
+          // el mapa; aquí no hay adónde llevarlo que no sea ese mismo aviso.
+          disabled={enviando || !aceptaPolitica || totalAPagar === null}
           className="flex min-h-11 items-center justify-center gap-2 rounded-full bg-naranja px-6 py-3 font-cuerpo text-base font-bold text-crema disabled:opacity-40"
         >
           {enviando ? (
@@ -1861,6 +2221,8 @@ export function CheckoutForm({
               <Loader2 className="size-4 animate-spin" />
               Enviando…
             </>
+          ) : totalAPagar === null ? (
+            "Realizar pedido"
           ) : (
             `Realizar pedido · ${pesos(totalAPagar)}`
           )}
