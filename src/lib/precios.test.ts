@@ -1294,6 +1294,84 @@ describe("calcularPedido", () => {
     expect(resolverZona).toHaveBeenCalledWith("store-1", PIN);
   });
 
+  /**
+   * El contraste del domicilio que ve el cliente contra el que vale.
+   *
+   * Nace de un cobro mal enseñado: cuando la cotización del checkout fallaba, el domicilio se
+   * pintaba en $0 y ese cero terminaba en el «Transfiere este valor» de Nequi. El servidor grababa
+   * el total bueno, así que el desfase solo aparecía en el panel, con la transferencia ya hecha.
+   */
+  describe("costoDomicilioMostrado", () => {
+    beforeEach(() => {
+      const p = producto();
+      vi.mocked(obtenerProductosConEngancles).mockResolvedValue(new Map([[p.id, p]]));
+      vi.mocked(resolverZona).mockResolvedValue({ id: "z", nombre: "Centro", precio: 6000 });
+    });
+
+    it("el pedido no entra si el cliente vio otro domicilio", async () => {
+      const r = await calcularPedido("store-1", {
+        tipo: "domicilio",
+        items: [item()],
+        punto: PIN,
+        // Lo que enseñaba el checkout roto: el domicilio en cero.
+        costoDomicilioMostrado: 0,
+      });
+
+      expect(r).toEqual({
+        ok: false,
+        // Viaja el costo bueno: el checkout tiene que poder decir la cifra, no un "algo cambió".
+        error: { tipo: "domicilio_desactualizado", costoDomicilio: 6000 },
+      });
+    });
+
+    it("coincidiendo, el pedido sigue su curso", async () => {
+      const r = await calcularPedido("store-1", {
+        tipo: "domicilio",
+        items: [item()],
+        punto: PIN,
+        costoDomicilioMostrado: 6000,
+      });
+
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.valor.total).toBe(11000);
+    });
+
+    // Un bundle viejo en caché durante un deploy no manda el campo. Rechazarle el pedido por eso
+    // sería cambiar un bug por otro.
+    it("sin el campo no se comprueba nada", async () => {
+      const r = await calcularPedido("store-1", { tipo: "domicilio", items: [item()], punto: PIN });
+      expect(r.ok).toBe(true);
+    });
+
+    // El cero de recoger es legítimo —no hay domicilio— y no tiene contra qué compararse: la
+    // comprobación vive dentro de la rama de domicilio.
+    it("en recoger no se compara", async () => {
+      const r = await calcularPedido("store-1", {
+        tipo: "recoger",
+        items: [item()],
+        costoDomicilioMostrado: 99999,
+      });
+
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.valor.costoDomicilio).toBe(0);
+    });
+
+    // Fuera de cobertura gana, y tiene que ganar: al cliente hay que ofrecerle el WhatsApp de la
+    // regla 14, no decirle que su domicilio cambió de precio.
+    it("fuera de cobertura manda sobre el desfase", async () => {
+      vi.mocked(resolverZona).mockResolvedValue(null);
+
+      const r = await calcularPedido("store-1", {
+        tipo: "domicilio",
+        items: [item()],
+        punto: PIN,
+        costoDomicilioMostrado: 0,
+      });
+
+      expect(r).toEqual({ ok: false, error: { tipo: "fuera_de_cobertura" } });
+    });
+  });
+
   it("un descuento mayor al subtotal deja el total en 0, nunca negativo", async () => {
     const p = producto();
     vi.mocked(obtenerProductosConEngancles).mockResolvedValue(new Map([[p.id, p]]));

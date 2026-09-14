@@ -53,8 +53,18 @@ export const LIMITES = {
   /**
    * El que motivó todo esto: cuelga de **Nominatim**, un servicio comunitario gratuito. Abusarlo
    * no nos tumba a nosotros, nos bloquea el proyecto en OSM.
+   *
+   * **60 y no 30, por el mismo CGNAT que ya justifica el de `estado`** — y aquí pesa más, porque
+   * esta es la ruta que más veces cae por cliente: una por cada arrastre del pin, una por cada
+   * toque del mapa y otra al montar el checkout, mientras que `estado` cae una vez por visita. Con
+   * IPs compartidas —los operadores colombianos, y el iCloud Private Relay de los iPhone— un cupo
+   * justo se lo gastaban entre vecinos que no se conocen.
+   *
+   * Y lo que cuesta pasarse ya no es lo que era: un 429 dejaba el domicilio sin cotizar **para
+   * siempre** y el checkout lo pintaba en $0. Ahora `consultarCobertura` lee el `Retry-After` y
+   * reintenta, así que esto es holgura, no el arreglo.
    */
-  cotizar: { maximo: 30, ventanaSegundos: 60 },
+  cotizar: { maximo: 60, ventanaSegundos: 60 },
 
   /** Se llama mientras el cliente escribe el código. */
   cupon: { maximo: 20, ventanaSegundos: 60 },

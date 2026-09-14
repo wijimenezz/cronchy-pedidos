@@ -12,6 +12,12 @@ import {
   type FalloUbicacion,
 } from "@/lib/checkout/ubicacion";
 import type { Punto } from "./MapaUbicacion";
+import {
+  avisoDeDomicilio,
+  domicilioDe,
+  sePuedeReintentar,
+  type Cobertura,
+} from "@/lib/checkout/domicilio";
 
 const MapaUbicacion = dynamic(() => import("./MapaUbicacion"), {
   ssr: false,
@@ -21,13 +27,6 @@ const MapaUbicacion = dynamic(() => import("./MapaUbicacion"), {
     </div>
   ),
 });
-
-export type Cobertura =
-  | { estado: "sin_pin" }
-  | { estado: "consultando" }
-  | { estado: "cubierto"; zona: string; precio: number }
-  | { estado: "fuera" }
-  | { estado: "error" };
 
 /** Metros entre dos puntos. Fórmula del haversine — a esta escala, de sobra. */
 function distancia(a: Punto, b: Punto): number {
@@ -51,6 +50,7 @@ export function SelectorUbicacion({
   onPin,
   cobertura,
   onCotizar,
+  onReintentar,
 }: {
   centroTienda: Punto;
   pin: Punto | null;
@@ -62,6 +62,8 @@ export function SelectorUbicacion({
    * renderiza cuando el cliente vuelve directo al 3).
    */
   onCotizar: (punto: Punto) => void;
+  /** Volver a preguntar por el MISMO pin, sin moverlo. Ver `ResumenCobertura`. */
+  onReintentar: () => void;
 }) {
   const [gps, setGps] = useState<Punto | null>(null);
   const [buscando, setBuscando] = useState(false);
@@ -143,7 +145,7 @@ export function SelectorUbicacion({
         </p>
       )}
 
-      <ResumenCobertura cobertura={cobertura} />
+      <ResumenCobertura cobertura={cobertura} onReintentar={onReintentar} />
     </div>
   );
 }
@@ -208,43 +210,77 @@ function AvisoFallo({
   );
 }
 
-function ResumenCobertura({ cobertura }: { cobertura: Cobertura }) {
-  if (cobertura.estado === "sin_pin") {
-    return (
-      <p className="font-cuerpo text-[13px] font-semibold text-cafe-suave">
-        Marca tu ubicación para ver el costo del domicilio.
-      </p>
-    );
-  }
+/**
+ * Qué pasa con el domicilio de este pin.
+ *
+ * El texto de cada estado sale de `lib/checkout/domicilio.ts`, que es puro y está probado, y es el
+ * MISMO que frena el envío en el formulario: si se escribiera aquí aparte, el mapa y el candado
+ * podrían acabar explicando el mismo problema de dos maneras distintas.
+ */
+function ResumenCobertura({
+  cobertura,
+  onReintentar,
+}: {
+  cobertura: Cobertura;
+  onReintentar: () => void;
+}) {
+  // Este componente solo se pinta en domicilio: el paso 2 no existe en recoger.
+  const domicilio = domicilioDe("domicilio", cobertura);
 
-  if (cobertura.estado === "consultando") {
-    return (
-      <p role="status" className="font-cuerpo text-[13px] text-cafe-tenue">
-        Calculando el domicilio…
-      </p>
-    );
-  }
-
+  // Se ramifica sobre la cobertura y no sobre el domicilio en este caso, porque es la única que
+  // trae el nombre de la zona — el domicilio solo lleva dinero.
   if (cobertura.estado === "cubierto") {
     return (
       <p
         role="status"
         className="rounded-sm bg-exito/12 px-3 py-2 font-cuerpo text-[13px] text-cafe"
       >
-        Domicilio a <strong>{cobertura.zona}</strong>:{" "}
-        <strong>{pesos(cobertura.precio)}</strong>
+        Domicilio a <strong>{cobertura.zona}</strong>: <strong>{pesos(cobertura.precio)}</strong>
       </p>
     );
   }
 
-  if (cobertura.estado === "error") {
+  const aviso = avisoDeDomicilio(domicilio);
+
+  if (domicilio.estado === "calculando") {
     return (
-      <p
-        role="alert"
-        className="font-cuerpo text-[13px] font-semibold text-error"
-      >
-        No pudimos calcular el domicilio. Mueve el pin para reintentar.
+      <p role="status" className="font-cuerpo text-[13px] text-cafe-tenue">
+        {aviso}
       </p>
+    );
+  }
+
+  if (domicilio.estado === "sin_ubicacion") {
+    return (
+      <p className="font-cuerpo text-[13px] font-semibold text-cafe-suave">{aviso}</p>
+    );
+  }
+
+  /**
+   * El fallo de la cotización, con su botón.
+   *
+   * Antes decía «Mueve el pin para reintentar», que era pedirle al cliente que estropeara su
+   * dirección para arreglar un problema nuestro — y no servía de nada si el pin ya estaba donde
+   * tenía que estar. Ahora se vuelve a preguntar por el mismo punto.
+   */
+  if (domicilio.estado === "fallido") {
+    return (
+      <div
+        role="alert"
+        className="flex flex-col items-start gap-2 rounded-sm bg-error/10 px-3 py-2 font-cuerpo text-[13px] font-semibold text-error"
+      >
+        <p>{aviso}</p>
+        {sePuedeReintentar(domicilio) && (
+          <button
+            type="button"
+            onClick={onReintentar}
+            className="flex min-h-11 items-center gap-2 rounded-sm border border-crema-oscura bg-tarjeta px-4 font-bold text-cafe transition-colors hover:bg-crema focus:outline-none focus:ring-2 focus:ring-naranja"
+          >
+            <RefreshCw className="size-4" />
+            Reintentar
+          </button>
+        )}
+      </div>
     );
   }
 
