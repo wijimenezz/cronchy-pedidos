@@ -756,7 +756,7 @@ impresora.
 | `admin/opciones`  | solo switch `disponible` (sabores de la semana)              | crear/renombrar/ordenar opciones, precio propio, archivar listas; y en las listas de productos de la carta, elegir cuáles se ofrecen y cambiarle el nombre y el precio al producto ofrecido |
 | `admin/zonas`     | sin acceso (ni lectura)                                      | mapa: dibujar, editar vértices, precio, prioridad, activar/apagar |
 | `admin/cupones`   | sin acceso (ni lectura)                                      | crear cupones, porcentaje, a qué aplican, vencimiento, aviso de la carta, apagar |
-| `admin/ajustes`   | sin acceso (ni lectura)                                      | dirección y teléfono del local, con qué se paga (llave, titular, QR) y los nombres de barrio que OSM devuelve mal |
+| `admin/ajustes`   | sin acceso (ni lectura)                                      | dirección y teléfono del local, con qué se paga (llave, titular, QR), el anuncio que se abre al entrar a la carta y los nombres de barrio que OSM devuelve mal |
 
 Estados de un producto (independientes entre sí — no colapsarlos en un enum):
 
@@ -1186,6 +1186,66 @@ Y el detalle que hay que mirar dos veces al tocar el checkout: **el total con de
 cuatro sitios** —el resumen, el «Transfiere este valor» de Nequi, el botón de confirmar y la devuelta
 del efectivo—. Por eso existe `totalAPagar` como una sola constante: olvidar la del `DatoCopiable`
 no cobra de más, hace algo peor, que es que el cliente **transfiera** de más.
+
+### 20 bis. El anuncio de la carta se ve UNA VEZ por banner
+
+Un modal con una pieza gráfica que diseña el negocio (`tabla banner`, biblioteca en
+`/admin/ajustes`, modal en `components/tienda/AnuncioBanner.tsx`). Es la versión con imagen de lo
+que `cupon.anuncio` hace con texto, y existe aparte porque responde otra pregunta: aquel cuelga de
+un cupón —y muere con él, que es lo que se quería—, y esto anuncia lo que sea.
+
+**Lo que el navegador recuerda es el ID del banner, no un booleano ni una fecha.** Esa es toda la
+gracia: publicar otro lo vuelve a mostrar **solo**, sin que nadie tenga que acordarse de resetear
+nada desde el panel. Un «ya vio el anuncio» habría que apagarlo a mano cada vez, y el día que se
+olvide, el anuncio nuevo no lo ve nadie. Quien decide es `debeMostrarBanner`, puro y probado.
+
+Corolario que hay que saber antes de pedirlo: **reemplazar la imagen de un banner que ya circuló
+no lo vuelve a mostrar**, porque sigue siendo el mismo id. Para que se vuelva a ver se sube uno
+nuevo — que además es lo que deja el anterior guardado en la biblioteca.
+
+Cinco cosas que no se cambian:
+
+- **Sale DESPUÉS del «¿Domicilio o Recoger?», y no hay ninguna coordinación entre los dos.** Basta
+  con no montarlo mientras `useTipoPedido()` sea `null`: ese hook devuelve `null` exactamente
+  mientras el modal bloqueante está en pantalla —también cuando la elección caduca a las 6 horas—.
+  Un orquestador de modales sería una máquina de estados nueva para algo que el dato ya responde.
+- **Se monta en la carta y NO en el layout.** En el layout se abriría también sobre `/checkout` y
+  sobre el seguimiento, o sea encima de alguien que está pagando.
+- **No lleva a ningún sitio al tocarlo.** Es un aviso, no un botón: lo que promete lo dice la
+  imagen. Si algún día se quiere que abra una ficha, es una decisión nueva, no un olvido.
+- **Se marca como visto al CERRAR, no al mostrar.** Si se guardara al abrirlo, a quien se le caiga
+  la pestaña antes de mirarlo se quedaría sin verlo nunca.
+- **Solo puede haber uno activo, y lo garantiza un índice único parcial** (`idx_banner_activo_unico`,
+  calcado del del cupón anunciado). Publicar apaga el anterior dentro de la misma transacción, y en
+  ese orden: encender antes de apagar choca con el índice.
+
+**Se guardan el ANCHO y el ALTO de la imagen, y no son columnas decorativas**: con ellas el modal se
+dibuja con la **proporción del arte**, así que la imagen llega a los cuatro bordes —sin marco y sin
+recortar— y el negocio puede diseñar en el formato que quiera. La primera versión le fijaba un alto
+a la caja y pintaba con `object-contain`: todo lo que no cuadrara con esa forma se rellenaba con el
+fondo de la tarjeta, y alrededor del arte quedaba un borde crema. Las medidas se saben gratis en el
+navegador al subir (`comprimirImagenMedida` ya las calcula para el canvas), y por eso van NOT NULL:
+una fila que miente sobre su propia imagen es peor que no tenerla.
+
+Para que la caja pueda encogerse a la imagen, `ui/Modal` tiene la prop **`ajustado`** —el contenido
+trae su propio marco—. Es una prop y no un cuarto modal hecho a mano: copiar el portal, el Escape y
+el candado de fondo otra vez es lo que costó la carta sin scroll.
+
+**El banner ENTERO cierra, no solo la X.** Todo es un `<button>` y la X va dentro como dibujo
+(`aria-hidden`): con el anuncio ocupando media pantalla, dejar un blanco de 44 px en una esquina
+como única salida es pedirle puntería a quien solo quiere seguir mirando la carta. La X se queda
+igual de visible — es lo que le dice al cliente que esto se cierra.
+
+**La imagen reusa la carpeta `tienda/` del bucket público** —la misma del QR de pago—, así que
+`POST /api/admin/fotos` con `tienda: "1"` y el regex de `esUrlDeFotoProducto` ya la aceptan **sin
+tocar nada**. Esa carpeta ya no es «el QR» a secas. Sí se comprime al subir (`LADO_MAXIMO_BANNER`),
+al revés que el QR: es una pieza gráfica a pantalla casi completa, no un código que pierde módulos
+al recomprimir.
+
+**Un banner sí se puede BORRAR, y no contradice la regla 9**: es configuración de la oferta, no
+catálogo — ninguna tabla apunta a `banner.id`, así que quitarlo no deja ningún pedido sin poder
+explicarse. Mismo criterio que las opciones de una lista `upsell`. Al borrar se lleva también el
+objeto de Storage, o la cuota se llena de promociones del año pasado. Apagar sigue siendo lo normal.
 
 ### 21. El consentimiento de datos lo sella el servidor
 

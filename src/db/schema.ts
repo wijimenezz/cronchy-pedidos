@@ -390,6 +390,61 @@ export const cupon = pgTable("cupon", {
 ]).enableRLS();
 
 /**
+ * EL ANUNCIO QUE SE ABRE AL ENTRAR A LA CARTA: una pieza gráfica que diseña el negocio.
+ *
+ * Es la versión con imagen de lo que `cupon.anuncio` hace con texto, y existe aparte porque
+ * responde otra pregunta: aquel cuelga de un cupón —y **muere con él**, que es justo lo que se
+ * quería— y esto anuncia lo que sea, una hamburguesa nueva o un horario de festivo, sin descuento
+ * de por medio.
+ *
+ * **Se puede BORRAR, y no contradice la regla 9.** Un banner es configuración de la oferta, no
+ * catálogo: ninguna tabla apunta a `banner.id`, así que quitarlo no deja ningún pedido sin poder
+ * explicarse. Es el mismo criterio por el que se borran las opciones de una lista `upsell`. Apagar
+ * sigue siendo lo normal —para eso está la biblioteca—, y quien borra se lleva también el objeto
+ * de Storage, o la cuota se llena de promociones del año pasado.
+ */
+export const banner = pgTable("banner", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	storeId: uuid("store_id").notNull(),
+	/** Para reconocerlo en el panel: "Big Godo", "Promo martes". No lo ve el cliente. */
+	nombre: text().notNull(),
+	/**
+	 * La imagen, en el bucket público bajo `tienda/<storeId>/`. Se valida con
+	 * `esUrlDeFotoProducto` antes de guardar: la URL llega del navegador, y sin ese corte un admin
+	 * podría publicar el dominio de un tercero en la portada de la carta.
+	 */
+	imagenUrl: text("imagen_url").notNull(),
+	/**
+	 * LO QUE MIDE LA IMAGEN, en píxeles y ya reescalada.
+	 *
+	 * No son decorativas: con ellas el modal se dibuja **con la proporción del arte**, así que la
+	 * imagen llega a los cuatro bordes sin marco y sin recortar nada. Sin ellas hay que fijarle un
+	 * alto a la caja, y todo lo que no cuadre con esa forma se rellena con el fondo de la tarjeta —
+	 * que es el borde crema que tenía esto al principio.
+	 *
+	 * Se saben en el navegador al subir: `comprimirImagenMedida` ya las calcula para dibujar el
+	 * canvas. NOT NULL porque una fila que miente sobre su propia imagen es peor que no tenerla.
+	 */
+	ancho: integer().notNull(),
+	alto: integer().notNull(),
+	/** Default **false**: subir no es publicar. Se enciende a propósito, desde la biblioteca. */
+	activo: boolean().default(false).notNull(),
+	creadoEn: timestamp("creado_en", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	foreignKey({
+			columns: [table.storeId],
+			foreignColumns: [store.id],
+			name: "banner_store_id_fkey"
+		}).onDelete("cascade"),
+	// La carta tiene un solo sitio para esto, así que encender uno apaga el otro **por
+	// construcción**. Un índice y no un UPDATE de dos pasos: aquel se puede quedar a medias y
+	// dejar dos activos, y entonces cuál se muestra lo decide el orden de la consulta.
+	uniqueIndex("idx_banner_activo_unico")
+		.on(table.storeId)
+		.where(sql`activo`),
+]).enableRLS();
+
+/**
  * Las categorías que cubre un cupón acotado.
  *
  * El alcance se expande a ids de producto **en cada lectura** (`db/queries/cupones.ts`), no al

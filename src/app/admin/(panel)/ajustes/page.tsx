@@ -1,3 +1,4 @@
+import { listarBanners } from "@/db/queries/banners";
 import { listarBarrios } from "@/db/queries/barrios";
 import { listarExcepciones, listarHorarioSemanal } from "@/db/queries/horario";
 import { getStore, obtenerUbicacionTienda } from "@/db/queries/store";
@@ -5,6 +6,7 @@ import { SinPermisoError, exigirRol } from "@/lib/autorizacion";
 import { diaDeBogota } from "@/lib/pedidos/dias";
 import { puntoDesdeGeoJSON } from "@/lib/zonas";
 import { AceptaPedidos } from "./AceptaPedidos";
+import { Banners } from "./Banners";
 import { Barrios } from "./Barrios";
 import { DatosLocal } from "./DatosLocal";
 import { Excepciones } from "./Excepciones";
@@ -40,11 +42,12 @@ export default async function AjustesPage() {
   // El día se resuelve en Bogotá y en el servidor (regla 6): de él dependen qué excepciones ya
   // pasaron y cuál es la primera fecha que se puede elegir.
   const hoy = diaDeBogota();
-  const [barrios, ubicacion, horario, excepciones] = await Promise.all([
+  const [barrios, ubicacion, horario, excepciones, banners] = await Promise.all([
     listarBarrios(tienda.id),
     obtenerUbicacionTienda(tienda.id),
     listarHorarioSemanal(tienda.id),
     listarExcepciones(tienda.id, hoy),
+    listarBanners(tienda.id),
   ]);
 
   return (
@@ -69,6 +72,7 @@ export default async function AjustesPage() {
         titular={tienda.nequiLlaveTitular}
         qrUrl={tienda.nequiQrUrl}
       />
+      <Banners banners={banners} />
       <Barrios barrios={barrios} />
     </div>
   );

@@ -2,6 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import {
+  crearBanner,
+  despublicarBanners,
+  eliminarBanner,
+  publicarBanner,
+} from "@/db/queries/banners";
 import { guardarCorrecciones } from "@/db/queries/barrios";
 import {
   eliminarExcepcion,
@@ -437,6 +443,115 @@ export async function guardarMensajeCerrado(entrada: unknown): Promise<Resultado
   if (!guardado) return { ok: false, error: "No pudimos guardar el mensaje." };
 
   revalidatePath("/checkout");
+  revalidatePath("/admin/ajustes");
+
+  return { ok: true };
+}
+
+// ------------------------------------------------------------
+// El banner que se abre al entrar a la carta
+// ------------------------------------------------------------
+
+/**
+ * La biblioteca de anuncios. Todo esto es de admin (regla 12): es lo primero que ve el cliente
+ * al abrir la carta, y publicar algo ahí es hablarle a todo el mundo.
+ *
+ * **Las cuatro revalidan `/`**, que es donde se lee el banner activo. Sin eso, publicar una promo
+ * tarda hasta 60 s en verse (el `revalidate` de la carta) y quien acaba de pulsar concluye que no
+ * funcionó.
+ */
+const nuevoBannerSchema = z.object({
+  nombre: z
+    .string()
+    .trim()
+    .min(1, "Ponle un nombre para reconocerlo")
+    .max(60, "Máximo 60 caracteres"),
+  // La URL llega del navegador, así que se comprueba que la haya producido esta aplicación. Sin
+  // este corte, un admin podría publicar el dominio de un tercero en la portada de la carta.
+  url: z.string("Esa imagen no es válida").refine(esUrlDeFotoProducto, "Esa imagen no es válida"),
+  // Las medidas también llegan del navegador y también se comprueban. Un cero o un negativo
+  // dejarían el modal con una proporción imposible, que en CSS se traduce en una caja de alto 0:
+  // el anuncio no se vería y nadie sabría por qué.
+  ancho: z.number().int().positive("Medidas inválidas"),
+  alto: z.number().int().positive("Medidas inválidas"),
+});
+
+export async function agregarBanner(entrada: unknown): Promise<ResultadoAjuste> {
+  const sesion = await exigirRol("admin");
+
+  const parsed = nuevoBannerSchema.safeParse(entrada);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
+  }
+
+  // Nace apagado: subir no es publicar. Así se puede preparar la promo del viernes sin que salga
+  // el miércoles.
+  await crearBanner(sesion.storeId, {
+    nombre: parsed.data.nombre,
+    imagenUrl: parsed.data.url,
+    ancho: parsed.data.ancho,
+    alto: parsed.data.alto,
+  });
+
+  revalidatePath("/admin/ajustes");
+
+  return { ok: true };
+}
+
+const idSchema = z.object({ id: z.uuid("Banner inválido") });
+
+/** Enciende uno y apaga el resto. El apagado va dentro de la misma transacción (ver la query). */
+export async function publicarAnuncio(entrada: unknown): Promise<ResultadoAjuste> {
+  const sesion = await exigirRol("admin");
+
+  const parsed = idSchema.safeParse(entrada);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
+  }
+
+  await publicarBanner(sesion.storeId, parsed.data.id);
+
+  revalidatePath("/");
+  revalidatePath("/admin/ajustes");
+
+  return { ok: true };
+}
+
+/** Deja la carta sin anuncio. No borra nada: el banner sigue en la biblioteca. */
+export async function quitarAnuncio(): Promise<ResultadoAjuste> {
+  const sesion = await exigirRol("admin");
+
+  await despublicarBanners(sesion.storeId);
+
+  revalidatePath("/");
+  revalidatePath("/admin/ajustes");
+
+  return { ok: true };
+}
+
+/**
+ * Borra el banner de verdad, imagen incluida.
+ *
+ * Se puede borrar porque **ninguna tabla apunta a `banner.id`**: quitarlo no deja ningún pedido
+ * sin poder explicarse, al revés que un producto o un cupón (regla 9). Lo que sí hay que hacer es
+ * llevarse el objeto de Storage, o la cuota se llena de promociones del año pasado.
+ *
+ * El borrado de la imagen va DESPUÉS del de la fila y es best-effort, igual que en el QR: si el
+ * DELETE falla, la imagen sigue siendo la buena y borrarla habría dejado la carta apuntando a un
+ * objeto inexistente.
+ */
+export async function borrarAnuncio(entrada: unknown): Promise<ResultadoAjuste> {
+  const sesion = await exigirRol("admin");
+
+  const parsed = idSchema.safeParse(entrada);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
+  }
+
+  const imagenUrl = await eliminarBanner(sesion.storeId, parsed.data.id);
+  if (imagenUrl) await borrarFotoProducto(imagenUrl);
+
+  revalidatePath("/");
   revalidatePath("/admin/ajustes");
 
   return { ok: true };
