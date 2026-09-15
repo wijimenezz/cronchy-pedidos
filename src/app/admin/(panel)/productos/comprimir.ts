@@ -18,6 +18,27 @@ import { CALIDAD_WEBP, LADO_MAXIMO } from "@/lib/imagenes";
  * Solo cliente — toca `document` y `createImageBitmap`.
  */
 export async function comprimirImagen(archivo: File, lado = LADO_MAXIMO): Promise<Blob> {
+  const { blob } = await comprimirImagenMedida(archivo, lado);
+
+  return blob;
+}
+
+/**
+ * Lo mismo, **diciendo además cuánto mide lo que sale**.
+ *
+ * Las medidas ya se calculaban aquí dentro para dimensionar el canvas; lo único que pasaba es que
+ * se tiraban. Las necesita el banner de la carta: con ellas el modal se dibuja con la proporción
+ * del arte y la imagen llega a los cuatro bordes, sin marco y sin recortar.
+ *
+ * Es una función aparte y no un cambio de `comprimirImagen` para no tocar a sus tres consumidores
+ * —`SubidaFotos`, `BannerCategoria` y `PagoNequi`—, a los que las medidas no les hacen falta.
+ *
+ * Son las de **después** de reescalar, que son las que describen el archivo que de verdad se sube.
+ */
+export async function comprimirImagenMedida(
+  archivo: File,
+  lado = LADO_MAXIMO,
+): Promise<{ blob: Blob; ancho: number; alto: number }> {
   const bitmap = await createImageBitmap(archivo);
 
   try {
@@ -41,7 +62,7 @@ export async function comprimirImagen(archivo: File, lado = LADO_MAXIMO): Promis
     );
     if (!blob) throw new Error("No se pudo convertir la imagen.");
 
-    return blob;
+    return { blob, ancho, alto };
   } finally {
     // El bitmap ocupa memoria hasta que se cierra, y una tanda de 3 fotos de 12 MP no es
     // poca cosa en un teléfono.

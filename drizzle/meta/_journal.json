@@ -253,6 +253,20 @@
       "when": 1788441248233,
       "tag": "0035_frase_de_categoria",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1789430569999,
+      "tag": "0036_known_eddie_brock",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1789432142670,
+      "tag": "0037_uneven_black_cat",
+      "breakpoints": true
     }
   ]
 }

@@ -51,12 +51,26 @@ export function Modal({
   etiqueta,
   onCerrar,
   ancho = "sm",
+  ajustado = false,
   children,
 }: {
   /** Lo que anuncia el lector de pantalla al abrirse. */
   etiqueta: string;
   onCerrar: () => void;
   ancho?: keyof typeof ANCHO;
+  /**
+   * **El contenido trae su propio marco**: la caja se encoge a él y no pinta fondo ni ancho.
+   *
+   * Lo usa el anuncio de la carta, que es una imagen a pantalla casi completa: con la caja a un
+   * ancho fijo y con fondo, por los lados asoma el crema de la tarjeta alrededor del arte.
+   *
+   * Es UNA prop y no un cuarto modal hecho a mano a propósito. `SelectorTipoPedido` se quedó fuera
+   * de aquí por diferir en **dos** cosas que definen un modal —ser bloqueante y ser hoja inferior—,
+   * y este caso no es ese: solo cambia el marco. Copiar el portal, el Escape y el candado de fondo
+   * una vez más es exactamente lo que costó la carta sin scroll, que eran tres copias del mismo
+   * guardar-y-reponer.
+   */
+  ajustado?: boolean;
   children: React.ReactNode;
 }) {
   useEffect(() => {
@@ -106,7 +120,9 @@ export function Modal({
         aria-label={etiqueta}
         // Sin esto, un clic dentro del panel burbujea hasta el overlay y lo cierra.
         onClick={(e) => e.stopPropagation()}
-        className={`flex max-h-full w-full flex-col overflow-hidden rounded-lg bg-tarjeta shadow-modal ${ANCHO[ancho]}`}
+        className={`flex max-h-full flex-col overflow-hidden rounded-lg shadow-modal ${
+          ajustado ? "w-auto max-w-full" : `w-full bg-tarjeta ${ANCHO[ancho]}`
+        }`}
       >
         {children}
       </div>
