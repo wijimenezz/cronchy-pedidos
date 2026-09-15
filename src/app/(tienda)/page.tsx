@@ -1,8 +1,10 @@
 import { getStore } from "@/db/queries/store";
 import { obtenerMenu } from "@/db/queries/menu";
 import { cuponAnunciado } from "@/db/queries/cupones";
+import { bannerActivo } from "@/db/queries/banners";
 import { diaDeBogota } from "@/lib/pedidos/dias";
 import { AvisoCupon } from "@/components/tienda/AvisoCupon";
+import { AnuncioBanner } from "@/components/tienda/AnuncioBanner";
 import { Header } from "@/components/tienda/Header";
 import { CategoryNav } from "@/components/tienda/CategoryNav";
 import { CategoryBanner } from "@/components/tienda/CategoryBanner";
@@ -28,6 +30,14 @@ export default async function MenuPage() {
    * lo estanca — el panel revalida `/` al guardar un cupón, y de todos modos se rehace cada 60 s.
    */
   const cupon = await cuponAnunciado(tienda.id, diaDeBogota());
+  /**
+   * El anuncio que se abre encima de la carta, si hay alguno publicado.
+   *
+   * Se pide aquí, en el servidor, como el cupón: quién lo ve y cuándo lo decide el componente
+   * cliente con lo que ese dispositivo recuerde. El panel revalida `/` al publicar, así que el ISR
+   * no lo estanca.
+   */
+  const banner = await bannerActivo(tienda.id);
 
   const recomendados = categorias.flatMap((c) => c.productos.filter((p) => p.recomendado));
 
@@ -36,6 +46,9 @@ export default async function MenuPage() {
       {/* Solo aquí y no en el layout: el layout arrastraría al checkout, donde refrescar a
           mitad del formulario es ruido —ahí la regla 1 ya protege el precio al confirmar. */}
       <RefrescarAlVolver />
+      {/* En la carta y no en el layout: ahí se abriría también sobre el checkout, encima de
+          alguien que está pagando. */}
+      <AnuncioBanner banner={banner} />
       <Header tienda={tienda} categorias={categorias} />
       <CategoryNav categorias={categorias} variant="mobile" />
 
