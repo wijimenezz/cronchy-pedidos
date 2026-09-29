@@ -4,6 +4,9 @@ import { SelectorTipoPedido } from "@/components/tienda/SelectorTipoPedido";
 import { Drawer } from "@/components/tienda/Drawer";
 import { CategoryNav } from "@/components/tienda/CategoryNav";
 import { CartButton } from "@/components/tienda/CartButton";
+import { TEMAS } from "@/components/tienda/temas";
+import { TEMA_ACTIVO } from "@/config/temaTienda";
+import { cn } from "@/lib/utils";
 
 type Tienda = {
   nombre: string;
@@ -23,6 +26,8 @@ export function Header({
   tienda: Tienda;
   categorias: Categoria[];
 }) {
+  const { Decoracion, claseLogo, claseFondo, personaje } = TEMAS[TEMA_ACTIVO];
+
   return (
     /* Fondo: los blobs de marca (public/patrones/ondas_naranjas.svg) sobre el terracota. El
        `bg-terracota` no es decoración redundante, es el respaldo: va como background-color
@@ -47,8 +52,11 @@ export function Header({
        mismo en horizontal, pero en vertical NO es seamless. Da igual porque mide 679 px de
        alto y este header no pasa de 188, así que nunca se repite en ese eje — y declararlo
        deja escrito el límite para quien cambie la escala. */
-    <header className="relative z-30 flex flex-col gap-2 bg-terracota bg-[url('/patrones/ondas_naranjas.svg')] bg-[length:906px_680px] bg-repeat-x px-2 pt-3 pb-2 text-crema lg:sticky lg:top-0 lg:flex-row lg:items-center lg:justify-between lg:gap-8 lg:px-8 lg:py-3">
-      <div className="flex w-full items-center justify-between gap-2 lg:w-auto lg:gap-8">
+    <header className={cn("relative z-30 flex flex-col gap-2 bg-terracota bg-[url('/patrones/ondas_naranjas.svg')] bg-[length:906px_680px] bg-repeat-x px-2 pt-3 pb-2 text-crema lg:sticky lg:top-0 lg:flex-row lg:items-center lg:justify-between lg:gap-8 lg:px-8 lg:py-3", claseFondo)}>
+      {/* La capa del tema de temporada (config/temaTienda.ts), si la hay. Va debajo del
+          contenido: los dos bloques de abajo son `relative z-10` justo por ella. */}
+      {Decoracion && <Decoracion />}
+      <div className="relative z-10 flex w-full items-center justify-between gap-2 lg:w-auto lg:gap-8">
         <div className="lg:hidden">
           <Drawer tienda={tienda} />
         </div>
@@ -81,7 +89,7 @@ export function Header({
             Los altos de la caja (`h-28` / `lg:h-24`) NO se tocan: el `object-contain` limita por
             el ancho, así que solo sirven para mantener el header en 188 y 120 px. Bajarlos a la
             medida del logo le quitaría al header su holgura vertical. */}
-        <div className="relative h-28 w-48 shrink-0 lg:h-24 lg:w-48">
+        <div className={cn("relative h-28 w-48 shrink-0 lg:h-24 lg:w-48", claseLogo)}>
           <Image
             src="/logo_cronchy_borde_grueso.png"
             alt={tienda.nombre}
@@ -106,10 +114,10 @@ export function Header({
           es mientras sobre sitio.
 
           Desde `lg` vuelve a ser el `flex` de siempre, donde el personaje ya no existe. */}
-      <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-2 lg:flex lg:w-auto lg:justify-end">
+      <div className="relative z-10 grid w-full grid-cols-[1fr_auto_1fr] items-center gap-2 lg:flex lg:w-auto lg:justify-end">
         {/* Debajo de la hamburguesa, y vivo exactamente mientras ella: los dos son `lg:hidden`. */}
         <div className="justify-self-start lg:hidden">
-          <EstadoTienda />
+          <EstadoTienda personaje={personaje} />
         </div>
         <SelectorTipoPedido />
         {/* La tercera columna existe para equilibrar la primera. Vacía a propósito. */}

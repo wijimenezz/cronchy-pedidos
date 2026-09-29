@@ -1,0 +1,117 @@
+/* Capa decorativa del header en modo Halloween.
+   Todo es `pointer-events: none` y va DEBAJO del contenido (z-index 0 frente al z-10 del
+   contenido), así que ningún adorno roba un toque a la hamburguesa, la bolsa o el selector.
+   Los murciélagos y la araña reaccionan al cursor porque el motor escucha en `window`, no
+   porque el canvas reciba eventos. */
+
+.capa {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ---------- Fondo del header (color + textura) ----------
+   Sustituye el `bg-terracota` y la textura naranja del <Header> mientras el tema está activo.
+   AQUÍ SE CAMBIAN LOS COLORES:
+   - `background-color` → el color liso de fondo.
+   - El color y la intensidad de los blobs NO están aquí: son el `fill` y la `opacity` del <g> en
+     public/temas/halloween/ondas.svg (un SVG servido como imagen no lee variables CSS).
+   Con el texto del header en crema, un fondo MÁS OSCURO solo sube el contraste. Si se aclara,
+   hay que volver a medir la crema contra él (mínimo 4.5:1 para la nav de escritorio).
+
+   Gana a las utilidades de Tailwind sin `!important` porque Tailwind v4 las mete en
+   `@layer utilities`, y un estilo sin capa gana a cualquier capa. El tamaño del tile y el
+   `repeat-x` no se tocan: siguen saliendo de las clases del header. */
+.fondo {
+  background-color: #d94f02;
+  background-image: url("/temas/halloween/ondas.svg");
+}
+
+/* Velo nocturno. Oscurece, y con texto CLARO eso solo SUBE el contraste de la crema. */
+.noche {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgb(28 10 38 / 0.55) 0%,
+    rgb(28 10 38 / 0.2) 55%,
+    rgb(28 10 38 / 0.4) 100%
+  );
+}
+
+/* El canvas mide lo que la capa; el motor ajusta su resolución al devicePixelRatio. */
+.lienzo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* ---------- Calabaza (solo móvil, en la tercera columna vacía) ---------- */
+.calabaza {
+  position: absolute;
+  right: 14px;
+  bottom: 10px;
+  width: 30px;
+  transform-origin: 50% 100%;
+  filter: drop-shadow(0 2px 2px rgb(0 0 0 / 0.35));
+  animation: bamboleo 3.2s ease-in-out infinite;
+}
+.cara {
+  animation: vela 2.4s steps(1, end) infinite;
+}
+@media (min-width: 1024px) {
+  .calabaza { display: none; }
+}
+@keyframes bamboleo {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-6deg); }
+  75% { transform: rotate(6deg); }
+}
+@keyframes vela {
+  0% { opacity: 1; }
+  12% { opacity: 0.55; }
+  18% { opacity: 1; }
+  47% { opacity: 0.8; }
+  52% { opacity: 1; }
+  78% { opacity: 0.6; }
+  84% { opacity: 1; }
+}
+
+/* ---------- Niebla ---------- */
+.niebla {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 44px;
+  background-image:
+    radial-gradient(ellipse 110px 22px at 50% 100%, rgb(250 235 215 / 0.16), transparent 70%),
+    radial-gradient(ellipse 180px 28px at 50% 100%, rgb(190 150 230 / 0.12), transparent 70%);
+  background-size: 240px 44px, 400px 44px;
+  background-repeat: repeat-x;
+  animation: niebla 28s linear infinite;
+}
+@keyframes niebla {
+  from { background-position: 0 100%, 0 100%; }
+  to { background-position: 240px 100%, -400px 100%; }
+}
+
+/* ---------- Logo ---------- */
+.logoEmbrujado {
+  animation: resplandor 3s ease-in-out infinite;
+}
+@keyframes resplandor {
+  0%, 100% { filter: drop-shadow(0 0 4px rgb(255 140 40 / 0.45)); }
+  40% { filter: drop-shadow(0 0 10px rgb(255 150 40 / 0.8)); }
+  45% { filter: drop-shadow(0 0 5px rgb(255 140 40 / 0.5)); }
+  52% { filter: drop-shadow(0 0 11px rgb(255 160 50 / 0.85)); }
+}
+
+/* El canvas gestiona su propio "reducir movimiento"; aquí se paran los bucles de CSS. */
+@media (prefers-reduced-motion: reduce) {
+  .capa *,
+  .logoEmbrujado {
+    animation: none !important;
+  }
+}
