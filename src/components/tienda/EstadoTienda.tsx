@@ -5,6 +5,7 @@ import Image from "next/image";
 import { Drawer } from "@base-ui/react/drawer";
 import type { EstadoDeTienda, RespuestaEstado } from "@/lib/tienda/estado";
 import { HojaHorarios } from "@/components/tienda/HojaHorarios";
+import type { PersonajeTema } from "@/components/tienda/temas";
 
 /**
  * El personaje del header que dice si la tienda está abierta, y abre el horario al tocarlo.
@@ -42,8 +43,15 @@ const ANCHO = 212;
 const ALTO = 309;
 
 export function EstadoTienda({
+  personaje,
   imagenPorEstado,
 }: {
+  /**
+   * El dibujo del tema de temporada (config/temaTienda.ts), cuando lo trae. Sustituye a
+   * `IMAGEN` **y a sus medidas**: otro PNG casi nunca tiene la misma relación, y con la de éste
+   * volvería el aviso de Next que se explica arriba.
+   */
+  personaje?: PersonajeTema;
   /**
    * Un dibujo distinto por estado, cuando los haya.
    *
@@ -74,7 +82,12 @@ export function EstadoTienda({
 
   useVolverAPreguntar(consultar, esMovil);
 
-  const imagen = (datos && imagenPorEstado?.[datos.estado]) ?? IMAGEN;
+  const imagen = (datos && imagenPorEstado?.[datos.estado]) ?? personaje?.src ?? IMAGEN;
+  const ancho = personaje?.ancho ?? ANCHO;
+  const alto = personaje?.alto ?? ALTO;
+  // Ancho real en pantalla: el alto es `h-10` (40 px) y el ancho sale de la relación. Con el
+  // dibujo de siempre da los 28 px de toda la vida; un personaje de tema más ancho pide lo suyo.
+  const anchoEnPantalla = Math.ceil((40 * ancho) / alto);
 
   return (
     <Drawer.Root
@@ -110,9 +123,9 @@ export function EstadoTienda({
         <Image
           src={imagen}
           alt=""
-          width={ANCHO}
-          height={ALTO}
-          sizes="28px"
+          width={ancho}
+          height={alto}
+          sizes={`${anchoEnPantalla}px`}
           className="h-10 w-auto shrink-0 object-contain"
         />
         {/* El letrero solo existe cuando hay respuesta. Reservarle sitio en "cargando" movería el

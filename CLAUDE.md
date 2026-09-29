@@ -72,6 +72,10 @@ src/
         opciones/             salsas, toppings, sabores: 2 columnas lista/opciones
     api/
   proxy.ts                    corta /admin/* sin sesión (antes "middleware")
+  config/
+    temaTienda.ts             TEMA_ACTIVO del header: la línea que se cambia cada temporada
+  components/tienda/temas/    registro de temas (capas sobre el mismo Header) + una carpeta por tema
+  lib/temas/                  motores de animación de cada tema (canvas, sin dependencias)
   db/
     schema.ts                 definición Drizzle
     tipos-geo.ts              customType geometry para PostGIS
