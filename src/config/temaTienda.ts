@@ -26,4 +26,4 @@
 
 export type TemaTienda = "default" | "halloween";
 
-export const TEMA_ACTIVO: TemaTienda = "halloween";
+export const TEMA_ACTIVO: TemaTienda = "default"; // Cambiar a "halloween" el 1 de octubre, y a "navidad" en diciembre.
