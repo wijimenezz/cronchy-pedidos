@@ -21,9 +21,11 @@
  *        ondas en public/temas/navidad/ con otro fill y opacity (ver la de halloween).
  *      - Personaje junto a Abierto/Cerrado: el PNG en public/temas/navidad/ y `personaje`
  *        en el registro, con su ancho y alto.
+ *      - Personaje del modal «¿Cómo quieres tu pedido?»: `personajeSelector` en el registro,
+ *        con las mismas reglas. Sin él sale el churro musical.
  *   5. Cambiar TEMA_ACTIVO cuando toque.
  */
 
 export type TemaTienda = "default" | "halloween";
 
-export const TEMA_ACTIVO: TemaTienda = "default"; // Cambiar a "halloween" el 1 de octubre, y a "navidad" en diciembre.
+export const TEMA_ACTIVO: TemaTienda = "halloween"; // Cambiar a "halloween" el 1 de octubre, y a "navidad" en diciembre.

@@ -14,12 +14,15 @@ import estilosHalloween from "./halloween/halloween.module.css";
  *   capa), que es lo que le gana a las utilidades de Tailwind sin `!important`.
  * - `personaje`: el dibujo junto a Abierto/Cerrado. `ancho` y `alto` son la RELACIÓN EXACTA del
  *   PNG —sus píxeles reales divididos por su MCD—, no el tamaño en pantalla: ver EstadoTienda.
+ * - `personajeSelector`: el dibujo del modal «¿Cómo quieres tu pedido?». Mismas reglas de
+ *   `ancho`/`alto`. Sin él sale el churro musical de siempre (ver SelectorTipoPedido).
  */
 export type Tema = {
   Decoracion?: ComponentType;
   claseLogo?: string;
   claseFondo?: string;
   personaje?: PersonajeTema;
+  personajeSelector?: PersonajeTema;
 };
 
 export type PersonajeTema = { src: string; ancho: number; alto: number };
@@ -38,5 +41,8 @@ export const TEMAS: Record<TemaTienda, Tema> = {
     // ensanchaba la caja. Mismo problema que tuvo el logo. 893 y 935 no tienen divisor común, así
     // que la relación exacta son los píxeles tal cual.
     personaje: { src: "/temas/halloween/personaje.png", ancho: 893, alto: 935 },
+    // Casi sin aire transparente (bbox 16,0–860,930), así que va sin recortar. 869 y 949 no
+    // tienen divisor común.
+    personajeSelector: { src: "/personajes/churro-rock.png", ancho: 869, alto: 949 },
   },
 };
