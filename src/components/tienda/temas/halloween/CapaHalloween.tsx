@@ -25,15 +25,19 @@ export function CapaHalloween({ className }: { className?: string }) {
     let alCambiar: (() => void) | null = null;
     let desmontado = false;
 
-    import("@/lib/temas/halloween/escena").then(({ iniciarEscenaHalloween }) => {
-      if (desmontado) return;
-      detener = iniciarEscenaHalloween(canvas, { reducido: mq.matches });
-      alCambiar = () => {
-        detener();
+    import("@/lib/temas/halloween/escena")
+      .then(({ iniciarEscenaHalloween }) => {
+        if (desmontado) return;
         detener = iniciarEscenaHalloween(canvas, { reducido: mq.matches });
-      };
-      mq.addEventListener("change", alCambiar);
-    });
+        alCambiar = () => {
+          detener();
+          detener = iniciarEscenaHalloween(canvas, { reducido: mq.matches });
+        };
+        mq.addEventListener("change", alCambiar);
+      })
+      // Si el chunk no llega (deploy nuevo, red mala) el header se queda quieto, que es
+      // aceptable: la escena es adorno.
+      .catch(() => {});
 
     return () => {
       desmontado = true;
