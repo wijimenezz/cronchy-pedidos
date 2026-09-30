@@ -54,3 +54,6 @@ private
 # archivos que ya estaban siguen rastreados; lo que desaparecía en silencio era todo lo que se
 # añadiera después —los iconos de la app, sin ir más lejos—, que funciona en local y da 404 en
 # producción. Si algún día hay que excluir algo de `public/`, que sea esa ruta y no la carpeta.
+
+# Configuracion local de Claude Code: permisos de UNA maquina, no del proyecto.
+.claude/settings.local.json
