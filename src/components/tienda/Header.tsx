@@ -26,7 +26,8 @@ export function Header({
   tienda: Tienda;
   categorias: Categoria[];
 }) {
-  const { Decoracion, claseLogo, claseFondo, personaje } = TEMAS[TEMA_ACTIVO];
+  const { Decoracion, claseLogo, claseFondo, personaje, personajeSelector } =
+    TEMAS[TEMA_ACTIVO];
 
   return (
     /* Fondo: los blobs de marca (public/patrones/ondas_naranjas.svg) sobre el terracota. El
@@ -119,7 +120,7 @@ export function Header({
         <div className="justify-self-start lg:hidden">
           <EstadoTienda personaje={personaje} />
         </div>
-        <SelectorTipoPedido />
+        <SelectorTipoPedido personaje={personajeSelector} />
         {/* La tercera columna existe para equilibrar la primera. Vacía a propósito. */}
         <div aria-hidden className="lg:hidden" />
         <CartButton className="hidden lg:flex" />

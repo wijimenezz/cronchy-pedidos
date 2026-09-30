@@ -712,6 +712,9 @@ export function iniciarEscenaHalloween(canvas: HTMLCanvasElement, opciones: Opci
 
   // El canvas no recibe eventos (pointer-events: none), así que se escucha en la ventana.
   const alPuntero = (e: PointerEvent) => {
+    // Parada no hay nadie que asustar, y medir el canvas en cada movimiento fuerza un layout
+    // mientras se hace scroll por la carta.
+    if (!corriendo) return;
     const r = canvas.getBoundingClientRect();
     const x = e.clientX - r.left;
     const y = e.clientY - r.top;
