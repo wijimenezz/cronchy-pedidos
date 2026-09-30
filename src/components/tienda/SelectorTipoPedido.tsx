@@ -119,11 +119,15 @@ export function SelectorTipoPedido({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex justify-center">
+              {/* `sizes` es obligatorio aquí: sin él Next arma el srcset con `width` y el doble,
+                  y el churro rock (869 px) bajaba a 1080 o 1920 px para un hueco de ~88. El alto
+                  es `h-24` (96 px) y el ancho sale de la relación, como en EstadoTienda. */}
               <Image
                 src={personaje.src}
                 alt=""
                 width={personaje.ancho}
                 height={personaje.alto}
+                sizes={`${Math.ceil((96 * personaje.ancho) / personaje.alto)}px`}
                 className="h-24 w-auto"
               />
             </div>
