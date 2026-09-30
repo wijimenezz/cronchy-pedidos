@@ -21,6 +21,8 @@
  *        ondas en public/temas/navidad/ con otro fill y opacity (ver la de halloween).
  *      - Personaje junto a Abierto/Cerrado: el PNG en public/temas/navidad/ y `personaje`
  *        en el registro, con su ancho y alto.
+ *      - Personaje del modal «¿Cómo quieres tu pedido?»: `personajeSelector` en el registro,
+ *        con las mismas reglas. Sin él sale el churro musical.
  *   5. Cambiar TEMA_ACTIVO cuando toque.
  */
 

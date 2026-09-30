@@ -8,6 +8,14 @@ import {
   useTipoPedido,
   type TipoPedido,
 } from "@/lib/tienda/tipo-pedido";
+import type { PersonajeTema } from "@/components/tienda/temas";
+
+/** El churro musical, para cuando el tema activo no trae `personajeSelector`. */
+const PERSONAJE_POR_DEFECTO: PersonajeTema = {
+  src: "/Churro_musical_opciones.png",
+  ancho: 436,
+  alto: 675,
+};
 
 // A nivel de módulo para que su identidad no cambie entre renders: si no, React se
 // resuscribiría en cada uno.
@@ -31,7 +39,11 @@ function useHidratado(): boolean {
  * Meterlo obligaría a añadirle al componente compartido dos props que usaría solo él, que es
  * cómo una abstracción buena se convierte en una mala.
  */
-export function SelectorTipoPedido() {
+export function SelectorTipoPedido({
+  personaje = PERSONAJE_POR_DEFECTO,
+}: {
+  personaje?: PersonajeTema;
+}) {
   const tipo = useTipoPedido();
   const [reabierto, setReabierto] = useState(false);
   /**
@@ -108,10 +120,10 @@ export function SelectorTipoPedido() {
           >
             <div className="flex justify-center">
               <Image
-                src="/Churro_musical_opciones.png"
+                src={personaje.src}
                 alt=""
-                width={318}
-                height={456}
+                width={personaje.ancho}
+                height={personaje.alto}
                 className="h-24 w-auto"
               />
             </div>
