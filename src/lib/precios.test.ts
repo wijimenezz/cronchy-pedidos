@@ -301,6 +301,49 @@ describe("calcularItem", () => {
     if (r.ok) expect(r.valor.base.precioUnitario).toBe(5000 + 1000 * 3);
   });
 
+  // "Agregar 10 churros" de Cronchy Fiesta: una casilla de una sola opción que el panel ya deja
+  // pasar a "se puede pedir varias veces". Sin `maxPorOpcion` (el panel no lo expone), el único
+  // tope es el "hasta" de la Carta, o sea `maxSelect`.
+  describe("casilla de una sola opción que se pide varias veces", () => {
+    const fiesta = (maxSelect: number) =>
+      producto({
+        engancles: [
+          enganche({
+            modo: "adicional",
+            permiteCantidad: true,
+            maxPorOpcion: null,
+            minSelect: 0,
+            maxSelect,
+            precioUnitario: 8000,
+            opciones: [opcion({ id: "op-10", nombre: "Agregar 10 churros", precioDelta: 8000 })],
+          }),
+        ],
+      });
+    const pidiendo = (cantidad: number) =>
+      item({
+        seleccion: [
+          { productModifierGroupId: "pmg-1", opciones: [{ modifierOptionId: "op-10", cantidad }] },
+        ],
+      });
+
+    it("tres veces cobra tres veces", () => {
+      const r = calcularItem(fiesta(10), pidiendo(3));
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        expect(r.valor.base.precioUnitario).toBe(5000 + 8000 * 3);
+        expect(r.valor.base.modificadores).toEqual([
+          expect.objectContaining({ nombre: "Agregar 10 churros", cantidad: 3, precioUnitario: 8000 }),
+        ]);
+      }
+    });
+
+    it("el hasta de la Carta es el tope", () => {
+      const r = calcularItem(fiesta(2), pidiendo(3));
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toMatchObject({ tipo: "seleccion_excedida", recibidas: 3 });
+    });
+  });
+
   it("cantidad > 1 en una opción sin permiteCantidad es inválida", () => {
     const p = producto({
       engancles: [enganche({ permiteCantidad: false, minSelect: 0, maxSelect: 5, opciones: [opcion({ id: "op-1" })] })],

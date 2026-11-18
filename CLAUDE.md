@@ -310,6 +310,17 @@ y 8); en el XLSX además `hojaProductos` agrupa por nombre, así que partiría e
 un producto. Con el precio sería peor: la fila diría una cifra y el checkout cobraría otra, que es
 la regla 1.
 
+**Una lista de opciones escritas se marca o se pide varias veces, y eso se elige en el panel.**
+Es `modifier_group.permite_cantidad`: con `true` la ficha pinta un − 0 + y cada toque se cobra
+(Salsas, Toppings, "Agregar 10 churros"). Estuvo solo en SQL —Salsas y Toppings se encendieron a
+mano en la base, sin migración— y ahora lo cambia `cambiarCantidadDeLista`. Dos cosas que no se
+ven en esa pantalla: **el máximo de veces es el "hasta" de cada producto en la Carta**
+(`max_select` del enganche topa la *suma* de la sección; `max_por_opcion` no se expone y queda en
+NULL), y la bandera es de la **lista**, así que si también va como incluida el cliente puede
+repetir una opción para completar lo incluido. En listas `upsell` no se ofrece: su `max_select` lo
+conserva `planificarEngancles` (1 por defecto) y el stepper no pasaría de 1 — el "¿Deseas agregar
+más churros?" lo tiene por la migración 0031.
+
 Tres detalles que no se deducen del código:
 
 - El `slug` **no** se toca —es una URL que los clientes comparten por WhatsApp, misma decisión que
@@ -757,7 +768,7 @@ impresora.
 | `admin/pedidos`   | ver, aceptar, cambiar estado, imprimir, avisos, domiciliario | todo, más el rango de entrega estimada, el resumen del día y la descarga XLSX |
 | `admin/catalogo`  | switches `disponible` / `agotado` de productos y opciones    | igual                                                             |
 | `admin/productos` | solo Visible↔Agotado (ni ocultar ni reactivar)               | CRUD completo, precios, fotos (de producto y de categoría), la frase de cada categoría, categorías, enganches |
-| `admin/opciones`  | solo switch `disponible` (sabores de la semana)              | crear/renombrar/ordenar opciones, precio propio, archivar listas; y en las listas de productos de la carta, elegir cuáles se ofrecen y cambiarle el nombre y el precio al producto ofrecido |
+| `admin/opciones`  | solo switch `disponible` (sabores de la semana)              | crear/renombrar/ordenar opciones, precio propio, archivar listas, si cada opción se marca o se pide varias veces; y en las listas de productos de la carta, elegir cuáles se ofrecen y cambiarle el nombre y el precio al producto ofrecido |
 | `admin/zonas`     | sin acceso (ni lectura)                                      | mapa: dibujar, editar vértices, precio, prioridad, activar/apagar |
 | `admin/cupones`   | sin acceso (ni lectura)                                      | crear cupones, porcentaje, a qué aplican, vencimiento, aviso de la carta, apagar |
 | `admin/ajustes`   | sin acceso (ni lectura)                                      | dirección y teléfono del local, con qué se paga (llave, titular, QR), el anuncio que se abre al entrar a la carta y los nombres de barrio que OSM devuelve mal |

@@ -63,6 +63,12 @@ export type ListaDelPanel = {
   tipo: "seleccion" | "upsell";
   /** Lo que se le explica al cliente en la ficha, o `null` si la lista se entiende sola. */
   ayuda: string | null;
+  /**
+   * Si cada opción se puede pedir varias veces (stepper +/−) en vez de marcarse una sola. El
+   * máximo de veces NO vive aquí: lo pone el "hasta" de cada producto en la Carta
+   * (`max_select` del enganche), que topa la suma de la sección.
+   */
+  permiteCantidad: boolean;
   activo: boolean;
   /** En cuántos PRODUCTOS se usa. Es lo que el admin necesita saber antes de archivarla. */
   usadaEn: number;
@@ -112,6 +118,7 @@ export async function listarListasDelPanel(storeId: string): Promise<ListaDelPan
     nombre: g.nombre,
     tipo: g.tipo,
     ayuda: g.ayuda,
+    permiteCantidad: g.permiteCantidad,
     activo: g.activo,
     // El Set no es decorativo: un mismo grupo se engancha DOS veces al mismo producto —una
     // incluida y una de pago (regla 3)—, así que contar filas diría "2 productos" donde hay
@@ -240,10 +247,11 @@ export async function crearLista(
   storeId: string,
   nombre: string,
   tipo: "seleccion" | "upsell" = "seleccion",
+  permiteCantidad = false,
 ): Promise<{ id: string }> {
   const [fila] = await db
     .insert(modifierGroup)
-    .values({ storeId, nombre, tipo })
+    .values({ storeId, nombre, tipo, permiteCantidad })
     .returning({ id: modifierGroup.id });
 
   return fila;
@@ -278,6 +286,35 @@ export async function guardarAyudaLista(
     .update(modifierGroup)
     .set({ ayuda })
     .where(and(eq(modifierGroup.storeId, storeId), eq(modifierGroup.id, groupId)))
+    .returning({ id: modifierGroup.id });
+
+  return filas.length > 0;
+}
+
+/**
+ * Cómo se elige cada opción: marcar/desmarcar o pedirla varias veces con un stepper.
+ *
+ * Solo en listas `seleccion`, y el filtro va en el WHERE y no solo en la action: en una de
+ * upsell el `max_select` del enganche no se edita en la Carta (lo conserva `planificarEngancles`,
+ * con 1 por defecto), así que encenderlo ahí dejaría un stepper que no pasa de 1.
+ *
+ * No toca pedidos viejos: el snapshot ya guarda la cantidad de cada modificador (regla 2).
+ */
+export async function guardarPermiteCantidad(
+  storeId: string,
+  groupId: string,
+  permiteCantidad: boolean,
+): Promise<boolean> {
+  const filas = await db
+    .update(modifierGroup)
+    .set({ permiteCantidad })
+    .where(
+      and(
+        eq(modifierGroup.storeId, storeId),
+        eq(modifierGroup.id, groupId),
+        eq(modifierGroup.tipo, "seleccion"),
+      ),
+    )
     .returning({ id: modifierGroup.id });
 
   return filas.length > 0;

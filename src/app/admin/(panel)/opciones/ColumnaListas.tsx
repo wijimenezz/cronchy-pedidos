@@ -5,6 +5,7 @@ import { Check, Pencil, Plus, X } from "lucide-react";
 import { BotonSwitch } from "@/components/admin/Interruptor";
 import type { ListaDelPanel } from "@/db/queries/opciones";
 import { archivarLista, crearListaNueva, renombrarListaExistente } from "./acciones";
+import { ElegirComoSeElige } from "./ElegirComoSeElige";
 
 /**
  * La columna izquierda: Salsas, Toppings, Sabor de helado…
@@ -148,7 +149,8 @@ export function ColumnaListas({
 
 /** "6 opciones · en 5 productos" — lo que hay que saber antes de tocar nada. */
 function resumen(lista: ListaDelPanel): string {
-  const opciones = `${lista.opciones.length} ${lista.opciones.length === 1 ? "opción" : "opciones"}`;
+  const cuantas = `${lista.opciones.length} ${lista.opciones.length === 1 ? "opción" : "opciones"}`;
+  const opciones = lista.permiteCantidad ? `${cuantas} · varias veces` : cuantas;
 
   if (lista.usadaEn === 0) return `${opciones} · sin usar`;
 
@@ -226,12 +228,17 @@ function FormularioNueva({
   const [pendiente, iniciar] = useTransition();
   const [nombre, setNombre] = useState("");
   const [tipo, setTipo] = useState<TipoLista>("seleccion");
+  const [permiteCantidad, setPermiteCantidad] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   function guardar() {
     setError(null);
     iniciar(async () => {
-      const resultado = await crearListaNueva({ nombre, tipo });
+      const resultado = await crearListaNueva({
+        nombre,
+        tipo,
+        permiteCantidad: tipo === "seleccion" && permiteCantidad,
+      });
       if (resultado.ok) {
         onCerrar();
         onCreada(resultado.id);
@@ -256,6 +263,16 @@ function FormularioNueva({
       />
 
       <ElegirTipo valor={tipo} onChange={setTipo} />
+
+      {/* Solo en opciones escritas: en una lista de productos el tope del stepper no se puede
+          editar desde la Carta (ver `guardarPermiteCantidad`). */}
+      {tipo === "seleccion" && (
+        <ElegirComoSeElige
+          nombre="como-se-elige-nueva"
+          valor={permiteCantidad}
+          onChange={setPermiteCantidad}
+        />
+      )}
 
       {error && (
         <p role="alert" className="font-cuerpo text-[13px] font-semibold text-error">

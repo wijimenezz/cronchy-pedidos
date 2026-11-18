@@ -170,7 +170,7 @@ function StepperCantidad({
       >
         <Minus className="size-3.5" />
       </button>
-      <span className="min-w-[16px] text-center text-sm font-bold text-cafe">
+      <span className="min-w-4 text-center text-sm font-bold text-cafe">
         {valor}
       </span>
       <button
@@ -937,7 +937,7 @@ export function ProductoFicha({
           className="fixed inset-0 z-40 bg-cafe/40"
           aria-hidden
         />
-        <div className="fixed inset-x-0 bottom-0 z-50 mx-auto flex w-full max-w-[520px] flex-col items-center gap-3 rounded-t-lg bg-tarjeta p-8 text-center shadow-modal lg:inset-0 lg:m-auto lg:h-fit lg:max-w-sm lg:rounded-lg">
+        <div className="fixed inset-x-0 bottom-0 z-50 mx-auto flex w-full max-w-130 flex-col items-center gap-3 rounded-t-lg bg-tarjeta p-8 text-center shadow-modal lg:inset-0 lg:m-auto lg:h-fit lg:max-w-sm lg:rounded-lg">
           <p className="text-sm text-cafe-suave">
             No pudimos cargar este producto.
           </p>
@@ -961,7 +961,7 @@ export function ProductoFicha({
           className="fixed inset-0 z-40 bg-cafe/40"
           aria-hidden
         />
-        <div className="fixed inset-x-0 bottom-0 z-50 mx-auto flex w-full max-w-[520px] items-center justify-center rounded-t-lg bg-tarjeta p-16 shadow-modal lg:inset-0 lg:m-auto lg:h-fit lg:max-w-sm lg:rounded-lg">
+        <div className="fixed inset-x-0 bottom-0 z-50 mx-auto flex w-full max-w-130 items-center justify-center rounded-t-lg bg-tarjeta p-16 shadow-modal lg:inset-0 lg:m-auto lg:h-fit lg:max-w-sm lg:rounded-lg">
           <span className="font-titulo text-sm text-cafe-tenue">
             Cargando...
           </span>
@@ -1096,7 +1096,7 @@ export function ProductoFicha({
         className="fixed inset-0 z-40 bg-cafe/40"
         aria-hidden
       />
-      <div className="fixed inset-x-0 bottom-0 z-50 mx-auto flex h-[92dvh] w-full max-w-[520px] flex-col overflow-hidden rounded-t-lg bg-tarjeta shadow-modal lg:inset-0 lg:m-auto lg:h-[85vh] lg:max-h-[760px] lg:max-w-4xl lg:flex-row lg:rounded-lg">
+      <div className="fixed inset-x-0 bottom-0 z-50 mx-auto flex h-[92dvh] w-full max-w-130 flex-col overflow-hidden rounded-t-lg bg-tarjeta shadow-modal lg:inset-0 lg:m-auto lg:h-[85vh] lg:max-h-190 lg:max-w-4xl lg:flex-row lg:rounded-lg">
         {/* Mobile: UNA sola columna que scrollea, con la foto pegada arriba.
 
             **La foto va DENTRO del scroller, y eso es lo que arregla el gesto.** Antes eran dos
@@ -1128,7 +1128,7 @@ export function ProductoFicha({
 
           {/* `overscroll-contain` para que llegar al final del panel no siga empujando la carta de
               fondo. El bloqueo del body lo cubre igual; esto lo corta un paso antes. */}
-          <div className="h-full overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="h-full overflow-y-auto overscroll-contain scrollbar-none [&::-webkit-scrollbar]:hidden">
             {/* Sin flechas: aquí se pasa la foto con el dedo, y dos botones flotando sobre la foto
                 taparían justo lo que se está mirando —más ahora que la caja es cuadrada y el
                 producto cae en el centro—. En escritorio sí van, porque el ratón no desliza.
