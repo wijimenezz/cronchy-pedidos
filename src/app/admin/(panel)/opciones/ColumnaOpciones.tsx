@@ -6,7 +6,9 @@ import { BotonOrden } from "@/components/admin/BotonOrden";
 import { Interruptor } from "@/components/admin/Interruptor";
 import type { ListaDelPanel, OpcionDelPanel, ProductoOfrecible } from "@/db/queries/opciones";
 import { pesos } from "@/lib/notificaciones/plantillas";
+import { ElegirComoSeElige } from "./ElegirComoSeElige";
 import {
+  cambiarCantidadDeLista,
   crearOpcionNueva,
   guardarAyudaDeLista,
   guardarOpcion,
@@ -115,6 +117,8 @@ export function ColumnaOpciones({
           ofrecen; lo que llega al pedido es el producto mismo, y su precio se cambia en la Carta.
         </p>
       )}
+
+      {esAdmin && !ofreceProductos && <EditorCantidad lista={lista} />}
 
       {esAdmin && <EditorAyuda key={lista.id} lista={lista} />}
 
@@ -320,7 +324,58 @@ function EditorAyuda({ lista }: { lista: ListaDelPanel }) {
   );
 }
 
-/** El precio solo se escribe si lo hay: un sabor de helado vale $0 y el "$0" sería ruido. */
+/**
+ * Marcar una vez o pedir varias veces. Se guarda al tocar, como los demás interruptores del
+ * panel: es reversible y no toca pedidos ya hechos (la cantidad vive en el snapshot, regla 2).
+ *
+ * Lo que se lee del servidor es la verdad: el radio no lleva estado propio, así que tras el
+ * `revalidatePath` muestra lo que quedó guardado y no lo que se tocó.
+ *
+ * Las dos notas de abajo dicen lo que esta pantalla no enseña. El máximo de veces vive en cada
+ * producto (el "hasta" de la Carta), así que encender esto con un "hasta 1" deja un stepper que no
+ * pasa de 1. Y la bandera es de la LISTA, no del producto: si también va como incluida en algún
+ * producto, ahí el cliente podrá repetir una misma opción para completar lo incluido.
+ */
+function EditorCantidad({ lista }: { lista: ListaDelPanel }) {
+  const [pendiente, iniciar] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function cambiar(permiteCantidad: boolean) {
+    if (permiteCantidad === lista.permiteCantidad) return;
+
+    setError(null);
+    iniciar(async () => {
+      const resultado = await cambiarCantidadDeLista({ id: lista.id, permiteCantidad });
+      if (!resultado.ok) setError(resultado.error);
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-1 border-b border-crema-oscura px-3 py-2">
+      <ElegirComoSeElige
+        nombre={`como-se-elige-${lista.id}`}
+        valor={lista.permiteCantidad}
+        onChange={cambiar}
+        deshabilitado={pendiente}
+      />
+
+      {lista.permiteCantidad && (
+        <p className="font-cuerpo text-[13px] text-cafe-tenue">
+          El máximo de veces lo pone el campo <strong>hasta</strong> de cada producto en la
+          Carta. Si la lista también va como incluida en algún producto, el cliente podrá repetir
+          una misma opción para completar lo incluido.
+        </p>
+      )}
+
+      {error && (
+        <p role="alert" className="font-cuerpo text-[13px] font-semibold text-error">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /**
  * El nombre que se lee en la fila.
  *

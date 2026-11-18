@@ -9,6 +9,7 @@ import {
   crearOpcion,
   eliminarOpcion,
   guardarAyudaLista,
+  guardarPermiteCantidad,
   listaDeOpcion,
   listarProductosParaUpsell,
   nombresDeListas,
@@ -68,7 +69,13 @@ const tipoListaSchema = z.enum(["seleccion", "upsell"]).default("seleccion");
 export async function crearListaNueva(entrada: unknown): Promise<ResultadoCreacionOpciones> {
   const sesion = await exigirRol("admin");
 
-  const parsed = z.object({ nombre: nombreSchema, tipo: tipoListaSchema }).safeParse(entrada);
+  const parsed = z
+    .object({
+      nombre: nombreSchema,
+      tipo: tipoListaSchema,
+      permiteCantidad: z.boolean().default(false),
+    })
+    .safeParse(entrada);
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
   }
@@ -78,7 +85,15 @@ export async function crearListaNueva(entrada: unknown): Promise<ResultadoCreaci
     return { ok: false, error: "Ya existe una lista con ese nombre." };
   }
 
-  const { id } = await crearLista(sesion.storeId, parsed.data.nombre, parsed.data.tipo);
+  // Solo en opciones escritas: ver `guardarPermiteCantidad` para por qué un upsell no.
+  const permiteCantidad = parsed.data.tipo === "seleccion" && parsed.data.permiteCantidad;
+
+  const { id } = await crearLista(
+    sesion.storeId,
+    parsed.data.nombre,
+    parsed.data.tipo,
+    permiteCantidad,
+  );
 
   revalidar();
   return { ok: true, id };
@@ -129,6 +144,39 @@ export async function guardarAyudaDeLista(entrada: unknown): Promise<ResultadoOp
 
   const cambiada = await guardarAyudaLista(sesion.storeId, parsed.data.id, parsed.data.ayuda);
   if (!cambiada) return { ok: false, error: "Esa lista ya no existe." };
+
+  revalidar();
+  return { ok: true };
+}
+
+/**
+ * Cómo se elige cada opción de la lista: se marca una vez, o se pide varias veces con +/−.
+ *
+ * Es lo que tienen Salsas y Toppings, y lo que convierte "Agregar 10 churros" en algo que se
+ * pide ×3 y se cobra ×3. El máximo de veces no se fija aquí: lo pone el "hasta" de cada producto
+ * en la Carta, que topa la suma de la sección.
+ *
+ * A un clic y sin confirmación, como los demás interruptores del panel: es reversible y los
+ * pedidos ya hechos guardan su cantidad en el snapshot (regla 2).
+ */
+export async function cambiarCantidadDeLista(entrada: {
+  id: string;
+  permiteCantidad: boolean;
+}): Promise<ResultadoOpciones> {
+  const sesion = await exigirRol("admin");
+
+  const parsed = z.object({ id: idSchema, permiteCantidad: z.boolean() }).safeParse(entrada);
+  if (!parsed.success) return { ok: false, error: "Datos inválidos" };
+
+  const cambiada = await guardarPermiteCantidad(
+    sesion.storeId,
+    parsed.data.id,
+    parsed.data.permiteCantidad,
+  );
+  // El WHERE filtra por tipo, así que una lista de productos también cae aquí.
+  if (!cambiada) {
+    return { ok: false, error: "Esa lista ya no existe o es de productos de la carta." };
+  }
 
   revalidar();
   return { ok: true };
