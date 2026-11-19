@@ -6,6 +6,7 @@ import type { CuponDelPanel } from "@/db/queries/cupones";
 import { normalizarCodigo } from "@/lib/cupones";
 import { pesos } from "@/lib/notificaciones/plantillas";
 import { cambiarActivo, guardar } from "./acciones";
+import { CompartirCupon } from "./CompartirCupon";
 
 /**
  * Los cupones de la tienda: la lista a la izquierda, el que se está editando a la derecha.
@@ -72,6 +73,10 @@ export function EditorCupones({
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
 
+  // El link y el QR salen del cupón GUARDADO, no del borrador: un código cambiado sin guardar
+  // daría un QR impreso que no descuenta.
+  const guardado = borrador?.id ? cupones.find((c) => c.id === borrador.id) : undefined;
+
   function editar(b: Borrador | null) {
     setError(null);
     setAviso(null);
@@ -137,7 +142,8 @@ export function EditorCupones({
 
         {cupones.length === 0 ? (
           <p className="rounded-md border border-crema-oscura bg-tarjeta p-4 font-cuerpo text-[13px] text-cafe-suave">
-            Todavía no hay cupones. Crea uno, pégalo en Instagram y el cliente lo escribe al pagar.
+            Todavía no hay cupones. Crea uno y comparte su link o su QR: quien lo abra llega al pago
+            con el descuento ya puesto. También se puede escribir a mano al pagar.
           </p>
         ) : (
           <ul className="flex flex-col gap-2">
@@ -162,14 +168,17 @@ export function EditorCupones({
             Elige un cupón de la lista para editarlo, o crea uno nuevo.
           </p>
         ) : (
-          <Formulario
+          <>
+            {guardado && <CompartirCupon cupon={guardado} hoy={hoy} />}
+            <Formulario
             borrador={borrador}
             categorias={categorias}
             pendiente={pendiente}
             onCambiar={(cambios) => setBorrador({ ...borrador, ...cambios })}
             onGuardar={enviar}
             onCancelar={() => editar(null)}
-          />
+            />
+          </>
         )}
 
         {error && (
@@ -386,7 +395,7 @@ function Formulario({
                     onChange={() =>
                       onCambiar({ categoriaIds: alternarEn(borrador.categoriaIds, c.id) })
                     }
-                    className="size-4 accent-[var(--naranja)]"
+                    className="size-4 accent-naranja"
                   />
                   {c.nombre}
                 </label>
@@ -406,7 +415,7 @@ function Formulario({
                           onChange={() =>
                             onCambiar({ productoIds: alternarEn(borrador.productoIds, p.id) })
                           }
-                          className="size-4 accent-[var(--naranja)]"
+                          className="size-4 accent-naranja"
                         />
                         {p.nombre}
                       </label>

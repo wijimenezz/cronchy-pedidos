@@ -46,6 +46,20 @@ export function normalizarCodigo(crudo: string): string {
 }
 
 /**
+ * El link que abre la carta con este cupón ya aplicado: `https://…/?cupon=CHURRO10`.
+ *
+ * Es el contrato que lee `CapturarCupon` —el parámetro `cupon`—, y por eso vive aquí y no en el
+ * panel: si algún día cambia el nombre, se cambia en el mismo módulo que lo interpreta. De este
+ * link sale también el QR de `/admin/cupones`.
+ *
+ * `origen` llega del navegador (`window.location.origin`): el panel y la carta viven en el mismo
+ * dominio, así que no hace falta una variable de entorno que alguien olvide poner en Vercel.
+ */
+export function linkDeCupon(origen: string, codigo: string): string {
+  return `${origen.replace(/\/+$/, "")}/?cupon=${encodeURIComponent(normalizarCodigo(codigo))}`;
+}
+
+/**
  * Cuánto descuenta este cupón sobre estos items, o por qué no descuenta nada.
  *
  * Tres cosas que no se pueden cambiar sin romper la caja:
