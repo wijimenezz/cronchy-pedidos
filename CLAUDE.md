@@ -1197,6 +1197,13 @@ del paso 3, el link `?cupon=CHURRO10` y el aviso de la carta. Ese aviso (`cupon.
 cupón y no de `store` a propósito: así **muere con él** en vez de seguir anunciando una promo vencida.
 Un índice único parcial garantiza que solo haya uno anunciado a la vez.
 
+**El link y su QR se sacan desde `/admin/cupones`** (`CompartirCupon`), armados con `linkDeCupon`
+en `lib/cupones.ts` —el mismo módulo que define el `?cupon=` que lee `CapturarCupon`—. Salen del
+cupón **guardado** y no del borrador: un código cambiado sin guardar daría un QR impreso que no
+descuenta. El origen es `window.location.origin` (panel y carta comparten dominio) y el QR va en
+negro sobre blanco a 1024 px, porque los colores de marca bajan la lectura en papel. Un QR ya
+impreso depende de que `?cupon=` no cambie de nombre: hay tests que lo fijan.
+
 Y el detalle que hay que mirar dos veces al tocar el checkout: **el total con descuento se usa en
 cuatro sitios** —el resumen, el «Transfiere este valor» de Nequi, el botón de confirmar y la devuelta
 del efectivo—. Por eso existe `totalAPagar` como una sola constante: olvidar la del `DatoCopiable`
