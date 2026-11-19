@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   aplicarCupon,
+  linkDeCupon,
   mensajeDeRechazo,
   normalizarCodigo,
   type CuponVigente,
@@ -221,5 +222,25 @@ describe("aplicarCupon · redondeo", () => {
     );
 
     expect(resultado.ok && resultado.valor.descuento).toBe(4000);
+  });
+});
+
+// El link del QR de /admin/cupones. Lo que lo lee es `CapturarCupon` (`?cupon=`), así que si estos
+// tests fallan, los QR ya impresos dejarían de descontar.
+describe("linkDeCupon", () => {
+  it("abre la carta con el cupón en el parámetro que lee CapturarCupon", () => {
+    expect(linkDeCupon("https://cronchy.co", "CHURRO10")).toBe("https://cronchy.co/?cupon=CHURRO10");
+  });
+
+  it("no duplica la barra si el origen ya termina en una", () => {
+    expect(linkDeCupon("https://cronchy.co/", "CHURRO10")).toBe("https://cronchy.co/?cupon=CHURRO10");
+  });
+
+  it("normaliza el código como lo hace el checkout", () => {
+    expect(linkDeCupon("https://cronchy.co", "  churro10 ")).toBe("https://cronchy.co/?cupon=CHURRO10");
+  });
+
+  it("codifica lo que no puede ir crudo en una URL", () => {
+    expect(linkDeCupon("https://cronchy.co", "A&B #1")).toBe("https://cronchy.co/?cupon=A%26B%20%231");
   });
 });
